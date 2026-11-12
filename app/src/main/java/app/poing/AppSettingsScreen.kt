@@ -42,6 +42,7 @@ import androidx.compose.ui.unit.dp
 fun AppSettingsScreen(
     store: AppSettingsStore,
     onCoreOptions: () -> Unit,
+    onRaLogin: () -> Unit = {},
     onBack: () -> Unit,
 ) {
     var ffControl by remember { mutableStateOf(store.ffControlVisible()) }
@@ -185,6 +186,35 @@ fun AppSettingsScreen(
                     },
                     modifier = Modifier.testTag("haptics-switch"),
                 )
+            }
+        }
+        item {
+            Text(
+                "RetroAchievements",
+                style = displayTextStyle(DisplaySizeMedium),
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+            )
+        }
+        item {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        RaClient.status.ifEmpty { "Not logged in." },
+                        style = MaterialTheme.typography.titleMedium,
+                    )
+                    Text(
+                        "Achievements, leaderboards and rich presence for the game you are playing. Your RetroAchievements account — nothing else is synced.",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
+                Button(onClick = onRaLogin) {
+                    Text(if (RaClient.loggedIn) "Account" else "Log in")
+                }
             }
         }
         item {

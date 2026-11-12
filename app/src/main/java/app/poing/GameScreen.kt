@@ -86,6 +86,10 @@ fun GameScreen(
     var paused by remember { mutableStateOf(false) }
     var showSettings by remember { mutableStateOf(false) }
     var showCheats by remember { mutableStateOf(false) }
+    // Phase 6 (item 8c) — the RetroAchievements screens over the
+    // paused game, like the cheats screen.
+    var showAchievements by remember { mutableStateOf(false) }
+    var showLeaderboards by remember { mutableStateOf(false) }
     var pauseMessage by remember { mutableStateOf<String?>(null) }
     val held = remember { HeldInput() }
 
@@ -291,6 +295,10 @@ fun GameScreen(
             if (inputDisplayVisible) {
                 InputDisplay(mask = displayedMask, isGba = isGba)
             }
+            // RetroAchievements (Phase 6, item 8c): the live
+            // attempt tracker, under the top bar while an attempt
+            // runs. Hidden while paused.
+            RaTrackerLine(paused = paused)
             // Game view, letterboxed at the native aspect, in the
             // icon's screen: a thin silver bezel + dark surround.
             // The game IS the screen — no whole handheld drawn
@@ -320,6 +328,20 @@ fun GameScreen(
                             modifier = Modifier.fillMaxSize(),
                             contentScale = ContentScale.Fit,
                         )
+                        // RetroAchievements (Phase 6, item 8c):
+                        // the unlock popup and the scoreboard
+                        // note, gold chips over the game area,
+                        // hidden while paused, each cleared
+                        // four seconds after it arrives.
+                        Box(
+                            modifier = Modifier.fillMaxSize(),
+                            contentAlignment = Alignment.TopCenter,
+                        ) {
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                RaUnlockPopup(paused = paused)
+                                RaScoreboardNote(paused = paused)
+                            }
+                        }
                     }
                 } else {
                     Text("Loading $gameName…", color = Color.White)
@@ -449,7 +471,7 @@ fun GameScreen(
         // Pause overlay: the Pocket screen dimmed — the game stays
         // visible behind the dim, and the menu is an Atomic panel
         // (see PauseMenu).
-        if (paused && !showSettings && !showCheats && !editingLayout) {
+        if (paused && !showSettings && !showCheats && !showAchievements && !showLeaderboards && !editingLayout) {
             Box(
                 modifier = Modifier
                     .fillMaxSize()
@@ -465,6 +487,8 @@ fun GameScreen(
                     onQuit = onQuit,
                     onCoreOptions = { showSettings = true },
                     onCheats = { showCheats = true },
+                    onAchievements = { showAchievements = true },
+                    onLeaderboards = { showLeaderboards = true },
                     onMoveControls = { editingLayout = true },
                 )
             }
@@ -501,6 +525,33 @@ fun GameScreen(
                     store = remember { CheatStore(context.filesDir.resolve("cheats").apply { mkdirs() }) },
                     session = session,
                     onBack = { showCheats = false },
+                )
+            }
+        }
+        // RetroAchievements (Phase 6, item 8c) over the paused
+        // game: the achievements list and the leaderboards, same
+        // full-screen treatment as the cheats screen.
+        if (showAchievements) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.Black),
+            ) {
+                RaAchievementsScreen(
+                    gameName = gameName,
+                    onBack = { showAchievements = false },
+                )
+            }
+        }
+        if (showLeaderboards) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.Black),
+            ) {
+                RaLeaderboardsScreen(
+                    gameName = gameName,
+                    onBack = { showLeaderboards = false },
                 )
             }
         }

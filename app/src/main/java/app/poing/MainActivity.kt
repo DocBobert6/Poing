@@ -69,6 +69,9 @@ private sealed interface Screen {
     data object Licences : Screen
     data object Settings : Screen
     data object CoreOptions : Screen
+    // Phase 6 (item 8c) — the RetroAchievements login screen,
+    // reached from Settings.
+    data object RaLogin : Screen
     data class Player(val game: LibraryGame, val loadState: Int? = null, val loadAuto: Boolean = false) : Screen
     data class SaveManager(val game: LibraryGame) : Screen
 }
@@ -126,7 +129,12 @@ fun PoingHome() {
         is Screen.Settings -> AppSettingsScreen(
             store = settingsStore,
             onCoreOptions = { screen = Screen.CoreOptions },
+            onRaLogin = { screen = Screen.RaLogin },
             onBack = { screen = Screen.Library },
+        )
+        is Screen.RaLogin -> RaLoginScreen(
+            session = remember { RaSessionStore(context.filesDir) },
+            onBack = { screen = Screen.Settings },
         )
         is Screen.CoreOptions -> CoreOptionsScreen(
             store = optionsStore,

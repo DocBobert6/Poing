@@ -53,6 +53,8 @@ fun PauseMenu(
     onQuit: () -> Unit,
     onCoreOptions: () -> Unit,
     onCheats: () -> Unit = {},
+    onAchievements: () -> Unit = {},
+    onLeaderboards: () -> Unit = {},
     onMoveControls: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
@@ -200,6 +202,15 @@ fun PauseMenu(
                 }
                 Button(onClick = onCheats) {
                     Text("Cheats")
+                }
+            }
+            Spacer(Modifier.height(12.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(onClick = onAchievements) {
+                    Text("Achievements")
+                }
+                Button(onClick = onLeaderboards) {
+                    Text("Leaderboards")
                 }
             }
             Spacer(Modifier.height(12.dp))
