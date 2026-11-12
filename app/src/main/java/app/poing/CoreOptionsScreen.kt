@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.selection.selectable
@@ -64,7 +65,11 @@ fun CoreOptionsScreen(
             .background(PoingPurpleDeep.copy(alpha = 0.45f)),
     ) {
         item {
-            Column(modifier = Modifier.padding(24.dp)) {
+            // statusBarsPadding: the app draws edge-to-edge, so
+            // without this the "Core options" header sits in the
+            // status-bar band. Same class of fault as the
+            // power-light fix.
+            Column(modifier = Modifier.statusBarsPadding().padding(24.dp)) {
                 Text("Core options", style = displayTextStyle(DisplaySizeLarge))
                 Spacer(Modifier.height(8.dp))
                 Text(
