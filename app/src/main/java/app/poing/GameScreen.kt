@@ -511,6 +511,9 @@ fun GameScreen(
                 stats = stats,
                 gameName = gameName,
                 paused = paused,
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth(),
             )
             // Fast-forward / slow motion (Phase 6, item 1) and
             // rewind (Phase 6, item 9): shown only when their

@@ -49,11 +49,13 @@ fun GameDisplayView(
     stats: PlayerStats?,
     gameName: String,
     paused: Boolean,
+    // The layout weight lives in the caller's Column (a
+    // ColumnScope modifier cannot be built inside this
+    // composable, so it arrives as a plain modifier).
+    modifier: Modifier = Modifier,
 ) {
     Box(
-        modifier = Modifier
-            .weight(1f)
-            .fillMaxWidth(),
+        modifier = modifier,
         contentAlignment = Alignment.Center,
     ) {
         val frame = bitmap
