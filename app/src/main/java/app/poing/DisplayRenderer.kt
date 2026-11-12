@@ -77,16 +77,17 @@ class DisplayRenderer : GLSurfaceView.Renderer {
 
     /**
      * Apply a chain. A chain this build does not know yet
-     * (Prism / Dusk before their commits) runs clean rather
-     * than drawing a wrong look — the mapping in
-     * DisplayChain.forSystem never returns them yet, and this
+     * (Dusk before its commit) runs clean rather than
+     * drawing a wrong look — the mapping in
+     * DisplayChain.forSystem never returns it yet, and this
      * is the backstop.
      */
     fun setChain(chain: DisplayChain, jadeMode: JadeMode) {
         this.chain = when (chain) {
             DisplayChain.JADE -> DisplayChain.JADE
+            DisplayChain.PRISM -> DisplayChain.PRISM
             DisplayChain.CLEAN -> DisplayChain.CLEAN
-            DisplayChain.PRISM, DisplayChain.DUSK -> DisplayChain.CLEAN
+            DisplayChain.DUSK -> DisplayChain.CLEAN
         }
         this.jadeMode = jadeMode
     }
@@ -167,9 +168,16 @@ class DisplayRenderer : GLSurfaceView.Renderer {
         GLES20.glUseProgram(colourProgram)
         GLES20.glUniform1f(uniform(colourProgram, "uFlipV"), 0f)
         GLES20.glUniform1i(uniform(colourProgram, "uTex"), 0)
+        // Colour mode: 0 = Jade FSTN, 1 = Jade pass-through,
+        // 2 = Prism. The grid mode follows the chain: the
+        // dot-matrix is Jade's, the TFT lines are Prism's.
         GLES20.glUniform1i(
             uniform(colourProgram, "uMode"),
-            if (jadeMode == JadeMode.FSTN) 0 else 1,
+            when (chain) {
+                DisplayChain.JADE -> if (jadeMode == JadeMode.FSTN) 0 else 1
+                DisplayChain.PRISM -> 2
+                else -> 1
+            },
         )
         GLES20.glActiveTexture(GLES20.GL_TEXTURE0)
         GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, frameTextureId)
@@ -185,6 +193,10 @@ class DisplayRenderer : GLSurfaceView.Renderer {
             uniform(gridProgram, "uTexSize"),
             frameW.toFloat(),
             frameH.toFloat(),
+        )
+        GLES20.glUniform1i(
+            uniform(gridProgram, "uGridMode"),
+            if (chain == DisplayChain.PRISM) 1 else 0,
         )
         GLES20.glUniform1f(uniform(gridProgram, "uGridStrength"), GRID_STRENGTH)
         GLES20.glActiveTexture(GLES20.GL_TEXTURE0)
@@ -352,7 +364,7 @@ class DisplayRenderer : GLSurfaceView.Renderer {
     companion object {
         private const val TAG = "PoingDisplay"
 
-        /** The dot-matrix grid's strength: the dots read, never shout. */
+        /** The grid's strength: the dots and the lines read, never shout. */
         private const val GRID_STRENGTH = 0.22f
     }
 }

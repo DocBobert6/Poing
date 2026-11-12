@@ -22,8 +22,8 @@ package app.poing
  * one, so the game stays visible.
  *
  * uMode in the colour pass: 0 = Jade FSTN, 1 = Jade
- * pass-through (the palette as the core rendered it). Prism
- * and Dusk add their own modes in their commits.
+ * pass-through (the palette as the core rendered it),
+ * 2 = Prism. Dusk adds its own mode in its commit.
  */
 object DisplayShaders {
 
@@ -56,8 +56,13 @@ object DisplayShaders {
      * shades of the core's greyscale palette land on it
      * exactly. Jade pass-through: the frame untouched, for
      * the DMG green and the coloured GBC/SGB palettes.
-     * Any mode this build does not know yet falls through to
-     * pass-through, never to a wrong look.
+     * Prism: the Game Boy Color's reflective TFT, 1998 — the
+     * core's colour correction done in the chain (the core's
+     * own correction is switched off while the chain is on,
+     * so a game is never corrected twice), plus a lift for a
+     * reflective screen in daylight. Any mode this build
+     * does not know yet falls through to pass-through, never
+     * to a wrong look.
      */
     const val COLOUR_FRAGMENT = """
         precision mediump float;
@@ -71,6 +76,14 @@ object DisplayShaders {
             vec3 dark = vec3(0.05, 0.07, 0.10);
             vec3 light = vec3(0.85, 0.89, 0.93);
             col = mix(dark, light, luma);
+          } else if (uMode == 2) {
+            vec3 c = pow(col, vec3(1.7));
+            vec3 m;
+            m.r = (0.82 * c.r + 0.125 * c.g + 0.195 * c.b) * 0.94;
+            m.g = (0.24 * c.r + 0.665 * c.g + 0.075 * c.b) * 0.94;
+            m.b = (-0.06 * c.r + 0.21 * c.g + 0.73 * c.b) * 0.94;
+            col = pow(max(m, vec3(0.0)), vec3(1.0 / 2.2));
+            col = min(col * 1.08, vec3(1.0));
           }
           gl_FragColor = vec4(col, 1.0);
         }
@@ -79,20 +92,30 @@ object DisplayShaders {
     /**
      * Pass 2 — grid. Jade's dot-matrix: each native pixel is
      * a dot, darker toward its edges, so the Pocket's screen
-     * reads as dots, not squares. The strength is the only
-     * dial, and it stays subtle — the dots must read, never
-     * shout. The TFT grid (Prism / Dusk) lands with Prism.
+     * reads as dots, not squares. Prism's TFT grid: the
+     * reflective TFT's cell borders — fine dark lines where
+     * one native texel meets the next, never dots. The
+     * strength is the only dial, and it stays subtle — the
+     * grid must read, never shout. uGridMode picks which:
+     * 0 = dot-matrix, 1 = TFT lines.
      */
     const val GRID_FRAGMENT = """
         precision mediump float;
         varying vec2 vTex;
         uniform sampler2D uTex;
         uniform vec2 uTexSize;
+        uniform int uGridMode;
         uniform float uGridStrength;
         void main() {
           vec3 col = texture2D(uTex, vTex).rgb;
           vec2 cell = fract(vTex * uTexSize);
-          float g = smoothstep(0.5, 0.35, distance(cell, vec2(0.5)));
+          float g;
+          if (uGridMode == 1) {
+            vec2 d = min(cell, 1.0 - cell);
+            g = smoothstep(0.0, 0.08, min(d.x, d.y));
+          } else {
+            g = smoothstep(0.5, 0.35, distance(cell, vec2(0.5)));
+          }
           col *= 1.0 - uGridStrength * (1.0 - g);
           gl_FragColor = vec4(col, 1.0);
         }

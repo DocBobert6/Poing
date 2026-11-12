@@ -13,10 +13,10 @@ class DisplayChainTest {
     }
 
     @Test
-    fun gbcAndGbaRunCleanUntilTheirChainsLand() {
-        // Prism / Dusk land in their own commits — never a
-        // half-built chain.
-        assertEquals(DisplayChain.CLEAN, DisplayChain.forSystem(GameSystem.GBC))
+    fun gbcRunsPrismAndGbaRunsCleanUntilDuskLands() {
+        // Dusk lands in its own commit — never a half-built
+        // chain.
+        assertEquals(DisplayChain.PRISM, DisplayChain.forSystem(GameSystem.GBC))
         assertEquals(DisplayChain.CLEAN, DisplayChain.forSystem(GameSystem.GBA))
     }
 
@@ -42,6 +42,11 @@ class DisplayChainTest {
         assertEquals("OFF", effective["mgba_color_correction"])
         // Everything else passes through untouched.
         assertEquals("Autodetect", effective["mgba_gb_model"])
+        // Prism owns the colour too, so the same rule holds.
+        assertEquals(
+            "OFF",
+            DisplayChain.effectiveCoreOptions(options, DisplayChain.PRISM)["mgba_color_correction"],
+        )
     }
 
     @Test

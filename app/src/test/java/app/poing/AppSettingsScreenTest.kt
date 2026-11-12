@@ -173,4 +173,23 @@ class AppSettingsScreenTest {
         composeRule.onNodeWithText("DMG Green").performScrollTo().performClick()
         assertEquals("DMG Green", options.get("mgba_gb_colors"))
     }
+
+    @Test
+    fun prismOnByDefaultAndTogglingPersists() {
+        val s = store()
+        composeRule.setContent {
+            PoingTheme {
+                AppSettingsScreen(store = s, onCoreOptions = {}, onBack = { })
+            }
+        }
+        // The Prism row is index 10 here (no options store,
+        // so no palette row: header, Player, fast-forward,
+        // input display, haptics, RA title, RA, rewind,
+        // Display title, Jade, Prism).
+        composeRule.onNodeWithTag("settings-list").performScrollToIndex(10)
+        composeRule.onNodeWithText("Prism").assertIsDisplayed()
+        assertTrue(AppSettingsStore(temp.root).prismEnabled())
+        composeRule.onNodeWithTag("prism-chain-switch").performClick()
+        assertFalse(AppSettingsStore(temp.root).prismEnabled())
+    }
 }

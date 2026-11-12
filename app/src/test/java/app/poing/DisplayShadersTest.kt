@@ -42,11 +42,36 @@ class DisplayShadersTest {
     }
 
     @Test
+    fun colourPassHasThePrismMode() {
+        val src = DisplayShaders.COLOUR_FRAGMENT
+        // Prism is mode 2: gamma-expand, colour-correct,
+        // gamma-compress, then a lift for a reflective
+        // screen in daylight.
+        assertTrue(src.contains("uMode == 2"))
+        assertTrue(src.contains("pow(col, vec3(1.7))"))
+        assertTrue(src.contains("pow(max(m, vec3(0.0)), vec3(1.0 / 2.2))"))
+        assertTrue(src.contains("col * 1.08"))
+    }
+
+    @Test
+    fun gridPassHasTheTftMode() {
+        val src = DisplayShaders.GRID_FRAGMENT
+        assertTrue(src.contains("uGridMode"))
+        // TFT lines: dark where one native texel meets the
+        // next, not dots.
+        assertTrue(src.contains("uGridMode == 1"))
+        assertTrue(src.contains("min(cell, 1.0 - cell)"))
+        // And the dot-matrix mode is still there for Jade.
+        assertTrue(src.contains("distance(cell, vec2(0.5))"))
+    }
+
+    @Test
     fun plainFallbackIsABareSample() {
         val src = DisplayShaders.PLAIN_FRAGMENT
         assertTrue(src.contains("texture2D(uTex, vTex)"))
         assertFalse(src.contains("uMode"))
         assertFalse(src.contains("uGridStrength"))
+        assertFalse(src.contains("uGridMode"))
     }
 
     @Test

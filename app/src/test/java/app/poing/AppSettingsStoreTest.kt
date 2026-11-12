@@ -119,4 +119,24 @@ class AppSettingsStoreTest {
         // Clean is never gated by a toggle.
         assertTrue(s.chainEnabled(DisplayChain.CLEAN))
     }
+
+    @Test
+    fun prismDefaultsOnAndRoundTrips() {
+        // Each chain is the default look for its system.
+        val s = store()
+        assertTrue(s.prismEnabled())
+        s.setPrismEnabled(false)
+        assertFalse(s.prismEnabled())
+        assertFalse(AppSettingsStore(temp.root).prismEnabled())
+        s.setPrismEnabled(true)
+        assertTrue(s.prismEnabled())
+    }
+
+    @Test
+    fun chainEnabledFollowsThePrismToggle() {
+        val s = store()
+        assertTrue(s.chainEnabled(DisplayChain.PRISM))
+        s.setPrismEnabled(false)
+        assertFalse(s.chainEnabled(DisplayChain.PRISM))
+    }
 }

@@ -65,6 +65,9 @@ fun AppSettingsScreen(
         mutableStateOf(optionsStore?.get("mgba_gb_colors") ?: CoreOptions.GB_PALETTES.first())
     }
     var pickingPalette by remember { mutableStateOf(false) }
+    // Phase 8 — Prism, the Game Boy Color display chain,
+    // same rule as Jade.
+    var prism by remember { mutableStateOf(store.prismEnabled()) }
 
     LazyColumn(
         modifier = Modifier
@@ -321,6 +324,33 @@ fun AppSettingsScreen(
             }
         }
         item {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        "Prism",
+                        style = MaterialTheme.typography.titleMedium,
+                    )
+                    Text(
+                        "The Game Boy Color display chain. On by default; off shows the game exactly as the core renders it.",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
+                Switch(
+                    checked = prism,
+                    onCheckedChange = {
+                        store.setPrismEnabled(it)
+                        prism = it
+                    },
+                    modifier = Modifier.testTag("prism-chain-switch"),
+                )
+            }
+        }
+        item {
             Row(modifier = Modifier.padding(16.dp)) {
                 TextButton(onClick = {
                     store.reset()
@@ -330,6 +360,7 @@ fun AppSettingsScreen(
                     haptics = store.hapticsEnabled()
                     rewindControl = store.rewindControlVisible()
                     jade = store.jadeEnabled()
+                    prism = store.prismEnabled()
                     palette = optionsStore?.get("mgba_gb_colors")
                         ?: CoreOptions.GB_PALETTES.first()
                 }) {
