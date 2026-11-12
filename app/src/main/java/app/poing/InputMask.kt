@@ -8,8 +8,8 @@ package app.poing
  * mGBA's input descriptors (src/platform/libretro/libretro.c) map
  * the handheld buttons onto joypad buttons: A -> joypad A, B ->
  * joypad B, Start -> Start, Select -> Select, L -> L, R -> R.
- * (X/Y are Turbo A/B, R2/L2 Turbo R/L, R3/L3 the solar sensor —
- * not wired in the spike.)
+ * (X/Y are Turbo A/B, R2/L2 Turbo R/L — wired in Phase 4 for
+ * standard gamepads; R3/L3 the solar sensor — not wired.)
  *
  * Pure Kotlin, no Android dependencies, so it is unit-tested on the
  * JVM (InputMaskTest).
@@ -28,6 +28,8 @@ object InputMask {
     const val JOY_X = 9
     const val JOY_L = 10
     const val JOY_R = 11
+    const val JOY_L2 = 14
+    const val JOY_R2 = 15
 
     /** Build the player-1 mask from the currently held inputs. */
     fun build(
@@ -41,6 +43,8 @@ object InputMask {
         select: Boolean = false,
         l: Boolean = false,
         r: Boolean = false,
+        l2: Boolean = false,
+        r2: Boolean = false,
     ): Int {
         var mask = 0
         if (up) mask = mask or (1 shl JOY_UP)
@@ -53,6 +57,8 @@ object InputMask {
         if (select) mask = mask or (1 shl JOY_SELECT)
         if (l) mask = mask or (1 shl JOY_L)
         if (r) mask = mask or (1 shl JOY_R)
+        if (l2) mask = mask or (1 shl JOY_L2)
+        if (r2) mask = mask or (1 shl JOY_R2)
         return mask
     }
 }

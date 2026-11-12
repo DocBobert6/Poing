@@ -91,6 +91,25 @@ fun GameScreen(
         )
     }
 
+    // The input the core sees is the touch mask OR the gamepad mask.
+    // Either side changing re-pushes the merged mask.
+    fun pushInput() {
+        session.setInput(held.mask or GamepadInput.state.mask)
+    }
+
+    // Gamepad input lives only while the player is showing: the
+    // activity's dispatch methods forward pad events to GamepadInput,
+    // which calls back here to re-push the merged mask.
+    DisposableEffect(Unit) {
+        GamepadInput.onMaskChanged = { pushInput() }
+        GamepadInput.enabled = true
+        onDispose {
+            GamepadInput.onMaskChanged = null
+            GamepadInput.enabled = false
+            GamepadInput.state.clear()
+        }
+    }
+
     DisposableEffect(gamePath) {
         session.start()
         onDispose { session.stop() }
@@ -171,8 +190,8 @@ fun GameScreen(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceEvenly,
                 ) {
-                    HoldButton("L", InputMask.JOY_L, held, session)
-                    HoldButton("R", InputMask.JOY_R, held, session)
+                    HoldButton("L", InputMask.JOY_L, held, ::pushInput)
+                    HoldButton("R", InputMask.JOY_R, held, ::pushInput)
                 }
             }
             // Controls row: D-pad left, Start/Select centre, A/B right.
@@ -183,16 +202,16 @@ fun GameScreen(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                DpadControl(held, session)
+                DpadControl(held, ::pushInput)
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    HoldButton("Start", InputMask.JOY_START, held, session)
+                    HoldButton("Start", InputMask.JOY_START, held, ::pushInput)
                     Spacer(Modifier.height(8.dp))
-                    HoldButton("Select", InputMask.JOY_SELECT, held, session)
+                    HoldButton("Select", InputMask.JOY_SELECT, held, ::pushInput)
                 }
                 Row {
-                    HoldButton("B", InputMask.JOY_B, held, session)
+                    HoldButton("B", InputMask.JOY_B, held, ::pushInput)
                     Spacer(Modifier.width(12.dp))
-                    HoldButton("A", InputMask.JOY_A, held, session)
+                    HoldButton("A", InputMask.JOY_A, held, ::pushInput)
                 }
             }
         }
@@ -261,7 +280,7 @@ private fun HoldButton(
     label: String,
     bit: Int,
     held: HeldInput,
-    session: PlayerSession,
+    onInputChanged: () -> Unit,
 ) {
     var pressed by remember { mutableStateOf(false) }
     Box(
@@ -273,14 +292,16 @@ private fun HoldButton(
                 awaitEachGesture {
                     awaitFirstDown()
                     pressed = true
-                    session.setInput(held.setBit(bit, true))
+                    held.setBit(bit, true)
+                    onInputChanged()
                     var stillDown = true
                     while (stillDown) {
                         val event = awaitPointerEvent()
                         stillDown = event.changes.any { it.pressed }
                     }
                     pressed = false
-                    session.setInput(held.setBit(bit, false))
+                    held.setBit(bit, false)
+                    onInputChanged()
                 }
             },
         contentAlignment = Alignment.Center,
@@ -295,7 +316,7 @@ private fun HoldButton(
  * the pad works — a second thumb's direction adds to the first's.
  */
 @Composable
-private fun DpadControl(held: HeldInput, session: PlayerSession) {
+private fun DpadControl(held: HeldInput, onInputChanged: () -> Unit) {
     var sizePx by remember { mutableStateOf(0f) }
     Box(
         modifier = Modifier
@@ -318,7 +339,8 @@ private fun DpadControl(held: HeldInput, session: PlayerSession) {
                         val dirs = active.values.fold(0) { acc, pos ->
                             acc or DpadInput.directionFromPress(pos.x, pos.y, sizePx)
                         }
-                        session.setInput(held.setDirections(dirs))
+                        held.setDirections(dirs)
+                        onInputChanged()
                         if (active.isEmpty()) break
                     }
                 }

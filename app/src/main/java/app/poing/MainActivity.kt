@@ -1,6 +1,8 @@
 package app.poing
 
 import android.os.Bundle
+import android.view.KeyEvent
+import android.view.MotionEvent
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.runtime.Composable
@@ -32,6 +34,20 @@ class MainActivity : ComponentActivity() {
                 PoingHome()
             }
         }
+    }
+
+    // Phase 4 — gamepad input. The pad only ever drives the game:
+    // GamepadInput consumes mapped buttons/stick moves only while
+    // the player screen has enabled it, so keys on the library
+    // screen (and Back everywhere) still behave normally.
+    override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        if (GamepadInput.handleKeyEvent(event)) return true
+        return super.dispatchKeyEvent(event)
+    }
+
+    override fun dispatchGenericMotionEvent(event: MotionEvent): Boolean {
+        if (GamepadInput.handleMotionEvent(event)) return true
+        return super.dispatchGenericMotionEvent(event)
     }
 }
 

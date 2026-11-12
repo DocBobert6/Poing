@@ -38,7 +38,7 @@ class InputMaskTest {
     @Test
     fun joypadIdsMatchLibretro() {
         // libretro.h: B=0, Y=1, SELECT=2, START=3, UP=4, DOWN=5,
-        // LEFT=6, RIGHT=7, A=8, X=9, L=10, R=11.
+        // LEFT=6, RIGHT=7, A=8, X=9, L=10, R=11, L2=14, R2=15.
         assertEquals(0, InputMask.JOY_B)
         assertEquals(2, InputMask.JOY_SELECT)
         assertEquals(3, InputMask.JOY_START)
@@ -46,5 +46,9 @@ class InputMaskTest {
         assertEquals(8, InputMask.JOY_A)
         assertEquals(10, InputMask.JOY_L)
         assertEquals(11, InputMask.JOY_R)
+        assertEquals(14, InputMask.JOY_L2)
+        assertEquals(15, InputMask.JOY_R2)
+        assertEquals(1 shl InputMask.JOY_L2, InputMask.build(l2 = true))
+        assertEquals(1 shl InputMask.JOY_R2, InputMask.build(r2 = true))
     }
 }
