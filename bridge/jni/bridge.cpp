@@ -283,6 +283,7 @@ static jmethodID g_ra_leaderboard_event_method = NULL;
 static jmethodID g_ra_leaderboard_entries_result_method = NULL;
 static jmethodID g_ra_login_result_method = NULL;
 static jmethodID g_ra_load_game_result_method = NULL;
+static jmethodID g_ra_rumble_method = NULL;
 
 static JNIEnv *ra_get_env() {
     JNIEnv *env = NULL;
@@ -395,6 +396,25 @@ static void bridge_ra_login_result(int result, const char *error_message, void *
 static void bridge_ra_load_game_result(int result, const char *error_message, void *ctx) {
     (void)ctx;
     ra_call_result(g_ra_load_game_result_method, result, error_message);
+}
+
+// Phase 6 (item 10b) — rumble: the core calls this whenever the
+// rumble level changes (both motors get the same level —
+// _setRumble in the pinned tree). The level is forwarded to
+// Kotlin (Bridge.onRumble) as-is; Kotlin takes the latest
+// strength and runs the motor while it is above zero. The call
+// comes from the emu thread; ra_get_env attaches it. When the
+// JVM side is not set up (RA init never ran), the rumble is
+// dropped and the core is told so.
+static bool bridge_rumble_set_state(unsigned port, enum retro_rumble_effect effect, uint16_t strength) {
+    JNIEnv *env;
+    (void)port;
+    (void)effect;
+    env = ra_get_env();
+    if (!env || !g_ra_bridge || !g_ra_rumble_method)
+        return false;
+    env->CallVoidMethod(g_ra_bridge, g_ra_rumble_method, (jint)strength);
+    return true;
 }
 
 static bool bridge_environ(unsigned cmd, void *data) {
@@ -520,11 +540,22 @@ static bool bridge_environ(unsigned cmd, void *data) {
             iface->get_sensor_input = sensor_get_input;
             return true;
         }
-        case RETRO_ENVIRONMENT_GET_RUMBLE_INTERFACE:
+        case RETRO_ENVIRONMENT_GET_RUMBLE_INTERFACE: {
+            // Phase 6 (item 10b) — rumble: the core calls the
+            // callback whenever the rumble level changes (see
+            // bridge_rumble_set_state). The level is forwarded to
+            // Kotlin, which runs the phone's vibrator while it is
+            // above zero.
+            struct retro_rumble_interface *iface = (struct retro_rumble_interface *)data;
+            if (!iface)
+                return false;
+            iface->set_rumble_state = bridge_rumble_set_state;
+            return true;
+        }
         case RETRO_ENVIRONMENT_GET_CAMERA_INTERFACE:
         case RETRO_ENVIRONMENT_GET_VFS_INTERFACE:
-            // Not supported yet: rumble is Phase 6 item 10b, the
-            // camera item 10c; plain stdio file I/O until then.
+            // Not supported yet: the camera is Phase 6 item 10c;
+            // plain stdio file I/O until then.
             return false;
         default:
             return false;
@@ -1113,11 +1144,12 @@ Java_app_poing_Bridge_nativeRaInit(JNIEnv *env, jobject thiz) {
         g_ra_leaderboard_entries_result_method = env->GetMethodID(bridge_class, "raLeaderboardEntriesResult", "(ZLjava/lang/String;Ljava/lang/String;)V");
         g_ra_login_result_method = env->GetMethodID(bridge_class, "raLoginResult", "(ZLjava/lang/String;)V");
         g_ra_load_game_result_method = env->GetMethodID(bridge_class, "raLoadGameResult", "(ZLjava/lang/String;)V");
+        g_ra_rumble_method = env->GetMethodID(bridge_class, "onRumble", "(I)V");
         env->DeleteLocalRef(bridge_class);
         if (!g_ra_http_request_method || !g_ra_event_unlocked_method ||
             !g_ra_leaderboard_event_method || !g_ra_leaderboard_entries_result_method ||
-            !g_ra_login_result_method || !g_ra_load_game_result_method) {
-            LOGE("nativeRaInit: a Kotlin RA callback is missing");
+            !g_ra_login_result_method || !g_ra_load_game_result_method || !g_ra_rumble_method) {
+            LOGE("nativeRaInit: a Kotlin callback is missing (RA or rumble)");
             return JNI_FALSE;
         }
     }

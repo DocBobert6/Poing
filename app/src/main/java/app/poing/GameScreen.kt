@@ -264,13 +264,28 @@ fun GameScreen(
     // lifecycle effect below can start and stop it.
     val cartridgeSensors = remember { CartridgeSensors(context) }
 
+    // Phase 6 (item 10b) — cartridge rumble: the phone's
+    // vibrator, driven by the core while a game is playing.
+    // Built here so the session lifecycle effect below can wire
+    // it to the bridge callback and stop it on dispose.
+    val cartridgeRumble = remember {
+        CartridgeRumble(context.getSystemService(Vibrator::class.java))
+    }
+
     DisposableEffect(gamePath) {
         session.start()
         // Phase 6 (item 10a) — the cartridge sensors: the phone's
         // motion/light sensors feed the core while a game is
         // playing (started and stopped with the session).
         cartridgeSensors.start()
+        // Phase 6 (item 10b) — the rumble handler lives only
+        // while a game is playing: the core can only rumble
+        // while a game is loaded, and the handler goes away
+        // with the game.
+        Bridge.onRumbleHandler = { strength -> cartridgeRumble.setStrength(strength) }
         onDispose {
+            Bridge.onRumbleHandler = null
+            cartridgeRumble.stop()
             cartridgeSensors.stop()
             session.stop()
         }
@@ -500,7 +515,15 @@ fun GameScreen(
                     onMove = { layout = layout.with(ControlGroup.DPAD, it) },
                     onMoveEnd = { layoutStore.save(saveBase, latestLayout) },
                 ) {
-                    DpadControl(held, paused, ::pushInput, onDirectionChange = { hapticsImpl.click() })
+                    DpadControl(held, paused, ::pushInput, onDirectionChange = {
+                        // Phase 6 (item 10b): a click is a fresh
+                        // vibrate, which would kill a running
+                        // rumble waveform — the game's rumble wins
+                        // while it is active, so the click is
+                        // skipped then (the motor is already
+                        // vibrating).
+                        if (cartridgeRumble.currentStrength == 0) hapticsImpl.click()
+                    })
                 }
                 MovableControl(
                     position = layout.startSelect,
@@ -523,9 +546,13 @@ fun GameScreen(
                     onMoveEnd = { layoutStore.save(saveBase, latestLayout) },
                 ) {
                     Row {
-                        HoldButton("B", InputMask.JOY_B, held, paused, ::pushInput, onDown = { hapticsImpl.click() })
+                        HoldButton("B", InputMask.JOY_B, held, paused, ::pushInput, onDown = {
+                            if (cartridgeRumble.currentStrength == 0) hapticsImpl.click()
+                        })
                         Spacer(Modifier.width(12.dp))
-                        HoldButton("A", InputMask.JOY_A, held, paused, ::pushInput, onDown = { hapticsImpl.click() })
+                        HoldButton("A", InputMask.JOY_A, held, paused, ::pushInput, onDown = {
+                            if (cartridgeRumble.currentStrength == 0) hapticsImpl.click()
+                        })
                     }
                 }
             }

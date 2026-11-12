@@ -169,4 +169,18 @@ object Bridge {
     fun raLoadGameResult(success: Boolean, error: String?) {
         raLoadGameResultHandler?.invoke(success, error)
     }
+
+    /**
+     * Phase 6 (item 10b) — rumble: the core calls this (through
+     * the native rumble callback) whenever the rumble level
+     * changes. The handler is set by [CartridgeRumble]'s owner
+     * while a game is playing; with no handler set the level is
+     * dropped. The strength is 0..0xFFFF (0 = off).
+     */
+    var onRumbleHandler: ((strength: Int) -> Unit)? = null
+
+    /** A rumble level change from the core. */
+    fun onRumble(strength: Int) {
+        onRumbleHandler?.invoke(strength)
+    }
 }
