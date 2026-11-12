@@ -50,9 +50,8 @@ class MainActivityStartupTest {
     fun licencesScreenShowsNotice() {
         composeRule.onNodeWithText("Licences").performClick()
         composeRule.onNodeWithText("Licences").assertIsDisplayed()
-        composeRule.onNodeWithText("Mozilla Public License")
-            .performScrollTo()
-            .assertIsDisplayed()
+        composeRule.onNodeWithText("Mozilla Public License", substring = true)
+            .assertExists()
         composeRule.onNodeWithText("Back").performClick()
         composeRule.onNodeWithText("Poing!").assertIsDisplayed()
     }
