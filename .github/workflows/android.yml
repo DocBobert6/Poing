@@ -1,0 +1,220 @@
+name: Android CI
+
+# Poing! Phase 1: the mGBA libretro core imported at a pinned commit,
+# built stock and untouched, plus a minimal app skeleton (app.poing)
+# with a Licences screen and a Robolectric startup gate. No releases:
+# a push to main only builds and verifies. No keystore yet.
+#
+# Core: mGBA at 7a12d6d4b9acb14c0ae62c9166b6a2f3d08007f6
+# (libretro/mgba HEAD, 2026-09-16, "Libretro: Disable debug
+# logging noise"). mGBA has NO ndk-build route upstream (no
+# Android.mk): it builds via CMake exactly as libretro's own CI
+# does (-DLIBMGBA_ONLY=ON -DBUILD_LIBRETRO=ON, NDK
+# android.toolchain.cmake; BINARY_NAME mgba -> mgba_libretro.so).
+#
+# Order matters: audit checks -> core -> verify core -> unit tests
+# -> APK -> dex guard. A red build stops the line: fix it and
+# verify green before pushing anything new.
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+        with:
+          # version.cmake reads git metadata; a shallow checkout
+          # would leave it guessing.
+          fetch-depth: 0
+
+      - name: Verify in-app licences match NOTICE
+        run: |
+          set -euo pipefail
+          # The Licences screen reads res/raw/notice.txt, which is
+          # a verbatim copy of the repo-root NOTICE. If NOTICE
+          # changes, the raw copy must change with it.
+          diff NOTICE app/src/main/res/raw/notice.txt || {
+            echo "NOTICE and app/src/main/res/raw/notice.txt differ — update the raw copy when NOTICE changes."
+            exit 1
+          }
+
+      - name: Verify audit pins (licence, build route, core options)
+        run: |
+          set -euo pipefail
+          # Licence: the core must be MPL-2.0.
+          grep -q "Mozilla Public License Version 2.0" LICENSE || {
+            echo "LICENSE is not MPL-2.0"
+            exit 1
+          }
+          # Exhibit B: the MPL-2.0 template text in LICENSE and
+          # tools/debian/copyright is expected; an Exhibit B notice
+          # attached to any source file is not. (Mariner O1 audit:
+          # zero "Exhibit" in src/ or include/.)
+          if grep -rI "Exhibit" src/ include/ | grep -q .; then
+            echo "Exhibit B notice found in src/ or include/ — stop and report, do not ship past it."
+            grep -rI "Exhibit" src/ include/
+            exit 1
+          fi
+          # Build route: mGBA has no ndk-build route upstream.
+          if find . -path ./.git -prune -o -name "Android.mk" -print | grep -q .; then
+            echo "Android.mk appeared upstream — the build route changed; re-audit before building."
+            exit 1
+          fi
+          # Core options: the 17 mgba_* keys the Phase 2 bridge will
+          # need to answer must all be present.
+          COUNT=$(grep -o '"mgba_[a-z_0-9]*"' src/platform/libretro/libretro_core_options.h | sort -u | wc -l)
+          if [ "$COUNT" -ne 17 ]; then
+            echo "expected 17 mgba_* core options, found $COUNT"
+            exit 1
+          fi
+          for key in mgba_use_bios mgba_skip_bios mgba_color_correction mgba_gb_colors mgba_gb_model; do
+            grep -q "\"$key\"" src/platform/libretro/libretro_core_options.h || {
+              echo "missing core option: $key"
+              exit 1
+            }
+          done
+          echo "audit pins OK: MPL-2.0, no ndk-build route, 17 core options"
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v4
+
+      - name: Install NDK 27.2.12479018
+        run: sdkmanager "ndk;27.2.12479018"
+
+      - name: Build stock core (arm64-v8a only)
+        run: |
+          set -euo pipefail
+          NDK="$ANDROID_HOME/ndk/27.2.12479018"
+          TOOLCHAIN="$NDK/build/cmake/android.toolchain.cmake"
+          if [ ! -f "$TOOLCHAIN" ]; then
+            echo "android.toolchain.cmake missing from NDK 27.2.12479018: $TOOLCHAIN"
+            exit 1
+          fi
+          cmake -S . -B build-android \
+            -DCMAKE_TOOLCHAIN_FILE="$TOOLCHAIN" \
+            -DANDROID_ABI=arm64-v8a \
+            -DANDROID_PLATFORM=android-21 \
+            -DLIBMGBA_ONLY=ON \
+            -DBUILD_LIBRETRO=ON \
+            -DCMAKE_BUILD_TYPE=Release
+          cmake --build build-android -j"$(nproc)"
+          SO="build-android/mgba_libretro.so"
+          if [ ! -f "$SO" ]; then
+            echo "core .so missing: $SO"
+            find build-android -name "*.so" | head
+            exit 1
+          fi
+          echo "BUILT_SO=$SO" >> "$GITHUB_ENV"
+
+      - name: Verify core
+        run: |
+          set -euo pipefail
+          SO="$BUILT_SO"
+          file "$SO"
+          file "$SO" | grep -q "ELF 64-bit.*ARM aarch64" || {
+            echo "not an ARM64 ELF: $(file "$SO")"
+            exit 1
+          }
+          SIZE=$(stat -c%s "$SO")
+          echo "size: $SIZE bytes"
+          if [ "$SIZE" -le 102400 ]; then
+            echo "core implausibly small: $SIZE bytes"
+            exit 1
+          fi
+          NM="$ANDROID_HOME/ndk/27.2.12479018/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-nm"
+          EXPORTS=$("$NM" -D "$SO")
+          for sym in retro_api_version retro_get_system_info retro_get_system_av_info retro_set_environment retro_set_video_refresh retro_set_audio_sample retro_set_audio_sample_batch retro_set_input_poll retro_set_input_state retro_init retro_deinit retro_load_game retro_unload_game retro_run retro_reset retro_serialize_size retro_serialize retro_unserialize retro_get_memory_data retro_get_memory_size retro_load_game_special retro_get_region retro_cheat_set retro_cheat_reset; do
+            echo "$EXPORTS" | grep -q " $sym$" || {
+              echo "missing export: $sym"
+              echo "$EXPORTS"
+              exit 1
+            }
+          done
+          echo "core=mgba pin=7a12d6d4b9acb14c0ae62c9166b6a2f3d08007f6 size=$SIZE sha256=$(sha256sum "$SO" | cut -d' ' -f1)" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Run unit tests (incl. Robolectric startup gate)
+        run: ./gradlew :app:testDebugUnitTest
+
+      - name: Build debug APK (proves the app compiles)
+        run: ./gradlew :app:assembleDebug
+
+      - name: Verify no app method exceeds 255 registers (dex guard)
+        run: |
+          set -euo pipefail
+          # HowlingDog v1.3.0: a composable grew past 256 registers,
+          # so the $changed parameter sat at v263 and d8 truncated
+          # it to v7 in the prologue's 8-bit-field instructions.
+          # ART rejected the class at launch (VerifyError) while the
+          # JVM (Robolectric) stayed green — CI never saw it. This
+          # guard fails the build if any app method crosses the
+          # limit again, so the next oversized composable is split
+          # before it ships instead of after. It lives here from
+          # Phase 1, permanently; never remove it to get a build
+          # green.
+          DEXDUMP=$(ls "$ANDROID_HOME/build-tools/"*/dexdump | sort -V | tail -1)
+          export DEXDUMP
+          rm -rf /tmp/dexcheck && mkdir -p /tmp/dexcheck
+          APK=$(ls app/build/outputs/apk/debug/*.apk | head -1)
+          unzip -o -q "$APK" 'classes*.dex' -d /tmp/dexcheck
+          python3 - <<'PYEOF'
+          import glob, re, subprocess, sys
+          import os
+          dexdump = os.environ['DEXDUMP']
+          worst = []
+          for dex in sorted(glob.glob('/tmp/dexcheck/classes*.dex')):
+              out = subprocess.run([dexdump, '-d', dex], capture_output=True,
+                                   text=True, errors='replace').stdout
+              cls = name = typ = None
+              for ln in out.splitlines():
+                  m = re.match(r"\s*Class descriptor\s*: '(.*);'", ln)
+                  if m:
+                      cls = m.group(1); continue
+                  m = re.match(r"\s*name\s*: '(.*)'", ln)
+                  if m:
+                      name = m.group(1); continue
+                  m = re.match(r"\s*type\s*: '(.*)'", ln)
+                  if m:
+                      typ = m.group(1); continue
+                  m = re.match(r"\s*registers\s*: (\d+)", ln)
+                  if m and cls and cls.startswith('Lapp/poing/'):
+                      worst.append((int(m.group(1)), cls, name, typ))
+          worst.sort(reverse=True)
+          print('largest app methods by register count:')
+          for n, c, nm, t in worst[:8]:
+              print(f'  {n} {c} {nm}{t}')
+          bad = [w for w in worst if w[0] > 255]
+          if bad:
+              print('FAIL: methods over the 255-register limit:')
+              for n, c, nm, t in bad:
+                  print(f'  {n} {c} {nm}{t}')
+              sys.exit(1)
+          print('dex register guard OK')
+          PYEOF
+
+      - name: Upload core artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: mgba-libretro-android
+          path: ${{ env.BUILT_SO }}
+          if-no-files-found: error
+
+      - name: Upload debug APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: poing-apk-debug
+          path: app/build/outputs/apk/debug/*.apk

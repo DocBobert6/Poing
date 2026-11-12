@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <application
+        android:allowBackup="true"
+        android:icon="@drawable/poing_launcher"
+        android:roundIcon="@drawable/poing_launcher"
+        android:label="@string/app_name"
+        android:supportsRtl="true"
+        android:theme="@style/Theme.Poing">
+        <!-- configChanges: later phases force landscape for the game
+             screen; declaring this now pins the rule from Phase 1 so
+             a rotation can never recreate the activity and lose state
+             (HowlingDog Phase 2 device bug: Start flashed back to a
+             fresh setup screen). -->
+        <activity
+            android:name=".MainActivity"
+            android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|smallestScreenSize"
+            android:exported="true"
+            android:theme="@style/Theme.Poing">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+    </application>
+
+</manifest>

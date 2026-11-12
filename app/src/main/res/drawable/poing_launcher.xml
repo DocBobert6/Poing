@@ -1,0 +1,20 @@
+<!-- Phase 1 placeholder launcher icon. The supplied icon
+     (icon/poing-icon.jpg) is staged in the repo but is NOT wired as
+     the launcher icon yet — that happens when the era UI lands.
+     This is a plain purple rounded square with a white dot-matrix
+     grid, drawn as a vector so no bitmap assets are needed yet. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path
+        android:fillColor="#6A1FB0"
+        android:pathData="M18,6h72a12,12 0 0,1 12,12v72a12,12 0 0,1 -12,12H18a12,12 0 0,1 -12,-12V18A12,12 0 0,1 18,6z" />
+    <path
+        android:fillColor="#EDE7F6"
+        android:pathData="M30,30h48a6,6 0 0,1 6,6v36a6,6 0 0,1 -6,6H30a6,6 0 0,1 -6,-6V36a6,6 0 0,1 6,-6z" />
+    <path
+        android:fillColor="#6A1FB0"
+        android:pathData="M36,42h8v8h-8zM50,42h8v8h-8zM64,42h8v8h-8zM36,56h8v8h-8zM50,56h8v8h-8zM64,56h8v8h-8zM36,70h8v8h-8zM50,70h8v8h-8z" />
+</vector>
