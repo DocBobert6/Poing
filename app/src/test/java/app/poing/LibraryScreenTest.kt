@@ -5,6 +5,7 @@ import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
+import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.test.core.app.ApplicationProvider
@@ -42,7 +43,10 @@ class LibraryScreenTest {
         val context = ApplicationProvider.getApplicationContext<Context>()
         val store = LibraryStore(context.filesDir)
         store.addRom(GameSystemTest.fakeGbHeader(0x00, "TETRIS"), "tetris.gb")
-        store.addRom(GameSystemTest.fakeGbHeader(0x80, "POKEMON GOLD"), "pokemon.gbc")
+        // "POKEMON" — the GBC header title field holds 10 bytes in
+        // the fake header (11 on a real cart), so a longer title
+        // would be truncated and the row would never show it.
+        store.addRom(GameSystemTest.fakeGbHeader(0x80, "POKEMON"), "pokemon.gbc")
         composeRule.activityRule.scenario.recreate()
     }
 
@@ -62,16 +66,19 @@ class LibraryScreenTest {
     fun shoulderTabsFilterTheList() {
         seedTwoGames()
         composeRule.onNodeWithText("TETRIS").assertIsDisplayed()
-        composeRule.onNodeWithText("POKEMON GOLD").assertIsDisplayed()
-        composeRule.onNodeWithText("GBC").performClick()
-        composeRule.onNodeWithText("POKEMON GOLD").assertIsDisplayed()
+        composeRule.onNodeWithText("POKEMON").assertIsDisplayed()
+        // The tab is clicked by tag, not by text: the cover-tile
+        // badge on the GBC row also reads "GBC", so a text lookup
+        // would match two nodes.
+        composeRule.onNodeWithTag("filter-GBC").performClick()
+        composeRule.onNodeWithText("POKEMON").assertIsDisplayed()
         // No single-node assertDoesNotExist on this classpath —
         // count the matches instead: zero TETRIS rows after the
         // GBC filter.
         composeRule.onAllNodesWithText("TETRIS").assertCountEquals(0)
-        composeRule.onNodeWithText("ALL").performClick()
+        composeRule.onNodeWithTag("filter-ALL").performClick()
         composeRule.onNodeWithText("TETRIS").assertIsDisplayed()
-        composeRule.onNodeWithText("POKEMON GOLD").assertIsDisplayed()
+        composeRule.onNodeWithText("POKEMON").assertIsDisplayed()
     }
 
     @Test

@@ -33,6 +33,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.Dispatchers
@@ -304,6 +305,7 @@ fun filterGames(games: List<LibraryGame>, filter: GameSystem?): List<LibraryGame
 private fun ShoulderTab(label: String, selected: Boolean, onClick: () -> Unit) {
     Box(
         modifier = Modifier
+            .testTag("filter-$label")
             .clip(RoundedCornerShape(8.dp))
             .background(if (selected) PoingSilver else Color(0xFF2A2A2A))
             .clickable(onClick = onClick)
