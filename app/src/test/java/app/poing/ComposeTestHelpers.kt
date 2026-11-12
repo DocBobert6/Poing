@@ -1,7 +1,6 @@
 package app.poing
 
-import androidx.compose.ui.test.ComposeTestRule
-import androidx.compose.ui.test.assertExists
+import androidx.compose.ui.test.junit4.ComposeTestRule
 import androidx.compose.ui.test.onNodeWithText
 
 /**
