@@ -25,12 +25,18 @@ import androidx.compose.ui.unit.dp
  * name, the phase status, and the Licences screen. No games, no
  * player, no native code — the mGBA core is built by CI and is only
  * ever loaded on game start, in a later phase.
+ *
+ * Phase 2 fix: the content sits in [PoingTheme], which paints an
+ * explicit dark scheme on a root Surface. A bare MaterialTheme
+ * (default light scheme) on the black window background made all
+ * plain text invisible on Robert's phone (black-on-black) — see
+ * Theme.kt. Never go back to a bare MaterialTheme here.
  */
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContent {
-            MaterialTheme {
+            PoingTheme {
                 PoingHome()
             }
         }
