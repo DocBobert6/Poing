@@ -41,10 +41,13 @@ class MainActivityStartupTest {
     @Test
     fun activityLaunchesAndShowsHome() {
         composeRule.onNodeWithText("Poing!").assertIsDisplayed()
-        composeRule.onNodeWithText("Phase 2 — bare player spike. Pick a game to boot it.")
+        composeRule.onNodeWithText("Game Boy · Game Boy Color · Game Boy Advance")
             .assertIsDisplayed()
-        composeRule.onNodeWithText("Play a game").assertIsDisplayed()
+        composeRule.onNodeWithText("Add game").assertIsDisplayed()
+        composeRule.onNodeWithText("Add folder").assertIsDisplayed()
+        composeRule.onNodeWithText("No games yet — add a game to start.").assertIsDisplayed()
         composeRule.onNodeWithText("Licences").assertIsDisplayed()
+        composeRule.onNodeWithText("BIOS (optional)").assertIsDisplayed()
     }
 
     @Test

@@ -50,6 +50,8 @@ dependencies {
     implementation("androidx.compose.ui:ui-tooling-preview")
     implementation("androidx.compose.material3:material3")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.9.4")
+    // Phase 3: folder import walks a picked document tree.
+    implementation("androidx.documentfile:documentfile:1.0.1")
 
     // Phase 1: startup-path gate (Robolectric). The gate exists
     // because green CI and ordinary APK checks missed a launch death
