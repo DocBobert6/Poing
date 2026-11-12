@@ -27,13 +27,15 @@ class RewindBufferTest {
         buffer.push(snapshot(2), byteArrayOf(9))
         buffer.push(snapshot(3), null)
         assertEquals(3, buffer.size)
-        assertEquals(3, buffer.peek()?.state?.get(0))
+        // A ByteArray holds Bytes, not Ints: compare as Ints, or
+        // assertEquals(Integer, Byte) fails on the type alone.
+        assertEquals(3, buffer.peek()?.state?.get(0)?.toInt())
         val newest = buffer.pop()
-        assertEquals(3, newest?.state?.get(0))
+        assertEquals(3, newest?.state?.get(0)?.toInt())
         assertNull(newest?.raProgress)
         val middle = buffer.pop()
-        assertEquals(2, middle?.state?.get(0))
-        assertEquals(9, middle?.raProgress?.get(0))
+        assertEquals(2, middle?.state?.get(0)?.toInt())
+        assertEquals(9, middle?.raProgress?.get(0)?.toInt())
         assertEquals(1, buffer.size)
     }
 
@@ -46,9 +48,9 @@ class RewindBufferTest {
         buffer.push(snapshot(4), null)
         assertEquals(3, buffer.size)
         // 1 is gone; the oldest left is 2.
-        assertEquals(4, buffer.pop()?.state?.get(0))
-        assertEquals(3, buffer.pop()?.state?.get(0))
-        assertEquals(2, buffer.pop()?.state?.get(0))
+        assertEquals(4, buffer.pop()?.state?.get(0)?.toInt())
+        assertEquals(3, buffer.pop()?.state?.get(0)?.toInt())
+        assertEquals(2, buffer.pop()?.state?.get(0)?.toInt())
         assertNull(buffer.pop())
     }
 
