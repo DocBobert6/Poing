@@ -300,7 +300,8 @@ fun AppSettingsScreen(
                     modifier = Modifier
                         .fillMaxWidth()
                         .clickable { pickingPalette = true }
-                        .padding(horizontal = 16.dp, vertical = 12.dp),
+                        .padding(horizontal = 16.dp, vertical = 12.dp)
+                        .testTag("jade-palette-row"),
                 ) {
                     Text(
                         "Game Boy palette",

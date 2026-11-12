@@ -140,9 +140,13 @@ class AppSettingsScreenTest {
                 AppSettingsScreen(store = s, onCoreOptions = {}, onBack = { })
             }
         }
+        // The Display section is the last one in the list: scroll
+        // the switch into view first, or the row is never composed
+        // in the small test window (the item 5b lesson).
+        composeRule.onNodeWithTag("jade-chain-switch").performScrollTo()
         composeRule.onNodeWithText("Jade").assertIsDisplayed()
         assertTrue(AppSettingsStore(temp.root).jadeEnabled())
-        composeRule.onNodeWithTag("jade-chain-switch").performScrollTo().performClick()
+        composeRule.onNodeWithTag("jade-chain-switch").performClick()
         assertFalse(AppSettingsStore(temp.root).jadeEnabled())
         // Off hides the palette picker (it lives inside Jade).
         composeRule.onAllNodesWithText("Game Boy palette").assertCountEquals(0)
@@ -157,7 +161,7 @@ class AppSettingsScreenTest {
                 AppSettingsScreen(store = s, optionsStore = options, onCoreOptions = {}, onBack = { })
             }
         }
-        composeRule.onNodeWithText("Game Boy palette").performScrollTo().performClick()
+        composeRule.onNodeWithTag("jade-palette-row").performScrollTo().performClick()
         composeRule.onNodeWithText("DMG Green").performScrollTo().performClick()
         assertEquals("DMG Green", options.get("mgba_gb_colors"))
     }
