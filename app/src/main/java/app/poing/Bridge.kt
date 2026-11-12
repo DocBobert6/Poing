@@ -183,4 +183,26 @@ object Bridge {
     fun onRumble(strength: Int) {
         onRumbleHandler?.invoke(strength)
     }
+
+    /**
+     * Phase 6 (item 10c) — GB Camera: the core calls these
+     * (through the native camera callbacks) when the game
+     * requests an image and when it is done with the camera.
+     * The handlers are set by [GbCamera]'s owner while a game
+     * is playing; with no handler set, start returns false (the
+     * game keeps its white image) and stop is a no-op.
+     */
+    var onCameraStartHandler: (() -> Boolean)? = null
+    var onCameraStopHandler: (() -> Unit)? = null
+
+    /** The game requests a camera image: true when the camera is (now) opening. */
+    fun onCameraStart(): Boolean = onCameraStartHandler?.invoke() ?: false
+
+    /** The game is done with the camera. */
+    fun onCameraStop() {
+        onCameraStopHandler?.invoke()
+    }
+
+    /** One XRGB8888 128x112 camera frame for the core (see bridge.cpp). */
+    external fun nativePushCameraFrame(pixels: IntArray)
 }

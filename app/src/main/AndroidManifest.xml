@@ -10,6 +10,17 @@
          Normal permission, no runtime request. -->
     <uses-permission android:name="android.permission.VIBRATE" />
 
+    <!-- Phase 6 (item 10c): the GB Camera — the phone's camera
+         feeding the Game Boy Camera game. Dangerous permission:
+         asked for at runtime, once per game, only when the game
+         requests an image; without it the game keeps a white
+         image. The feature is not required, so the app installs
+         on camera-less devices too (the camera just stays off). -->
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-feature
+        android:name="android.hardware.camera"
+        android:required="false" />
+
     <application
         android:allowBackup="true"
         android:icon="@mipmap/ic_launcher"

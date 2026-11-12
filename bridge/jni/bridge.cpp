@@ -284,6 +284,8 @@ static jmethodID g_ra_leaderboard_entries_result_method = NULL;
 static jmethodID g_ra_login_result_method = NULL;
 static jmethodID g_ra_load_game_result_method = NULL;
 static jmethodID g_ra_rumble_method = NULL;
+static jmethodID g_cam_start_method = NULL;
+static jmethodID g_cam_stop_method = NULL;
 
 static JNIEnv *ra_get_env() {
     JNIEnv *env = NULL;
@@ -415,6 +417,37 @@ static bool bridge_rumble_set_state(unsigned port, enum retro_rumble_effect effe
         return false;
     env->CallVoidMethod(g_ra_bridge, g_ra_rumble_method, (jint)strength);
     return true;
+}
+
+// Phase 6 (item 10c) — GB Camera: the core's frame callback,
+// stashed from the GET_CAMERA_INTERFACE struct (the core sets
+// frame_raw_framebuffer before the call; the bridge fills in
+// start/stop). The Kotlin side (GbCamera) pushes XRGB8888
+// 128x112 frames here; the core copies each one into its camera
+// buffer (_updateCamera), so the pushed array is only read
+// synchronously. A frame with no game loaded is dropped.
+// The start/stop upcalls run on the emu thread (the core calls
+// them from retro_run); ra_get_env attaches it. The start
+// returns whether the camera is (now) opening — camera2 opens
+// asynchronously, so the first frame arrives later; the game
+// retries the capture until then (_requestImage calls start
+// again while no frame has arrived).
+#define GB_CAM_WIDTH 128
+#define GB_CAM_HEIGHT 112
+static retro_camera_frame_raw_framebuffer_t g_cam_frame_cb = NULL;
+
+static bool bridge_camera_start(void) {
+    JNIEnv *env = ra_get_env();
+    if (!env || !g_ra_bridge || !g_cam_start_method)
+        return false;
+    return env->CallBooleanMethod(g_ra_bridge, g_cam_start_method) == JNI_TRUE;
+}
+
+static void bridge_camera_stop(void) {
+    JNIEnv *env = ra_get_env();
+    if (!env || !g_ra_bridge || !g_cam_stop_method)
+        return;
+    env->CallVoidMethod(g_ra_bridge, g_cam_stop_method);
 }
 
 static bool bridge_environ(unsigned cmd, void *data) {
@@ -552,10 +585,27 @@ static bool bridge_environ(unsigned cmd, void *data) {
             iface->set_rumble_state = bridge_rumble_set_state;
             return true;
         }
-        case RETRO_ENVIRONMENT_GET_CAMERA_INTERFACE:
+        case RETRO_ENVIRONMENT_GET_CAMERA_INTERFACE: {
+            // Phase 6 (item 10c) — the GB Camera: the core wants
+            // 128x112 XRGB8888 frames (GBCAM_WIDTH/HEIGHT,
+            // include/mgba/internal/gb/mbc.h:30-31) through the
+            // raw-framebuffer callback it sets on this struct.
+            // The bridge fills in start/stop (upcalls to Kotlin,
+            // which runs camera2) and stashes the frame callback
+            // for nativePushCameraFrame. Without a camera — no
+            // permission, no hardware — start returns false and
+            // the game keeps its white image (camData is memset
+            // 0xFF until the first frame arrives).
+            struct retro_camera_callback *cam = (struct retro_camera_callback *)data;
+            if (!cam)
+                return false;
+            cam->start = bridge_camera_start;
+            cam->stop = bridge_camera_stop;
+            g_cam_frame_cb = cam->frame_raw_framebuffer;
+            return true;
+        }
         case RETRO_ENVIRONMENT_GET_VFS_INTERFACE:
-            // Not supported yet: the camera is Phase 6 item 10c;
-            // plain stdio file I/O until then.
+            // Not supported: plain stdio file I/O.
             return false;
         default:
             return false;
@@ -861,6 +911,9 @@ Java_app_poing_Bridge_nativeUnloadGame(JNIEnv * /* env */,
     // The cartridge sensors belong to the loaded game too: forget
     // the values and the enabled mask (Phase 6, item 10a).
     sensor_reset();
+    // The GB Camera frame callback belongs to the loaded game
+    // (Phase 6, item 10c): a frame pushed after unload is dropped.
+    g_cam_frame_cb = NULL;
     pthread_mutex_lock(&g_audio_mutex);
     g_audio_head = g_audio_tail = g_audio_count = 0;
     pthread_mutex_unlock(&g_audio_mutex);
@@ -1045,6 +1098,7 @@ Java_app_poing_Bridge_nativeDeinit(JNIEnv * /* env */,
     }
     g_ra_num_descs = 0;
     sensor_reset();
+    g_cam_frame_cb = NULL;
     free(g_frame);
     g_frame = NULL;
     free(g_system_dir);
@@ -1115,6 +1169,32 @@ Java_app_poing_Bridge_nativeSetSensorValue(JNIEnv * /* env */,
 }
 
 // ---------------------------------------------------------------------------
+// GB Camera (Phase 6, item 10c)
+// ---------------------------------------------------------------------------
+//
+// One XRGB8888 128x112 frame from the Kotlin side (GbCamera runs
+// camera2 and converts YUV to XRGB). The core copies the frame
+// into its camera buffer synchronously (_updateCamera), so the
+// array is only read during this call. A frame with no game
+// loaded (no callback stashed) is dropped.
+
+JNIEXPORT void JNICALL
+Java_app_poing_Bridge_nativePushCameraFrame(JNIEnv *env, jobject /* thiz */, jintArray pixels) {
+    jint *data;
+    jsize len;
+    if (!g_cam_frame_cb || !pixels)
+        return;
+    len = env->GetArrayLength(pixels);
+    if (len != GB_CAM_WIDTH * GB_CAM_HEIGHT)
+        return;
+    data = env->GetIntArrayElements(pixels, nullptr);
+    if (!data)
+        return;
+    g_cam_frame_cb((const uint32_t *)data, GB_CAM_WIDTH, GB_CAM_HEIGHT, GB_CAM_WIDTH * 4);
+    env->ReleaseIntArrayElements(pixels, data, JNI_ABORT);
+}
+
+// ---------------------------------------------------------------------------
 // RetroAchievements (Phase 6, item 8)
 // ---------------------------------------------------------------------------
 //
@@ -1145,11 +1225,14 @@ Java_app_poing_Bridge_nativeRaInit(JNIEnv *env, jobject thiz) {
         g_ra_login_result_method = env->GetMethodID(bridge_class, "raLoginResult", "(ZLjava/lang/String;)V");
         g_ra_load_game_result_method = env->GetMethodID(bridge_class, "raLoadGameResult", "(ZLjava/lang/String;)V");
         g_ra_rumble_method = env->GetMethodID(bridge_class, "onRumble", "(I)V");
+        g_cam_start_method = env->GetMethodID(bridge_class, "onCameraStart", "()Z");
+        g_cam_stop_method = env->GetMethodID(bridge_class, "onCameraStop", "()V");
         env->DeleteLocalRef(bridge_class);
         if (!g_ra_http_request_method || !g_ra_event_unlocked_method ||
             !g_ra_leaderboard_event_method || !g_ra_leaderboard_entries_result_method ||
-            !g_ra_login_result_method || !g_ra_load_game_result_method || !g_ra_rumble_method) {
-            LOGE("nativeRaInit: a Kotlin callback is missing (RA or rumble)");
+            !g_ra_login_result_method || !g_ra_load_game_result_method || !g_ra_rumble_method ||
+            !g_cam_start_method || !g_cam_stop_method) {
+            LOGE("nativeRaInit: a Kotlin callback is missing (RA, rumble or camera)");
             return JNI_FALSE;
         }
     }

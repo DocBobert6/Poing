@@ -1,10 +1,13 @@
 package app.poing
 
+import android.Manifest
 import android.content.pm.ActivityInfo
 import android.graphics.Bitmap
 import android.os.Vibrator
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -272,6 +275,16 @@ fun GameScreen(
         CartridgeRumble(context.getSystemService(Vibrator::class.java))
     }
 
+    // Phase 6 (item 10c) — the GB Camera: the phone's camera,
+    // feeding the Game Boy Camera game while a game is playing.
+    // The permission launcher answers the camera's one ask per
+    // game (see GbCamera); the camera itself is wired to the
+    // bridge callbacks in the session lifecycle effect below.
+    val gbCamera = remember { GbCamera(context) }
+    val cameraPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission(),
+    ) { granted -> gbCamera.onPermissionResult(granted) }
+
     DisposableEffect(gamePath) {
         session.start()
         // Phase 6 (item 10a) — the cartridge sensors: the phone's
@@ -283,7 +296,19 @@ fun GameScreen(
         // while a game is loaded, and the handler goes away
         // with the game.
         Bridge.onRumbleHandler = { strength -> cartridgeRumble.setStrength(strength) }
+        // Phase 6 (item 10c) — the GB Camera handlers live only
+        // while a game is playing, like the rumble handler; the
+        // permission launcher is wired here too (the camera asks
+        // once per game, only when the game requests an image).
+        gbCamera.onRequestPermission = {
+            cameraPermissionLauncher.launch(Manifest.permission.CAMERA)
+        }
+        Bridge.onCameraStartHandler = { gbCamera.start() }
+        Bridge.onCameraStopHandler = { gbCamera.stop() }
         onDispose {
+            Bridge.onCameraStartHandler = null
+            Bridge.onCameraStopHandler = null
+            gbCamera.stop()
             Bridge.onRumbleHandler = null
             cartridgeRumble.stop()
             cartridgeSensors.stop()
