@@ -14,7 +14,7 @@ import java.io.File
  * title). The cache and the Wi-Fi gate are real, so a source plugs
  * in later through [CoverArtFetcher] without touching the UI.
  */
-interface CoverArtFetcher {
+fun interface CoverArtFetcher {
     /** Returns PNG/JPEG bytes for the game, or null when unavailable. Only ever called on Wi-Fi. */
     fun fetch(game: LibraryGame): ByteArray?
 }
