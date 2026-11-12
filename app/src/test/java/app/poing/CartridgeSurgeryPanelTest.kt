@@ -7,6 +7,7 @@ import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
 import org.junit.Assert.assertEquals
 import org.junit.Rule
 import org.junit.Test
@@ -66,7 +67,10 @@ class CartridgeSurgeryPanelTest {
         composeRule.onNodeWithText("Cartridge").assertIsDisplayed()
         composeRule.onNodeWithText("This cartridge has no clock.").assertIsDisplayed()
         composeRule.onAllNodesWithText("Solar cell").assertCountEquals(0)
-        composeRule.onNodeWithText("Done").assertIsDisplayed()
+        // The Done button is the last item — scroll it into view
+        // before asserting it (the panel is taller than the test
+        // window).
+        composeRule.onNodeWithText("Done").performScrollTo().assertIsDisplayed()
     }
 
     @Test
@@ -98,9 +102,15 @@ class CartridgeSurgeryPanelTest {
             onRumbleEnabled = { rumble = it },
             onSensorsEnabled = { sensors = it },
         )
-        composeRule.onNodeWithTag("cartridge-rumble-switch").performClick()
+        // The switches sit in the third and fourth chips — below
+        // the fold in the test window, so a bare click lands
+        // off-screen and toggles nothing. Scroll each into view
+        // first (the whole cartridge box is one LazyColumn item,
+        // so both switches are composed; they are just not visible
+        // yet).
+        composeRule.onNodeWithTag("cartridge-rumble-switch").performScrollTo().performClick()
         assertEquals(false, rumble)
-        composeRule.onNodeWithTag("cartridge-sensors-switch").performClick()
+        composeRule.onNodeWithTag("cartridge-sensors-switch").performScrollTo().performClick()
         assertEquals(false, sensors)
     }
 }
