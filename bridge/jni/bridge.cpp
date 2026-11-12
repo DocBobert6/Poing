@@ -54,11 +54,14 @@
 //     renderer (Phase 4+) will draw the core's framebuffer directly.
 //   - Audio is a linear resampler (see above). A proper resampler
 //     belongs in a later phase.
-//   - Battery saves are written by the core to the save directory
-//     on unload (retro_unload_game flushes the save RAM); there is
-//     no explicit flush call in this spike — quitting the player
-//     unloads the game, so saves land then. Phase 4 adds an
-//     explicit flush on pause.
+//   - Battery saves: the core does NOT write .sav files itself —
+//     retro_load_game only allocates the save-RAM buffer and
+//     retro_unload_game only frees it. The frontend persists the
+//     buffer (retro_get_memory_data, RETRO_MEMORY_SAVE_RAM + RTC)
+//     to <base>.sav: flushed on pause and on quit, written back
+//     into the buffer right after load, before the first frame.
+//     (The Phase 2 comment claiming the core writes it on unload
+//     was wrong — verified against libretro.c at the Phase 4 audit.)
 //   - Core options are settable through nativeSetOption: the bridge
 //     answers GET_VARIABLE from a mutable table seeded with the
 //     documented defaults; a set flags GET_VARIABLE_UPDATE so the
@@ -636,6 +639,172 @@ Java_app_poing_Bridge_nativeUnloadGame(JNIEnv * /* env */,
     g_audio_head = g_audio_tail = g_audio_count = 0;
     pthread_mutex_unlock(&g_audio_mutex);
     g_frame_ready = false;
+}
+
+// ---------------------------------------------------------------------------
+// Save states + battery save (Phase 4)
+// ---------------------------------------------------------------------------
+//
+// The core never writes .sav files itself: retro_get_memory_data
+// returns the live save-RAM buffer, and the frontend persists it —
+// the Phase 2 comment claiming the core writes it on unload was
+// wrong (retro_unload_game only deinits; retro_load_game only
+// allocates the buffer). So the Kotlin side flushes the buffer to
+// <base>.sav on pause and on quit, and writes it back into the
+// buffer right after load, before the first frame (the deferred
+// setup copies the buffer into the core).
+//
+// Save states go through retro_serialize/unserialize, which the
+// core implements via mCoreSaveStateNamed (state includes save RAM
+// + RTC, so a state is self-contained). They must be called while
+// the emu loop is paused — no retro_run in flight — which the
+// Kotlin side enforces (save/load only from the pause screen).
+
+JNIEXPORT jint JNICALL
+Java_app_poing_Bridge_nativeSerializeSize(JNIEnv * /* env */,
+                                          jobject /* thiz */) {
+    if (!g_inited || !g_loaded)
+        return 0;
+    return (jint)retro_serialize_size();
+}
+
+// Fills [data] with the state; returns bytes written, or -1. The
+// caller sizes the array with nativeSerializeSize first.
+JNIEXPORT jint JNICALL
+Java_app_poing_Bridge_nativeSerialize(JNIEnv *env, jobject /* thiz */,
+                                      jbyteArray data) {
+    if (!g_inited || !g_loaded || !data)
+        return -1;
+    jsize len = env->GetArrayLength(data);
+    if (len <= 0)
+        return -1;
+    size_t need = retro_serialize_size();
+    if (need == 0 || (size_t)len < need)
+        return -1;
+    uint8_t *buf = (uint8_t *)malloc(need);
+    if (!buf)
+        return -1;
+    bool ok = retro_serialize(buf, need);
+    if (ok)
+        env->SetByteArrayRegion(data, 0, (jsize)need, (const jbyte *)buf);
+    free(buf);
+    return ok ? (jint)need : -1;
+}
+
+JNIEXPORT jboolean JNICALL
+Java_app_poing_Bridge_nativeUnserialize(JNIEnv *env, jobject /* thiz */,
+                                        jbyteArray data) {
+    if (!g_inited || !g_loaded || !data)
+        return JNI_FALSE;
+    jsize len = env->GetArrayLength(data);
+    if (len <= 0)
+        return JNI_FALSE;
+    uint8_t *buf = (uint8_t *)malloc((size_t)len);
+    if (!buf)
+        return JNI_FALSE;
+    env->GetByteArrayRegion(data, 0, len, (jbyte *)buf);
+    bool ok = retro_unserialize(buf, (size_t)len);
+    free(buf);
+    return ok ? JNI_TRUE : JNI_FALSE;
+}
+
+JNIEXPORT jint JNICALL
+Java_app_poing_Bridge_nativeSaveRamSize(JNIEnv * /* env */,
+                                        jobject /* thiz */) {
+    if (!g_inited || !g_loaded)
+        return 0;
+    return (jint)retro_get_memory_size(RETRO_MEMORY_SAVE_RAM);
+}
+
+JNIEXPORT jboolean JNICALL
+Java_app_poing_Bridge_nativeReadSaveRam(JNIEnv *env, jobject /* thiz */,
+                                        jbyteArray data) {
+    if (!g_inited || !g_loaded || !data)
+        return JNI_FALSE;
+    size_t size = retro_get_memory_size(RETRO_MEMORY_SAVE_RAM);
+    if (size == 0)
+        return JNI_FALSE;
+    void *src = retro_get_memory_data(RETRO_MEMORY_SAVE_RAM);
+    if (!src)
+        return JNI_FALSE;
+    jsize len = env->GetArrayLength(data);
+    if ((size_t)len < size)
+        return JNI_FALSE;
+    env->SetByteArrayRegion(data, 0, (jsize)size, (const jbyte *)src);
+    return JNI_TRUE;
+}
+
+// Writes [data] into the live save-RAM buffer (up to the buffer
+// size). Call right after load, before the first frame — the
+// deferred setup copies the buffer into the core.
+JNIEXPORT jboolean JNICALL
+Java_app_poing_Bridge_nativeWriteSaveRam(JNIEnv *env, jobject /* thiz */,
+                                         jbyteArray data) {
+    if (!g_inited || !g_loaded || !data)
+        return JNI_FALSE;
+    size_t size = retro_get_memory_size(RETRO_MEMORY_SAVE_RAM);
+    if (size == 0)
+        return JNI_FALSE;
+    void *dst = retro_get_memory_data(RETRO_MEMORY_SAVE_RAM);
+    if (!dst)
+        return JNI_FALSE;
+    jsize len = env->GetArrayLength(data);
+    size_t n = (size_t)len < size ? (size_t)len : size;
+    jbyte *tmp = (jbyte *)malloc(n);
+    if (!tmp)
+        return JNI_FALSE;
+    env->GetByteArrayRegion(data, 0, (jsize)n, tmp);
+    memcpy(dst, tmp, n);
+    free(tmp);
+    return JNI_TRUE;
+}
+
+JNIEXPORT jint JNICALL
+Java_app_poing_Bridge_nativeRtcSize(JNIEnv * /* env */,
+                                    jobject /* thiz */) {
+    if (!g_inited || !g_loaded)
+        return 0;
+    return (jint)retro_get_memory_size(RETRO_MEMORY_RTC);
+}
+
+JNIEXPORT jboolean JNICALL
+Java_app_poing_Bridge_nativeReadRtc(JNIEnv *env, jobject /* thiz */,
+                                    jbyteArray data) {
+    if (!g_inited || !g_loaded || !data)
+        return JNI_FALSE;
+    size_t size = retro_get_memory_size(RETRO_MEMORY_RTC);
+    if (size == 0)
+        return JNI_FALSE;
+    void *src = retro_get_memory_data(RETRO_MEMORY_RTC);
+    if (!src)
+        return JNI_FALSE;
+    jsize len = env->GetArrayLength(data);
+    if ((size_t)len < size)
+        return JNI_FALSE;
+    env->SetByteArrayRegion(data, 0, (jsize)size, (const jbyte *)src);
+    return JNI_TRUE;
+}
+
+JNIEXPORT jboolean JNICALL
+Java_app_poing_Bridge_nativeWriteRtc(JNIEnv *env, jobject /* thiz */,
+                                     jbyteArray data) {
+    if (!g_inited || !g_loaded || !data)
+        return JNI_FALSE;
+    size_t size = retro_get_memory_size(RETRO_MEMORY_RTC);
+    if (size == 0)
+        return JNI_FALSE;
+    void *dst = retro_get_memory_data(RETRO_MEMORY_RTC);
+    if (!dst)
+        return JNI_FALSE;
+    jsize len = env->GetArrayLength(data);
+    size_t n = (size_t)len < size ? (size_t)len : size;
+    jbyte *tmp = (jbyte *)malloc(n);
+    if (!tmp)
+        return JNI_FALSE;
+    env->GetByteArrayRegion(data, 0, (jsize)n, tmp);
+    memcpy(dst, tmp, n);
+    free(tmp);
+    return JNI_TRUE;
 }
 
 JNIEXPORT void JNICALL

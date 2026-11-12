@@ -55,6 +55,21 @@ object Bridge {
     /** Set one core option (see bridge.cpp). False for an unknown key. */
     external fun nativeSetOption(key: String, value: String): Boolean
 
+    /** Save states (see bridge.cpp). Only valid while the emu loop is paused. */
+    external fun nativeSerializeSize(): Int
+
+    /** Fills [data] with the state; returns bytes written, or -1. */
+    external fun nativeSerialize(data: ByteArray): Int
+    external fun nativeUnserialize(data: ByteArray): Boolean
+
+    /** Battery save RAM + RTC (see bridge.cpp). Sizes are 0 when the game has none. */
+    external fun nativeSaveRamSize(): Int
+    external fun nativeReadSaveRam(data: ByteArray): Boolean
+    external fun nativeWriteSaveRam(data: ByteArray): Boolean
+    external fun nativeRtcSize(): Int
+    external fun nativeReadRtc(data: ByteArray): Boolean
+    external fun nativeWriteRtc(data: ByteArray): Boolean
+
     external fun nativeUnloadGame()
     external fun nativeDeinit()
     external fun nativeLastError(): String

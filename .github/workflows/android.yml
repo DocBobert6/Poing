@@ -184,7 +184,7 @@ jobs:
           NM="$ANDROID_HOME/ndk/27.2.12479018/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-nm"
           EXPORTS=$("$NM" -D "$BRIDGE")
           # Every JNI entry point the Kotlin Bridge object declares.
-          for sym in Java_app_poing_Bridge_nativeInit Java_app_poing_Bridge_nativeLoadGame Java_app_poing_Bridge_nativeGetAvInfo Java_app_poing_Bridge_nativeRunFrame Java_app_poing_Bridge_nativeGetFrame Java_app_poing_Bridge_nativeReadAudio Java_app_poing_Bridge_nativeSetInput Java_app_poing_Bridge_nativeSetOption Java_app_poing_Bridge_nativeUnloadGame Java_app_poing_Bridge_nativeDeinit Java_app_poing_Bridge_nativeLastError; do
+          for sym in Java_app_poing_Bridge_nativeInit Java_app_poing_Bridge_nativeLoadGame Java_app_poing_Bridge_nativeGetAvInfo Java_app_poing_Bridge_nativeRunFrame Java_app_poing_Bridge_nativeGetFrame Java_app_poing_Bridge_nativeReadAudio Java_app_poing_Bridge_nativeSetInput Java_app_poing_Bridge_nativeSetOption Java_app_poing_Bridge_nativeSerializeSize Java_app_poing_Bridge_nativeSerialize Java_app_poing_Bridge_nativeUnserialize Java_app_poing_Bridge_nativeSaveRamSize Java_app_poing_Bridge_nativeReadSaveRam Java_app_poing_Bridge_nativeWriteSaveRam Java_app_poing_Bridge_nativeRtcSize Java_app_poing_Bridge_nativeReadRtc Java_app_poing_Bridge_nativeWriteRtc Java_app_poing_Bridge_nativeUnloadGame Java_app_poing_Bridge_nativeDeinit Java_app_poing_Bridge_nativeLastError; do
             echo "$EXPORTS" | grep -q " $sym$" || {
               echo "missing JNI export: $sym"
               echo "$EXPORTS"
