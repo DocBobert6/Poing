@@ -8,6 +8,7 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
+import androidx.compose.ui.test.performScrollToIndex
 import androidx.test.core.app.ApplicationProvider
 import java.io.File
 import org.junit.Assert.assertEquals
@@ -99,11 +100,15 @@ class SaveManagerScreenTest {
         composeRule.onNodeWithText("Slot 1").performScrollTo().assertIsDisplayed()
         composeRule.onNodeWithText("Slot 0 — empty").performScrollTo().assertIsDisplayed()
         // The auto-save row's size; "Auto-save" itself appears twice.
-        // assertExists, not performScrollTo: the auto row is the
-        // last content item, and performScrollTo cannot bring it
-        // into view under Robolectric (the mid-list scrolls above
-        // all work). Existence proves the row rendered.
-        composeRule.onNodeWithText("512 B", substring = true).assertExists()
+        // The auto row is the last content item, and a LazyColumn
+        // only composes what is near the viewport — it is never
+        // composed at all until the list is scrolled to the end,
+        // and performScrollTo cannot find a node that was never
+        // composed. So scroll by index to the final item (the Back
+        // button, index 8 of 9) first; that composes the auto row,
+        // and the size then asserts displayed.
+        composeRule.onNodeWithTag("save-manager-list").performScrollToIndex(8)
+        composeRule.onNodeWithText("512 B", substring = true).assertIsDisplayed()
     }
 
     @Test
@@ -128,9 +133,11 @@ class SaveManagerScreenTest {
         seed()
         var loaded = false
         setContent(onLoadAuto = { loaded = true })
-        // No performScrollTo (see above): performClick invokes the
-        // semantics action directly, so it works off-screen.
-        composeRule.onNodeWithTag("save-load-auto").assertExists().performClick()
+        // Scroll by index to the end first (see above): the auto
+        // row is never composed until then, so its Load button
+        // does not exist to click.
+        composeRule.onNodeWithTag("save-manager-list").performScrollToIndex(8)
+        composeRule.onNodeWithTag("save-load-auto").performClick()
         assertTrue(loaded)
     }
 

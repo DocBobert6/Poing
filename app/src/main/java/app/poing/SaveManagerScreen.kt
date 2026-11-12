@@ -98,7 +98,8 @@ fun SaveManagerScreen(
             .fillMaxSize()
             .background(Color.Black)
             .statusBarsPadding()
-            .padding(24.dp),
+            .padding(24.dp)
+            .testTag("save-manager-list"),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         item {
