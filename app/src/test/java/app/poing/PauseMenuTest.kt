@@ -45,6 +45,8 @@ class PauseMenuTest {
             gamePath = File(temp.root, "game.gb").absolutePath,
             saveBase = "game",
             onFrame = {},
+            onStats = {},
+            onError = {},
         )
     }
 
