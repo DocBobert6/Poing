@@ -83,7 +83,8 @@ fun CartridgeSurgeryPanel(
                 .fillMaxSize()
                 .background(Color.Black)
                 .statusBarsPadding()
-                .padding(24.dp),
+                .padding(24.dp)
+                .testTag("cartridge-panel-list"),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             item {

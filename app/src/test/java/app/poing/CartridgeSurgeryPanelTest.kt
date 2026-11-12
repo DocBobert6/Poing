@@ -8,6 +8,7 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
+import androidx.compose.ui.test.performScrollToIndex
 import org.junit.Assert.assertEquals
 import org.junit.Rule
 import org.junit.Test
@@ -67,10 +68,13 @@ class CartridgeSurgeryPanelTest {
         composeRule.onNodeWithText("Cartridge").assertIsDisplayed()
         composeRule.onNodeWithText("This cartridge has no clock.").assertIsDisplayed()
         composeRule.onAllNodesWithText("Solar cell").assertCountEquals(0)
-        // The Done button is the last item — scroll it into view
-        // before asserting it (the panel is taller than the test
-        // window).
-        composeRule.onNodeWithText("Done").performScrollTo().assertIsDisplayed()
+        // The Done button is the last LazyColumn item (index 2)
+        // and is never composed until the list scrolls to the end
+        // — performScrollTo cannot find a node that was never
+        // composed, so scroll to the index first (the item 5b
+        // lesson), then assert the button is displayed.
+        composeRule.onNodeWithTag("cartridge-panel-list").performScrollToIndex(2)
+        composeRule.onNodeWithText("Done").assertIsDisplayed()
     }
 
     @Test
