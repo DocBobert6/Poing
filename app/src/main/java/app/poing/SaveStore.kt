@@ -13,6 +13,12 @@ import java.io.File
  *     a small PNG of the frame the state was saved on.
  *   <base>.stateAuto / <base>.stateAuto.png — the auto-save (Phase 6,
  *     item 2), written when the player quits; the latest quit wins.
+ *   <base>.stateN.ra / <base>.stateAuto.ra — the RetroAchievements
+ *     progress sidecar (Phase 6, item 8): the serialized RA progress
+ *     for the state, restored on load (or reset when a state has no
+ *     sidecar). A stale sidecar is deleted when RA is not tracking
+ *     the game, so a state never carries progress from an older
+ *     session.
  *
  * LibraryStore.remove() already deletes every savesDir file starting
  * with "<base>." — both kinds are cleaned up with the game, so
@@ -63,4 +69,15 @@ class SaveStore(private val savesDir: File) {
     /** Last-modified time of the auto-save, or null when there is none. */
     fun autoStateModifiedAt(base: String): Long? =
         autoStateFile(base).takeIf { it.exists() }?.lastModified()
+
+    /** The RetroAchievements progress sidecar for a save state (written beside the state file). */
+    fun raSidecarFile(base: String, slot: Int): File {
+        require(slot in 0 until SLOT_COUNT) {
+            "slot $slot out of range 0..${SLOT_COUNT - 1}"
+        }
+        return File(savesDir, "$base.state$slot.ra")
+    }
+
+    /** The RetroAchievements progress sidecar for the auto-save. */
+    fun autoRaSidecarFile(base: String): File = File(savesDir, "$base.stateAuto.ra")
 }

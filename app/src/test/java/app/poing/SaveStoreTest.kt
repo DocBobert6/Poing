@@ -86,4 +86,18 @@ class SaveStoreTest {
         assertTrue(store.autoStateExists("abc"))
         assertNotNull(store.autoStateModifiedAt("abc"))
     }
+
+    @Test
+    fun raSidecarFilesSitBesideTheirStates() {
+        val store = store()
+        assertEquals("abc.state1.ra", store.raSidecarFile("abc", 1).name)
+        assertEquals("abc.stateAuto.ra", store.autoRaSidecarFile("abc").name)
+        // Same slot range as the states.
+        try {
+            store.raSidecarFile("abc", 4)
+            throw AssertionError("sidecar slot 4 must be rejected")
+        } catch (_: IllegalArgumentException) {
+            // Expected.
+        }
+    }
 }

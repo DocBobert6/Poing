@@ -23,10 +23,16 @@ import org.robolectric.annotation.Config
  * ordinary APK checks missed a launch death before (AutoSpace r159,
  * Notscape beta.48, HowlingDog v1.3.0 VerifyError).
  *
- * The test runs with NO native code present: the mGBA core is only
- * ever loaded on game start, in a later phase — never from
- * onCreate. If MainActivity ever touches native code at launch,
- * this test fails first, before any device ever sees it.
+ * The test runs with NO native code present: the core is only
+ * ever RUN on game start. Since Phase 6 (item 8) the native
+ * libraries are LOADED at launch (MainActivity.onCreate
+ * initialises the RetroAchievements client, so a stored login
+ * re-logs in before any game starts) — but that load is guarded
+ * (Bridge.ensureLoaded returns false with no .so), so a launch
+ * without native code still just runs without RA. If
+ * MainActivity ever touches native code at launch in a way that
+ * can crash, this test fails first, before any device ever sees
+ * it.
  *
  * Pinned to emulated SDK 35: Robolectric's SDK 36 shadows are new
  * enough that the pin costs nothing (the launch path is what is

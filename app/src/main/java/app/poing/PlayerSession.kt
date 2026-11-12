@@ -302,6 +302,10 @@ class PlayerSession(
             writeThumbnail(saveStore.thumbnailFile(saveBase, slot))
         } catch (_: Exception) {
         }
+        // The RA progress sidecar (Phase 6, item 8): written beside
+        // the state, or a stale one deleted when RA is not tracking
+        // this game. A failed sidecar never fails the save.
+        writeRaSidecar(saveStore.raSidecarFile(saveBase, slot))
         return true
     }
 
@@ -313,13 +317,19 @@ class PlayerSession(
             writeThumbnail(saveStore.autoThumbnailFile(saveBase))
         } catch (_: Exception) {
         }
+        writeRaSidecar(saveStore.autoRaSidecarFile(saveBase))
         return true
     }
 
     /** Load the auto-save state. Only while paused. */
     fun loadAutoState(): Boolean {
         if (!loaded || !paused) return false
-        return unserializeStateFile(saveStore.autoStateFile(saveBase))
+        if (!unserializeStateFile(saveStore.autoStateFile(saveBase))) return false
+        // The RA progress belongs to this state, not to the game
+        // as it was before the load (a paused load: the game is
+        // already loaded in RA, so the restore applies at once).
+        readRaSidecar(saveStore.autoRaSidecarFile(saveBase))
+        return true
     }
 
     /**
@@ -420,7 +430,68 @@ class PlayerSession(
     /** Load the save state in slot [slot]. Only while paused. */
     fun loadState(slot: Int): Boolean {
         if (!loaded || !paused) return false
-        return unserializeStateFile(saveStore.stateFile(saveBase, slot))
+        if (!unserializeStateFile(saveStore.stateFile(saveBase, slot))) return false
+        // The RA progress belongs to this state (see loadAutoState).
+        readRaSidecar(saveStore.raSidecarFile(saveBase, slot))
+        return true
+    }
+
+    /**
+     * Phase 6 (item 8) — write the RA progress to a save state's
+     * sidecar (or delete a stale one when RA is not tracking this
+     * game, so a state never carries progress from an older
+     * session). Only call while paused, like the state snapshot
+     * itself. A failed sidecar never fails the save.
+     */
+    private fun writeRaSidecar(sidecar: java.io.File) {
+        try {
+            val bytes = RaClient.serializeProgress()
+            if (bytes != null) {
+                sidecar.parentFile?.mkdirs()
+                sidecar.writeBytes(bytes)
+            } else if (sidecar.isFile) {
+                sidecar.delete()
+            }
+        } catch (_: Exception) {
+            // The state itself is already saved; a failed sidecar
+            // must not fail the save.
+        }
+    }
+
+    /**
+     * Phase 6 (item 8) — restore the RA progress from a save
+     * state's sidecar (or reset it when the state has none, so
+     * the progress matches the rewound game). Only call after a
+     * successful unserialize, while paused. When RA has not
+     * loaded the game yet (the startup pending load), the
+     * restore waits for the load result instead — see
+     * [restoreRaProgressOnLoad].
+     */
+    private fun readRaSidecar(sidecar: java.io.File) {
+        if (!RaClient.gameLoaded) return
+        val bytes = try {
+            if (sidecar.isFile) sidecar.readBytes() else null
+        } catch (_: Exception) {
+            null
+        }
+        if (bytes != null) RaClient.deserializeProgress(bytes)
+        else RaClient.resetProgress()
+    }
+
+    /**
+     * Phase 6 (item 8) — the startup pending load's RA restore:
+     * the state was unserialized before the RA load result
+     * arrived, so the sidecar's progress waits in RaClient until
+     * the load completes (or is discarded when it fails). Pass
+     * the sidecar's bytes, or null when the state had none.
+     */
+    private fun restoreRaProgressOnLoad(sidecar: java.io.File) {
+        val bytes = try {
+            if (sidecar.isFile) sidecar.readBytes() else null
+        } catch (_: Exception) {
+            null
+        }
+        RaClient.restoreProgressAfterLoad(bytes)
     }
 
     fun start() {
@@ -455,6 +526,9 @@ class PlayerSession(
         }
         emuThread = null
         audioThread = null
+        // RetroAchievements (Phase 6, item 8): the game is gone,
+        // so the per-game RA state goes with it (the login stays).
+        RaClient.onGameQuit()
     }
 
     private fun fail(message: String) {
@@ -502,9 +576,24 @@ class PlayerSession(
         cheatStore?.let { applyCheats(it.list(saveBase)) }
         // A pending load from the Save Manager: the state is
         // unserialized before the first frame, so the game starts
-        // exactly where the state left it.
-        loadStateOnStart?.let { unserializeStateFile(saveStore.stateFile(saveBase, it)) }
-        if (loadAutoOnStart) unserializeStateFile(saveStore.autoStateFile(saveBase))
+        // exactly where the state left it. The RA progress
+        // belongs to that state, not to the game as it was — but
+        // the RA load below has not completed yet, so the restore
+        // waits for it (see restoreRaProgressOnLoad).
+        loadStateOnStart?.let {
+            if (unserializeStateFile(saveStore.stateFile(saveBase, it))) {
+                restoreRaProgressOnLoad(saveStore.raSidecarFile(saveBase, it))
+            }
+        }
+        if (loadAutoOnStart) {
+            if (unserializeStateFile(saveStore.autoStateFile(saveBase))) {
+                restoreRaProgressOnLoad(saveStore.autoRaSidecarFile(saveBase))
+            }
+        }
+        // RetroAchievements (Phase 6, item 8): load this game's
+        // achievements. The load is async; a game whose hash is
+        // not recognised simply leaves RA inactive for it.
+        RaClient.loadGame(gamePath)
 
         val pixels = IntArray(width * height)
         val dims = IntArray(2)
@@ -540,6 +629,10 @@ class PlayerSession(
             } finally {
                 inFrame = false
             }
+            // RetroAchievements (Phase 6, item 8): one evaluation
+            // per displayed frame, after the frame run. A no-op
+            // while no game is loaded in RA.
+            RaClient.onFrame()
             if (Bridge.nativeGetFrame(pixels, dims)) {
                 val w = dims[0]
                 val h = dims[1]

@@ -18,9 +18,13 @@ import kotlinx.coroutines.delay
  * Poing! Phase 3 — the library is the home screen. The Phase 2
  * "Play a game" picker flow is gone as the entry point (import now
  * lives in the library); the Licences screen stays, and the player
- * is reached by tapping a game. No native code is loaded at launch
- * — the core is only ever loaded on game start, so the Robolectric
- * startup gate still runs with no native code present.
+ * is reached by tapping a game. The core is only ever RUN on game
+ * start — but since Phase 6 (item 8) the native libraries are
+ * LOADED at launch, so the RetroAchievements client can re-log in
+ * from its stored token before any game starts (see onCreate).
+ * A failed load at launch (no .so under the Robolectric startup
+ * gate) just means RA is unavailable — the app launches without
+ * it, and the startup gate still guards the launch path.
  *
  * The content sits in [PoingTheme], which paints an explicit dark
  * scheme on a root Surface. A bare MaterialTheme (default light
@@ -31,6 +35,13 @@ import kotlinx.coroutines.delay
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // Phase 6 (item 8) — RetroAchievements: initialise the
+        // client at launch, so a stored login re-logs in before
+        // any game starts. This loads the native libraries (the
+        // same .so files the player loads); when there is no .so
+        // to load — the Robolectric startup gate — init fails
+        // gracefully and the app launches without RA.
+        RaClient.init(RaSessionStore(filesDir))
         setContent {
             PoingTheme {
                 PoingHome()
