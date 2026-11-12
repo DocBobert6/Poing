@@ -32,6 +32,7 @@ set(RCHEEVOS_ROOT "${MGBA_ROOT}/deps/rcheevos")
 add_library(poing-bridge SHARED
     bridge.cpp
     ra_client.c
+    sensors.c
     ${RCHEEVOS_ROOT}/src/rc_client.c
     ${RCHEEVOS_ROOT}/src/rc_compat.c
     ${RCHEEVOS_ROOT}/src/rc_util.c
@@ -74,6 +75,7 @@ target_include_directories(poing-bridge PRIVATE
 # and _GNU_SOURCE for its platform layer; it is C99.
 target_compile_definitions(poing-bridge PRIVATE RC_CLIENT_SUPPORTS_HASH _GNU_SOURCE)
 set_source_files_properties(ra_client.c
+    sensors.c
     ${RCHEEVOS_ROOT}/src/rc_client.c
     ${RCHEEVOS_ROOT}/src/rc_compat.c
     ${RCHEEVOS_ROOT}/src/rc_util.c

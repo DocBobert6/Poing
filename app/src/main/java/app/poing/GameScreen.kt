@@ -258,9 +258,22 @@ fun GameScreen(
         }
     }
 
+    // Phase 6 (item 10a) — the cartridge sensors (tilt /
+    // gyroscope / solar): the phone's hardware, fed to the core
+    // while a game is playing. Built here so the session
+    // lifecycle effect below can start and stop it.
+    val cartridgeSensors = remember { CartridgeSensors(context) }
+
     DisposableEffect(gamePath) {
         session.start()
-        onDispose { session.stop() }
+        // Phase 6 (item 10a) — the cartridge sensors: the phone's
+        // motion/light sensors feed the core while a game is
+        // playing (started and stopped with the session).
+        cartridgeSensors.start()
+        onDispose {
+            cartridgeSensors.stop()
+            session.stop()
+        }
     }
 
     // Landscape + keep the screen on while playing; restore on exit.

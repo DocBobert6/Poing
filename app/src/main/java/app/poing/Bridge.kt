@@ -74,6 +74,9 @@ object Bridge {
     external fun nativeSetCheat(code: String)
     external fun nativeClearCheats()
 
+    /** Cartridge sensors (Phase 6, item 10a): one sensor value at a time (see sensors.c for the ids). */
+    external fun nativeSetSensorValue(sensorId: Int, value: Float)
+
     external fun nativeUnloadGame()
     external fun nativeDeinit()
     external fun nativeLastError(): String

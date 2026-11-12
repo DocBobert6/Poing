@@ -82,6 +82,7 @@
 
 #include "libretro.h"
 #include "ra_client.h"
+#include "sensors.h"
 
 #define LOG_TAG "Poing"
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
@@ -505,12 +506,25 @@ static bool bridge_environ(unsigned cmd, void *data) {
                 return false;
             *(bool *)data = true;
             return true;
+        case RETRO_ENVIRONMENT_GET_SENSOR_INTERFACE: {
+            // Phase 6 (item 10a) — the cartridge sensors (tilt /
+            // gyroscope / solar): the core enables each family it
+            // needs at load and reads the values through these
+            // callbacks (see sensors.c). The values come from the
+            // phone's SensorManager via nativeSetSensorValue; a
+            // sensor the core never enabled reads zero.
+            struct retro_sensor_interface *iface = (struct retro_sensor_interface *)data;
+            if (!iface)
+                return false;
+            iface->set_sensor_state = sensor_set_state;
+            iface->get_sensor_input = sensor_get_input;
+            return true;
+        }
         case RETRO_ENVIRONMENT_GET_RUMBLE_INTERFACE:
-        case RETRO_ENVIRONMENT_GET_SENSOR_INTERFACE:
         case RETRO_ENVIRONMENT_GET_CAMERA_INTERFACE:
         case RETRO_ENVIRONMENT_GET_VFS_INTERFACE:
-            // Not supported in the spike: the core falls back
-            // (rumble/sensors/camera unused; plain stdio file I/O).
+            // Not supported yet: rumble is Phase 6 item 10b, the
+            // camera item 10c; plain stdio file I/O until then.
             return false;
         default:
             return false;
@@ -813,6 +827,9 @@ Java_app_poing_Bridge_nativeUnloadGame(JNIEnv * /* env */,
     // memory: drop them so the RA read sees nothing (and
     // ra_unload_game is also called from nativeRaUnloadGame).
     g_ra_num_descs = 0;
+    // The cartridge sensors belong to the loaded game too: forget
+    // the values and the enabled mask (Phase 6, item 10a).
+    sensor_reset();
     pthread_mutex_lock(&g_audio_mutex);
     g_audio_head = g_audio_tail = g_audio_count = 0;
     pthread_mutex_unlock(&g_audio_mutex);
@@ -996,6 +1013,7 @@ Java_app_poing_Bridge_nativeDeinit(JNIEnv * /* env */,
         g_loaded = false;
     }
     g_ra_num_descs = 0;
+    sensor_reset();
     free(g_frame);
     g_frame = NULL;
     free(g_system_dir);
@@ -1046,6 +1064,23 @@ Java_app_poing_Bridge_nativeClearCheats(JNIEnv * /* env */,
     if (!g_inited || !g_loaded)
         return;
     retro_cheat_reset();
+}
+
+// ---------------------------------------------------------------------------
+// Cartridge sensors (Phase 6, item 10a)
+// ---------------------------------------------------------------------------
+//
+// One sensor value at a time from the Kotlin side (CartridgeSensors
+// reads the phone's SensorManager and pushes each reading here).
+// The core reads them through the sensor interface (see
+// bridge_environ + sensors.c); a sensor the core never enabled
+// reads zero, and the values are forgotten on unload.
+
+JNIEXPORT void JNICALL
+Java_app_poing_Bridge_nativeSetSensorValue(JNIEnv * /* env */,
+                                           jobject /* thiz */,
+                                           jint sensorId, jfloat value) {
+    sensor_set_value((unsigned)sensorId, (float)value);
 }
 
 // ---------------------------------------------------------------------------
