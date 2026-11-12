@@ -27,7 +27,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.Dispatchers
@@ -79,8 +78,7 @@ fun CheatsScreen(
         item {
             Text(
                 text = "Cheats",
-                fontFamily = FontFamily(FontResources.DotGothic16),
-                fontSize = 28.sp,
+                style = displayTextStyle(DisplaySizeLarge),
                 color = Color(0xFFC9C9CE),
             )
             Text(
