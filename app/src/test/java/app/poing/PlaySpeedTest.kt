@@ -19,15 +19,17 @@ class PlaySpeedTest {
         val normal = PlaySpeed.frameIntervalNs(59.7, PlaySpeed.NORMAL)
         val ff2 = PlaySpeed.frameIntervalNs(59.7, PlaySpeed.FF2)
         val ff4 = PlaySpeed.frameIntervalNs(59.7, PlaySpeed.FF4)
-        assertEquals(normal / 2, ff2, 1.0)
-        assertEquals(normal / 4, ff4, 1.0)
+        // Longs have no (expected, actual, delta) overload in
+        // JUnit 4 — compare as Doubles with a 1ns tolerance.
+        assertEquals(normal / 2.0, ff2.toDouble(), 1.0)
+        assertEquals(normal / 4.0, ff4.toDouble(), 1.0)
     }
 
     @Test
     fun slowMotionDoublesTheInterval() {
         val normal = PlaySpeed.frameIntervalNs(59.7, PlaySpeed.NORMAL)
         val slow = PlaySpeed.frameIntervalNs(59.7, PlaySpeed.SLOW)
-        assertEquals(normal * 2, slow, 1.0)
+        assertEquals(normal * 2.0, slow.toDouble(), 1.0)
     }
 
     @Test
