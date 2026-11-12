@@ -68,4 +68,26 @@ class PlayerControlsTest {
         }
         composeRule.onNodeWithTag("dpad").assertIsDisplayed()
     }
+
+    @Test
+    fun holdActionButtonShowsItsLabel() {
+        composeRule.setContent {
+            PoingTheme {
+                HoldActionButton("FF", false, {}, {})
+            }
+        }
+        composeRule.onNodeWithText("FF").assertIsDisplayed()
+        composeRule.onNodeWithTag("hold-action-FF").assertIsDisplayed()
+    }
+
+    @Test
+    fun toggleActionButtonShowsItsLabel() {
+        composeRule.setContent {
+            PoingTheme {
+                ToggleActionButton("0.5x", false, {})
+            }
+        }
+        composeRule.onNodeWithText("0.5x").assertIsDisplayed()
+        composeRule.onNodeWithTag("toggle-action-0.5x").assertIsDisplayed()
+    }
 }

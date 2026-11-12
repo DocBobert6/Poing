@@ -57,6 +57,7 @@ private sealed interface Screen {
     data object Library : Screen
     data object Licences : Screen
     data object Settings : Screen
+    data object CoreOptions : Screen
     data class Player(val game: LibraryGame) : Screen
 }
 
@@ -72,6 +73,7 @@ fun PoingHome() {
     val context = LocalContext.current
     val store = remember { LibraryStore(context.filesDir) }
     val optionsStore = remember { CoreOptionsStore(context.filesDir) }
+    val settingsStore = remember { AppSettingsStore(context.filesDir) }
     LaunchedEffect(Unit) {
         delay(BOOT_SPLASH_MS)
         booted = true
@@ -87,6 +89,7 @@ fun PoingHome() {
             gameName = s.game.title,
             isGba = s.game.system == GameSystem.GBA,
             optionsStore = optionsStore,
+            appSettings = settingsStore,
             onQuit = { screen = Screen.Library },
             onError = { message ->
                 error = message
@@ -94,9 +97,14 @@ fun PoingHome() {
             },
         )
         is Screen.Licences -> LicencesScreen(onBack = { screen = Screen.Library })
-        is Screen.Settings -> CoreOptionsScreen(
-            store = optionsStore,
+        is Screen.Settings -> AppSettingsScreen(
+            store = settingsStore,
+            onCoreOptions = { screen = Screen.CoreOptions },
             onBack = { screen = Screen.Library },
+        )
+        is Screen.CoreOptions -> CoreOptionsScreen(
+            store = optionsStore,
+            onBack = { screen = Screen.Settings },
         )
         is Screen.Library -> LibraryScreen(
             notice = error,

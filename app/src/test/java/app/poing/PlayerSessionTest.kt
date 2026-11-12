@@ -2,6 +2,7 @@ package app.poing
 
 import android.os.Looper
 import java.io.File
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
@@ -90,5 +91,15 @@ class PlayerSessionTest {
         assertNotNull("start must report its failure", message)
         assertTrue(message!!.contains("Native libraries"))
         s.stop()
+    }
+
+    @Test
+    fun speedDefaultsToNormalAndSetSpeedSticks() {
+        val s = session()
+        assertEquals(PlaySpeed.NORMAL, s.currentSpeed)
+        s.setSpeed(PlaySpeed.FF3)
+        assertEquals(PlaySpeed.FF3, s.currentSpeed)
+        s.setSpeed(PlaySpeed.SLOW)
+        assertEquals(PlaySpeed.SLOW, s.currentSpeed)
     }
 }

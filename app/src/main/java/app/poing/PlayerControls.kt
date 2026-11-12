@@ -1,6 +1,7 @@
 package app.poing
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.Box
@@ -94,6 +95,89 @@ fun HoldButton(
         Text(
             label,
             color = if (pressed) Color.White else Color.Black,
+            style = displayTextStyle(DisplaySizeSmall),
+        )
+    }
+}
+
+/**
+ * Phase 6 (item 1) — a press-and-hold button that drives an
+ * action instead of a joypad bit: [onDown] fires when a finger
+ * lands, [onUp] when the last finger lifts. The fast-forward
+ * button uses it (hold for 2x/3x/4x, release back to normal).
+ * Same gesture shape as [HoldButton] — per-pointer tracking and
+ * a pause-keyed loop, so a lift under the pause overlay cannot
+ * leave the action stuck on.
+ */
+@Composable
+fun HoldActionButton(
+    label: String,
+    paused: Boolean,
+    onDown: () -> Unit,
+    onUp: () -> Unit,
+    sizeDp: Dp = 48.dp,
+) {
+    var pressed by remember { mutableStateOf(false) }
+    Box(
+        modifier = Modifier
+            .size(sizeDp)
+            .testTag("hold-action-$label")
+            .clip(CircleShape)
+            .background(if (pressed) PoingPurple else PoingSilver)
+            // Keyed on [paused]: pausing restarts the gesture loop,
+            // so a finger that lifts under the pause overlay cannot
+            // leave this action stuck on (the lift never reaches
+            // the loop). The visual state resets with the loop.
+            .pointerInput(paused) {
+                pressed = false
+                awaitEachGesture {
+                    awaitFirstDown()
+                    pressed = true
+                    onDown()
+                    var stillDown = true
+                    while (stillDown) {
+                        val event = awaitPointerEvent()
+                        stillDown = event.changes.any { it.pressed }
+                    }
+                    pressed = false
+                    onUp()
+                }
+            },
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            label,
+            color = if (pressed) Color.White else Color.Black,
+            style = displayTextStyle(DisplaySizeSmall),
+        )
+    }
+}
+
+/**
+ * Phase 6 (item 1) — a small toggle button in the same silver
+ * hardware style: [checked] is the icon purple with white
+ * lettering, unchecked is silver with black lettering. The
+ * slow-motion toggle uses it (0.5x on, 1x off).
+ */
+@Composable
+fun ToggleActionButton(
+    label: String,
+    checked: Boolean,
+    onToggle: () -> Unit,
+    sizeDp: Dp = 48.dp,
+) {
+    Box(
+        modifier = Modifier
+            .size(sizeDp)
+            .testTag("toggle-action-$label")
+            .clip(CircleShape)
+            .background(if (checked) PoingPurple else PoingSilver)
+            .clickable(onClick = onToggle),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            label,
+            color = if (checked) Color.White else Color.Black,
             style = displayTextStyle(DisplaySizeSmall),
         )
     }

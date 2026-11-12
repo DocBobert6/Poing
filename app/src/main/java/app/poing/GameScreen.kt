@@ -66,6 +66,7 @@ fun GameScreen(
     gameName: String,
     isGba: Boolean,
     optionsStore: CoreOptionsStore,
+    appSettings: AppSettingsStore,
     onQuit: () -> Unit,
     onError: (String) -> Unit,
 ) {
@@ -77,6 +78,15 @@ fun GameScreen(
     var showSettings by remember { mutableStateOf(false) }
     var pauseMessage by remember { mutableStateOf<String?>(null) }
     val held = remember { HeldInput() }
+
+    // Phase 6 (item 1) — fast-forward / slow motion. The settings
+    // are snapshotted here: they can only change on the Settings
+    // screen, never while the player is open, so the player must
+    // not re-read the file on every frame's recomposition.
+    val ffControlVisible = remember { appSettings.ffControlVisible() }
+    val ffSpeed = remember { appSettings.ffSpeed() }
+    var slowOn by remember { mutableStateOf(false) }
+    var ffHeld by remember { mutableStateOf(false) }
 
     val session = remember(gamePath) {
         PlayerSession(
@@ -101,6 +111,17 @@ fun GameScreen(
         session.setInput(held.mask or GamepadInput.state.mask)
     }
 
+    // Phase 6 (item 1) — the effective speed: a held FF button
+    // wins over the slow-motion toggle, which wins over normal.
+    fun effectiveSpeed(): PlaySpeed =
+        if (ffHeld) PlaySpeed.fromMultiplier(ffSpeed)
+        else if (slowOn) PlaySpeed.SLOW
+        else PlaySpeed.NORMAL
+
+    fun applySpeed() {
+        session.setSpeed(effectiveSpeed())
+    }
+
     // Pause: clear every held input FIRST (a finger that lifts while
     // the pause overlay covers the buttons never reaches the button's
     // gesture loop, so without this the button stays stuck down),
@@ -110,15 +131,21 @@ fun GameScreen(
         if (paused) return
         held.clear()
         GamepadInput.state.clear()
+        // A held FF button is released by the pause too: its
+        // gesture loop restarts under the overlay, so its onUp
+        // never fires — drop the hold here instead.
+        ffHeld = false
         session.pause()
         paused = true
         pushInput()
+        applySpeed()
     }
 
     fun doResume() {
         if (!paused) return
         session.resume()
         paused = false
+        applySpeed()
     }
 
     // Auto-pause when the player loses focus (Home, lock, incoming
@@ -225,6 +252,40 @@ fun GameScreen(
                     }
                 } else {
                     Text("Loading $gameName…", color = Color.White)
+                }
+            }
+            // Fast-forward / slow motion (Phase 6, item 1): shown
+            // only when the Settings toggle is on — off by default,
+            // per the standing overlay rule. FF is hold-to-run at
+            // the chosen speed; 0.5x is a toggle.
+            if (ffControlVisible) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp, Alignment.End),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    ToggleActionButton(
+                        label = "0.5x",
+                        checked = slowOn,
+                        onToggle = {
+                            slowOn = !slowOn
+                            applySpeed()
+                        },
+                    )
+                    HoldActionButton(
+                        label = "FF",
+                        paused = paused,
+                        onDown = {
+                            ffHeld = true
+                            applySpeed()
+                        },
+                        onUp = {
+                            ffHeld = false
+                            applySpeed()
+                        },
+                    )
                 }
             }
             // L/R shoulder tabs (GBA only).

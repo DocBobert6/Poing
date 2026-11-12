@@ -35,6 +35,11 @@ import android.util.Log
  * native libraries load and before the game loads; [applyOptions]
  * re-pushes them live (the core re-reads them on the next frame).
  *
+ * Playback speed ([setSpeed], Phase 6 item 1) paces the loop to
+ * the core's frame rate divided by the speed — fast-forward runs
+ * several frames per interval, slow motion stretches one — and
+ * mutes the audio off normal speed.
+ *
  * Diagnostics: [onStats] is posted to the main thread about once a
  * second with the frame size, the core's fps from av_info, the
  * measured fps, and the frames drawn so far — so a no-video bug is
@@ -89,6 +94,25 @@ class PlayerSession(
     fun setInput(mask: Int) {
         inputMask = mask
         if (running) Bridge.nativeSetInput(mask)
+    }
+
+    /**
+     * Phase 6 (item 1) — the playback speed. The emulation loop
+     * paces itself to the core's frame rate divided by the speed,
+     * so a change applies on the next frame; the audio is muted
+     * whenever the speed is not normal (the core still produces
+     * samples at the multiplied rate, and playing them at 48 kHz
+     * would sound fast or slow — the audio loop drains and
+     * discards them instead). Safe to call before start and while
+     * paused: the loop only reads it while running.
+     */
+    @Volatile
+    private var speed: PlaySpeed = PlaySpeed.NORMAL
+
+    val currentSpeed: PlaySpeed get() = speed
+
+    fun setSpeed(speed: PlaySpeed) {
+        this.speed = speed
     }
 
     /** Pause the game: the emu loop idles (no retro_run) and the audio is silenced. The game stays loaded. */
@@ -291,7 +315,6 @@ class PlayerSession(
         // core's deferred setup copies the buffer into the cart RAM.
         loadSave()
 
-        val frameNs = (1_000_000_000.0 / fps).toLong()
         val pixels = IntArray(width * height)
         val dims = IntArray(2)
         val bitmaps = arrayOf(
@@ -358,7 +381,9 @@ class PlayerSession(
                 statWindowFrames = 0
             }
             val elapsed = System.nanoTime() - t0
-            val remaining = frameNs - elapsed
+            // The interval follows the current speed, read fresh
+            // every frame so a hold or toggle applies at once.
+            val remaining = PlaySpeed.frameIntervalNs(fps, speed) - elapsed
             if (remaining > 0) {
                 try {
                     Thread.sleep(remaining / 1_000_000, (remaining % 1_000_000).toInt())
@@ -423,7 +448,14 @@ class PlayerSession(
             }
             val frames = Bridge.nativeReadAudio(samples, 4096)
             if (frames > 0) {
-                track.write(samples, 0, frames * 2, AudioTrack.WRITE_BLOCKING)
+                // Off normal speed the audio is muted: the core
+                // produces samples at the multiplied rate, and
+                // playing them at 48 kHz would sound fast or slow.
+                // The frames are still drained, so the ring never
+                // overflows and un-muting resumes cleanly.
+                if (speed == PlaySpeed.NORMAL) {
+                    track.write(samples, 0, frames * 2, AudioTrack.WRITE_BLOCKING)
+                }
             } else {
                 try {
                     Thread.sleep(5)
