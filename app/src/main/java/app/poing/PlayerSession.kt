@@ -1,0 +1,338 @@
+package app.poing
+
+import android.graphics.Bitmap
+import android.media.AudioAttributes
+import android.media.AudioFormat
+import android.media.AudioTrack
+import android.os.Handler
+import android.os.Looper
+import android.util.Log
+
+/**
+ * Phase 2 spike session: owns the emulation thread, the audio thread,
+ * and the frame Bitmaps. One session per game start; stop() unloads
+ * the game and tears the native side down.
+ *
+ * Threading: the emulation thread calls retro_run() once per frame
+ * and copies the new frame into the back Bitmap, then swaps it to the
+ * front and posts it to the main thread. The audio thread drains the
+ * bridge's resampled ring buffer into AudioTrack at 48 kHz. Input is
+ * a single volatile mask written by the touch UI.
+ *
+ * Pause stops the emulation loop cleanly (no retro_run calls, audio
+ * silenced) while the game stays loaded, so resume picks up where
+ * the game left off. There are no save states in the spike (Phase 4);
+ * quitting unloads the game, which is when the core writes the
+ * battery save to the save directory.
+ *
+ * Diagnostics: [onStats] is posted to the main thread about once a
+ * second with the frame size, the core's fps from av_info, the
+ * measured fps, and the frames drawn so far — so a no-video bug is
+ * diagnosable on the device without another round trip (a game
+ * that runs but draws nothing reads 0 frames drawn; a game that
+ * never loads never reaches the loop at all and reports its error
+ * through [onError] instead).
+ */
+class PlayerSession(
+    private val systemDir: String,
+    private val saveDir: String,
+    private val gamePath: String,
+    private val onFrame: (Bitmap) -> Unit,
+    private val onStats: (PlayerStats) -> Unit,
+    private val onError: (String) -> Unit,
+) {
+    companion object {
+        private const val TAG = "Poing"
+        private const val AUDIO_RATE = 48000
+    }
+
+    @Volatile
+    private var running = false
+
+    @Volatile
+    private var paused = false
+
+    /** True while a retro_run() call is in flight on the emu thread. */
+    @Volatile
+    private var inFrame = false
+
+    private var emuThread: Thread? = null
+    private var audioThread: Thread? = null
+    private var audioTrack: AudioTrack? = null
+    private val mainHandler = Handler(Looper.getMainLooper())
+
+    @Volatile
+    private var inputMask = 0
+
+    fun setInput(mask: Int) {
+        inputMask = mask
+        if (running) Bridge.nativeSetInput(mask)
+    }
+
+    /** Pause the game: the emu loop idles (no retro_run) and the audio is silenced. The game stays loaded. */
+    fun pause() {
+        if (!running || paused) return
+        paused = true
+        // Wait out any in-flight frame so nothing races retro_run
+        // (a frame takes <1/60s; the deadline is only a safety valve).
+        val deadline = System.nanoTime() + 200_000_000L
+        while (inFrame && System.nanoTime() < deadline) {
+            try {
+                Thread.sleep(5)
+            } catch (e: InterruptedException) {
+                break
+            }
+        }
+        audioTrack?.let {
+            try {
+                it.pause()
+            } catch (_: IllegalStateException) {
+                // Already stopped; nothing to silence.
+            }
+            try {
+                it.flush()
+            } catch (_: IllegalStateException) {
+                // Nothing buffered; nothing to drop.
+            }
+        }
+    }
+
+    /** Resume a paused game. */
+    fun resume() {
+        if (!running || !paused) return
+        audioTrack?.let {
+            try {
+                it.play()
+            } catch (_: IllegalStateException) {
+                // The track is gone; the audio thread restarts it on the next frame.
+            }
+        }
+        paused = false
+    }
+
+    fun start() {
+        if (running) return
+        running = true
+        emuThread = Thread(::emuLoop, "poing-emu").also { it.start() }
+    }
+
+    fun stop() {
+        running = false
+        paused = false
+        try {
+            emuThread?.join(2000)
+        } catch (e: InterruptedException) {
+            Log.w(TAG, "emu thread join interrupted", e)
+        }
+        try {
+            audioThread?.join(2000)
+        } catch (e: InterruptedException) {
+            Log.w(TAG, "audio thread join interrupted", e)
+        }
+        emuThread = null
+        audioThread = null
+    }
+
+    private fun fail(message: String) {
+        running = false
+        mainHandler.post { onError(message) }
+    }
+
+    private fun emuLoop() {
+        if (!Bridge.ensureLoaded()) {
+            fail("Native libraries failed to load.")
+            return
+        }
+        if (!Bridge.nativeInit(systemDir, saveDir)) {
+            fail("Could not initialise the core.")
+            return
+        }
+        if (!Bridge.nativeLoadGame(gamePath)) {
+            val detail = Bridge.nativeLastError().ifBlank { "unknown error" }
+            Bridge.nativeDeinit()
+            fail("Could not load the game. $detail")
+            return
+        }
+        val av = Bridge.nativeGetAvInfo()
+        val width = av[0]
+        val height = av[1]
+        val fps = av[2] / 1000.0
+        Log.i(TAG, "playing ${width}x${height} @ $fps fps, audio ${av[3]} Hz -> $AUDIO_RATE Hz")
+        // Push any input the UI already recorded before the load finished.
+        Bridge.nativeSetInput(inputMask)
+        if (width <= 0 || height <= 0 || fps <= 0.0) {
+            Bridge.nativeUnloadGame()
+            Bridge.nativeDeinit()
+            fail("The core reported no video mode.")
+            return
+        }
+
+        val frameNs = (1_000_000_000.0 / fps).toLong()
+        val pixels = IntArray(width * height)
+        val dims = IntArray(2)
+        val bitmaps = arrayOf(
+            Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888),
+            Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888),
+        )
+        var front = 0
+        var framesDrawn = 0L
+        var statWindowStart = System.nanoTime()
+        var statWindowFrames = 0L
+
+        startAudio()
+
+        while (running) {
+            if (paused) {
+                // Idle: no retro_run, no new frames. The last frame
+                // stays on screen behind the pause screen.
+                try {
+                    Thread.sleep(50)
+                } catch (e: InterruptedException) {
+                    break
+                }
+                continue
+            }
+            val t0 = System.nanoTime()
+            inFrame = true
+            try {
+                Bridge.nativeRunFrame()
+            } finally {
+                inFrame = false
+            }
+            if (Bridge.nativeGetFrame(pixels, dims)) {
+                val w = dims[0]
+                val h = dims[1]
+                if (w == width && h == height) {
+                    val back = 1 - front
+                    bitmaps[back].setPixels(pixels, 0, width, 0, 0, width, height)
+                    front = back
+                    val frame = bitmaps[front]
+                    mainHandler.post { onFrame(frame) }
+                    framesDrawn++
+                    statWindowFrames++
+                } else {
+                    // Geometry changed mid-game; the spike drops the
+                    // frame rather than guessing.
+                    Log.w(TAG, "frame geometry changed to ${w}x$h, dropping frame")
+                }
+            }
+            // About once a second, report the diagnostic stats.
+            val now = System.nanoTime()
+            if (now - statWindowStart >= 1_000_000_000L) {
+                val windowSecs = (now - statWindowStart) / 1_000_000_000.0
+                val measuredFps = statWindowFrames / windowSecs
+                val stats = PlayerStats(
+                    width = width,
+                    height = height,
+                    coreFps = fps,
+                    measuredFps = measuredFps,
+                    framesDrawn = framesDrawn,
+                    sampleRate = av[3],
+                )
+                mainHandler.post { onStats(stats) }
+                statWindowStart = now
+                statWindowFrames = 0
+            }
+            val elapsed = System.nanoTime() - t0
+            val remaining = frameNs - elapsed
+            if (remaining > 0) {
+                try {
+                    Thread.sleep(remaining / 1_000_000, (remaining % 1_000_000).toInt())
+                } catch (e: InterruptedException) {
+                    break
+                }
+            }
+        }
+
+        stopAudio()
+        Bridge.nativeUnloadGame()
+        Bridge.nativeDeinit()
+        Log.i(TAG, "session stopped")
+    }
+
+    private fun startAudio() {
+        val minBuffer = AudioTrack.getMinBufferSize(
+            AUDIO_RATE,
+            AudioFormat.CHANNEL_OUT_STEREO,
+            AudioFormat.ENCODING_PCM_16BIT,
+        )
+        val bufferSize = maxOf(minBuffer * 2, AUDIO_RATE / 10 * 2 * 2)
+        val track = AudioTrack.Builder()
+            .setAudioAttributes(
+                AudioAttributes.Builder()
+                    .setUsage(AudioAttributes.USAGE_GAME)
+                    .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
+                    .build(),
+            )
+            .setAudioFormat(
+                AudioFormat.Builder()
+                    .setSampleRate(AUDIO_RATE)
+                    .setChannelMask(AudioFormat.CHANNEL_OUT_STEREO)
+                    .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
+                    .build(),
+            )
+            .setBufferSizeInBytes(bufferSize)
+            .setTransferMode(AudioTrack.MODE_STREAM)
+            .build()
+        audioTrack = track
+        track.play()
+        audioThread = Thread(::audioLoop, "poing-audio").also { it.start() }
+    }
+
+    private fun audioLoop() {
+        val track = audioTrack ?: return
+        val samples = ShortArray(4096 * 2) // stereo frames * 2 channels
+        while (running) {
+            if (paused) {
+                // Idle: the track is paused and flushed, so there is
+                // nothing to drain.
+                try {
+                    Thread.sleep(50)
+                } catch (e: InterruptedException) {
+                    break
+                }
+                continue
+            }
+            val frames = Bridge.nativeReadAudio(samples, 4096)
+            if (frames > 0) {
+                track.write(samples, 0, frames * 2, AudioTrack.WRITE_BLOCKING)
+            } else {
+                try {
+                    Thread.sleep(5)
+                } catch (e: InterruptedException) {
+                    break
+                }
+            }
+        }
+    }
+
+    private fun stopAudio() {
+        audioThread?.let {
+            try {
+                it.join(1000)
+            } catch (e: InterruptedException) {
+                Log.w(TAG, "audio thread join interrupted", e)
+            }
+        }
+        audioThread = null
+        audioTrack?.let {
+            try {
+                it.stop()
+            } catch (e: IllegalStateException) {
+                Log.w(TAG, "audio track stop failed", e)
+            }
+            it.release()
+        }
+        audioTrack = null
+    }
+}
+
+/** One second of diagnostic numbers for the on-screen overlay. */
+data class PlayerStats(
+    val width: Int,
+    val height: Int,
+    val coreFps: Double,
+    val measuredFps: Double,
+    val framesDrawn: Long,
+    val sampleRate: Int,
+)

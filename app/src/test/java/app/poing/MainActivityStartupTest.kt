@@ -41,8 +41,9 @@ class MainActivityStartupTest {
     @Test
     fun activityLaunchesAndShowsHome() {
         composeRule.onNodeWithText("Poing!").assertIsDisplayed()
-        composeRule.onNodeWithText("Phase 1 — mGBA core import. No games yet.")
+        composeRule.onNodeWithText("Phase 2 — bare player spike. Pick a game to boot it.")
             .assertIsDisplayed()
+        composeRule.onNodeWithText("Play a game").assertIsDisplayed()
         composeRule.onNodeWithText("Licences").assertIsDisplayed()
     }
 
