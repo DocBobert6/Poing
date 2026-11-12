@@ -53,6 +53,7 @@ fun PauseMenu(
     onQuit: () -> Unit,
     onCoreOptions: () -> Unit,
     onCheats: () -> Unit = {},
+    onMoveControls: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val scope = rememberCoroutineScope()
@@ -200,6 +201,10 @@ fun PauseMenu(
                 Button(onClick = onCheats) {
                     Text("Cheats")
                 }
+            }
+            Spacer(Modifier.height(12.dp))
+            Button(onClick = onMoveControls) {
+                Text("Move controls")
             }
             Spacer(Modifier.height(12.dp))
             Button(onClick = onQuit) {

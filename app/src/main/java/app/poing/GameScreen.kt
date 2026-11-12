@@ -27,6 +27,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -80,6 +81,17 @@ fun GameScreen(
     var pauseMessage by remember { mutableStateOf<String?>(null) }
     val held = remember { HeldInput() }
 
+    // Phase 6 (item 4) — per-game saved control positions. The
+    // layout is loaded with the game and saved on every drag end
+    // (and on Done); editing is entered from the pause menu while
+    // the game stays paused. The stored ROM file is
+    // <sha256>.<ext>: its stem is the stable per-game key.
+    val saveBase = java.io.File(gamePath).nameWithoutExtension
+    val layoutStore = remember { ControlLayoutStore(context.filesDir.resolve("control-layouts").apply { mkdirs() }) }
+    var layout by remember(gamePath) { mutableStateOf(layoutStore.load(saveBase)) }
+    val latestLayout by rememberUpdatedState(layout)
+    var editingLayout by remember { mutableStateOf(false) }
+
     // Phase 6 (item 1) — fast-forward / slow motion. The settings
     // are snapshotted here: they can only change on the Settings
     // screen, never while the player is open, so the player must
@@ -96,7 +108,7 @@ fun GameScreen(
             gamePath = gamePath,
             // The stored ROM file is <sha256>.<ext>: its stem is the
             // stable per-game key for <base>.sav and <base>.stateN.
-            saveBase = java.io.File(gamePath).nameWithoutExtension,
+            saveBase = saveBase,
             // Phase 6 (item 3) — the per-game cheat store, for
             // applying the stored cheats after load.
             cheatsDir = context.filesDir.resolve("cheats").apply { mkdirs() }.absolutePath,
@@ -218,10 +230,20 @@ fun GameScreen(
                 PowerLight(if (paused) PowerState.Paused else PowerState.Playing)
                 Spacer(Modifier.width(8.dp))
                 DiagnosticLine(stats = stats, modifier = Modifier.weight(1f))
+                // While editing the layout the top-bar button is
+                // Done: it saves the layout and returns to the pause
+                // menu (the game stays paused throughout editing).
                 Button(onClick = {
-                    if (paused) doResume() else doPause()
+                    when {
+                        editingLayout -> {
+                            layoutStore.save(saveBase, latestLayout)
+                            editingLayout = false
+                        }
+                        paused -> doResume()
+                        else -> doPause()
+                    }
                 }) {
-                    Text(if (paused) "Resume" else "Pause")
+                    Text(if (editingLayout) "Done" else if (paused) "Resume" else "Pause")
                 }
             }
             // Game view, letterboxed at the native aspect, in the
@@ -294,12 +316,44 @@ fun GameScreen(
             }
             // L/R shoulder tabs (GBA only).
             if (isGba) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceEvenly,
+                MovableControl(
+                    position = layout.lr,
+                    editing = editingLayout,
+                    testTag = "controls-lr",
+                    onMove = { layout = layout.with(ControlGroup.LR, it) },
+                    onMoveEnd = { layoutStore.save(saveBase, latestLayout) },
                 ) {
-                    HoldButton("L", InputMask.JOY_L, held, paused, ::pushInput, shoulder = true)
-                    HoldButton("R", InputMask.JOY_R, held, paused, ::pushInput, shoulder = true)
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceEvenly,
+                    ) {
+                        HoldButton("L", InputMask.JOY_L, held, paused, ::pushInput, shoulder = true)
+                        HoldButton("R", InputMask.JOY_R, held, paused, ::pushInput, shoulder = true)
+                    }
+                }
+            }
+            // Layout editing (Phase 6, item 4): drag any group to
+            // move it; Reset puts every group back at its default
+            // spot and saves. Done lives in the top bar.
+            if (editingLayout) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        text = "Drag the controls to move them",
+                        modifier = Modifier.weight(1f),
+                        color = Color.White,
+                    )
+                    Button(onClick = {
+                        layout = ControlLayout.DEFAULT
+                        layoutStore.save(saveBase, layout)
+                    }) {
+                        Text("Reset")
+                    }
                 }
             }
             // Controls row: D-pad left, Start/Select centre, A/B right.
@@ -310,23 +364,47 @@ fun GameScreen(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                DpadControl(held, paused, ::pushInput)
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    HoldButton("Start", InputMask.JOY_START, held, paused, ::pushInput, sizeDp = 48.dp)
-                    Spacer(Modifier.height(8.dp))
-                    HoldButton("Select", InputMask.JOY_SELECT, held, paused, ::pushInput, sizeDp = 48.dp)
+                MovableControl(
+                    position = layout.dpad,
+                    editing = editingLayout,
+                    testTag = "controls-dpad",
+                    onMove = { layout = layout.with(ControlGroup.DPAD, it) },
+                    onMoveEnd = { layoutStore.save(saveBase, latestLayout) },
+                ) {
+                    DpadControl(held, paused, ::pushInput)
                 }
-                Row {
-                    HoldButton("B", InputMask.JOY_B, held, paused, ::pushInput)
-                    Spacer(Modifier.width(12.dp))
-                    HoldButton("A", InputMask.JOY_A, held, paused, ::pushInput)
+                MovableControl(
+                    position = layout.startSelect,
+                    editing = editingLayout,
+                    testTag = "controls-startselect",
+                    onMove = { layout = layout.with(ControlGroup.START_SELECT, it) },
+                    onMoveEnd = { layoutStore.save(saveBase, latestLayout) },
+                ) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        HoldButton("Start", InputMask.JOY_START, held, paused, ::pushInput, sizeDp = 48.dp)
+                        Spacer(Modifier.height(8.dp))
+                        HoldButton("Select", InputMask.JOY_SELECT, held, paused, ::pushInput, sizeDp = 48.dp)
+                    }
+                }
+                MovableControl(
+                    position = layout.ab,
+                    editing = editingLayout,
+                    testTag = "controls-ab",
+                    onMove = { layout = layout.with(ControlGroup.AB, it) },
+                    onMoveEnd = { layoutStore.save(saveBase, latestLayout) },
+                ) {
+                    Row {
+                        HoldButton("B", InputMask.JOY_B, held, paused, ::pushInput)
+                        Spacer(Modifier.width(12.dp))
+                        HoldButton("A", InputMask.JOY_A, held, paused, ::pushInput)
+                    }
                 }
             }
         }
         // Pause overlay: the Pocket screen dimmed — the game stays
         // visible behind the dim, and the menu is an Atomic panel
         // (see PauseMenu).
-        if (paused && !showSettings && !showCheats) {
+        if (paused && !showSettings && !showCheats && !editingLayout) {
             Box(
                 modifier = Modifier
                     .fillMaxSize()
@@ -342,6 +420,7 @@ fun GameScreen(
                     onQuit = onQuit,
                     onCoreOptions = { showSettings = true },
                     onCheats = { showCheats = true },
+                    onMoveControls = { editingLayout = true },
                 )
             }
         }
@@ -373,7 +452,7 @@ fun GameScreen(
                     gameName = gameName,
                     system = GameSystem.fromExtension(gamePath)
                         ?: if (isGba) GameSystem.GBA else GameSystem.GB,
-                    saveBase = java.io.File(gamePath).nameWithoutExtension,
+                    saveBase = saveBase,
                     store = remember { CheatStore(context.filesDir.resolve("cheats").apply { mkdirs() }) },
                     session = session,
                     onBack = { showCheats = false },
