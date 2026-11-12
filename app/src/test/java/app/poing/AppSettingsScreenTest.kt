@@ -89,4 +89,27 @@ class AppSettingsScreenTest {
         }
         composeRule.onNodeWithText("Core options").assertIsDisplayed()
     }
+
+    @Test
+    fun inputDisplayOffByDefault() {
+        composeRule.setContent {
+            PoingTheme {
+                AppSettingsScreen(store = store(), onCoreOptions = {}, onBack = {})
+            }
+        }
+        composeRule.onNodeWithText("Input display").assertIsDisplayed()
+        assertFalse(AppSettingsStore(temp.root).inputDisplayVisible())
+    }
+
+    @Test
+    fun togglingInputDisplayPersists() {
+        val s = store()
+        composeRule.setContent {
+            PoingTheme {
+                AppSettingsScreen(store = s, onCoreOptions = {}, onBack = {})
+            }
+        }
+        composeRule.onNodeWithTag("input-display-switch").performClick()
+        assertTrue(AppSettingsStore(temp.root).inputDisplayVisible())
+    }
 }

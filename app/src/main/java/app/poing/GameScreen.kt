@@ -105,6 +105,15 @@ fun GameScreen(
     var slowOn by remember { mutableStateOf(false) }
     var ffHeld by remember { mutableStateOf(false) }
 
+    // Phase 6 (item 6) — the input display: the merged mask the
+    // core sees (touch + gamepad), mirrored into state on every
+    // input change so the pills update live. The toggle itself is
+    // snapshotted here like the fast-forward control: settings can
+    // only change on the Settings screen, never while the player
+    // is open.
+    val inputDisplayVisible = remember { appSettings.inputDisplayVisible() }
+    var displayedMask by remember { mutableStateOf(0) }
+
     val session = remember(gamePath) {
         PlayerSession(
             systemDir = context.filesDir.resolve("system").apply { mkdirs() }.absolutePath,
@@ -131,9 +140,14 @@ fun GameScreen(
     }
 
     // The input the core sees is the touch mask OR the gamepad mask.
-    // Either side changing re-pushes the merged mask.
+    // Either side changing re-pushes the merged mask — and the input
+    // display mirrors it, so what it shows is what the game receives.
+    // doPause clears both masks and then calls this, so a pause
+    // clears the display too.
     fun pushInput() {
-        session.setInput(held.mask or GamepadInput.state.mask)
+        val mask = held.mask or GamepadInput.state.mask
+        session.setInput(mask)
+        displayedMask = mask
     }
 
     // Phase 6 (item 1) — the effective speed: a held FF button
@@ -254,6 +268,13 @@ fun GameScreen(
                 }) {
                     Text(if (editingLayout) "Done" else if (paused) "Resume" else "Pause")
                 }
+            }
+            // Input display (Phase 6, item 6): shown only when the
+            // Settings toggle is on — off by default, per the
+            // standing overlay rule. It sits above the game view so
+            // it never covers the controls.
+            if (inputDisplayVisible) {
+                InputDisplay(mask = displayedMask, isGba = isGba)
             }
             // Game view, letterboxed at the native aspect, in the
             // icon's screen: a thin silver bezel + dark surround.

@@ -48,6 +48,17 @@ class AppSettingsStoreTest {
     }
 
     @Test
+    fun inputDisplayRoundTrips() {
+        val s = store()
+        assertFalse(s.inputDisplayVisible())
+        s.setInputDisplayVisible(true)
+        assertTrue(s.inputDisplayVisible())
+        assertTrue(AppSettingsStore(temp.root).inputDisplayVisible())
+        s.setInputDisplayVisible(false)
+        assertFalse(s.inputDisplayVisible())
+    }
+
+    @Test
     fun corruptFileReadsAsDefaults() {
         val s = store()
         File(temp.root, "app-settings.properties").writeText("this is not properties: [[[\n")

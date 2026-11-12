@@ -46,6 +46,7 @@ fun AppSettingsScreen(
 ) {
     var ffControl by remember { mutableStateOf(store.ffControlVisible()) }
     var ffSpeed by remember { mutableStateOf(store.ffSpeed()) }
+    var inputDisplay by remember { mutableStateOf(store.inputDisplayVisible()) }
 
     LazyColumn(
         modifier = Modifier
@@ -132,11 +133,39 @@ fun AppSettingsScreen(
             }
         }
         item {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        "Input display",
+                        style = MaterialTheme.typography.titleMedium,
+                    )
+                    Text(
+                        "Shows the buttons being pressed, above the game. Off by default.",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
+                Switch(
+                    checked = inputDisplay,
+                    onCheckedChange = {
+                        store.setInputDisplayVisible(it)
+                        inputDisplay = it
+                    },
+                    modifier = Modifier.testTag("input-display-switch"),
+                )
+            }
+        }
+        item {
             Row(modifier = Modifier.padding(16.dp)) {
                 TextButton(onClick = {
                     store.reset()
                     ffControl = store.ffControlVisible()
                     ffSpeed = store.ffSpeed()
+                    inputDisplay = store.inputDisplayVisible()
                 }) {
                     Text("Reset player settings")
                 }

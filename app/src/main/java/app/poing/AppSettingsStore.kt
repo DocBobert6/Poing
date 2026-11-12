@@ -21,6 +21,7 @@ class AppSettingsStore(private val root: File) {
     companion object {
         const val KEY_FF_CONTROL = "ff_control_visible"
         const val KEY_FF_SPEED = "ff_speed"
+        const val KEY_INPUT_DISPLAY = "input_display_visible"
         const val DEFAULT_FF_SPEED = 2
         val FF_SPEEDS = setOf(2, 3, 4)
     }
@@ -28,6 +29,10 @@ class AppSettingsStore(private val root: File) {
     /** The fast-forward / slow-motion on-screen control: off by default (the standing overlay rule). */
     fun ffControlVisible(): Boolean = readBoolean(KEY_FF_CONTROL, false)
     fun setFfControlVisible(visible: Boolean) = write(KEY_FF_CONTROL, visible.toString())
+
+    /** The input display (pressed buttons above the game): off by default (the standing overlay rule). */
+    fun inputDisplayVisible(): Boolean = readBoolean(KEY_INPUT_DISPLAY, false)
+    fun setInputDisplayVisible(visible: Boolean) = write(KEY_INPUT_DISPLAY, visible.toString())
 
     /** The fast-forward multiplier (2, 3 or 4); 2 by default. */
     fun ffSpeed(): Int {
