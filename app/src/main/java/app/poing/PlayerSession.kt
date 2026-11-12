@@ -21,9 +21,19 @@ import android.util.Log
  *
  * Pause stops the emulation loop cleanly (no retro_run calls, audio
  * silenced) while the game stays loaded, so resume picks up where
- * the game left off. There are no save states in the spike (Phase 4);
- * quitting unloads the game, which is when the core writes the
- * battery save to the save directory.
+ * the game left off. Pausing also flushes the battery save to
+ * <base>.sav — the core never writes it itself (Phase 4 audit of
+ * libretro.c) — and quitting flushes it again before unload.
+ *
+ * Save states (slots 0..3, slot 0 is the quick slot) go through
+ * retro_serialize/unserialize and only run while paused, so a state
+ * can never race a retro_run call. The battery save is restored
+ * right after load, before the first frame: the core's deferred
+ * setup copies the save-RAM buffer into the emulated cart RAM.
+ *
+ * Core options ([options]) are pushed to the bridge after the
+ * native libraries load and before the game loads; [applyOptions]
+ * re-pushes them live (the core re-reads them on the next frame).
  *
  * Diagnostics: [onStats] is posted to the main thread about once a
  * second with the frame size, the core's fps from av_info, the
@@ -37,6 +47,8 @@ class PlayerSession(
     private val systemDir: String,
     private val saveDir: String,
     private val gamePath: String,
+    private val saveBase: String,
+    private val options: Map<String, String> = emptyMap(),
     private val onFrame: (Bitmap) -> Unit,
     private val onStats: (PlayerStats) -> Unit,
     private val onError: (String) -> Unit,
@@ -46,11 +58,21 @@ class PlayerSession(
         private const val AUDIO_RATE = 48000
     }
 
+    private val saveStore = SaveStore(java.io.File(saveDir))
+
     @Volatile
     private var running = false
 
     @Volatile
     private var paused = false
+
+    /** True once a game is loaded and not yet unloaded. */
+    @Volatile
+    private var loaded = false
+
+    val isRunning: Boolean get() = running
+    val isPaused: Boolean get() = paused
+    val isLoaded: Boolean get() = loaded
 
     /** True while a retro_run() call is in flight on the emu thread. */
     @Volatile
@@ -95,6 +117,9 @@ class PlayerSession(
                 // Nothing buffered; nothing to drop.
             }
         }
+        // The core is idle now: flush the battery save while it is
+        // safe to read the live save-RAM buffer.
+        flushSave()
     }
 
     /** Resume a paused game. */
@@ -109,6 +134,98 @@ class PlayerSession(
         }
         paused = false
     }
+
+    /** Push core options to the bridge. The core re-reads them on the next frame; safe to call before init (the bridge seeds its table on first use) and safe to call when no game is running — it just loads the libraries, which is harmless. */
+    fun applyOptions(options: Map<String, String>) {
+        if (!Bridge.ensureLoaded()) return
+        for ((key, value) in options) Bridge.nativeSetOption(key, value)
+    }
+
+    fun applyOptions() = applyOptions(options)
+
+    /**
+     * Write the live save-RAM + RTC buffers to <base>.sav. Only
+     * safe while the emu loop is paused or stopped — never mid-frame.
+     * Returns false when the game has no save RAM (most GB games
+     * without a battery, and any game that never saves).
+     */
+    fun flushSave(): Boolean {
+        if (!loaded) return false
+        val saveSize = Bridge.nativeSaveRamSize()
+        if (saveSize <= 0) return false
+        val save = ByteArray(saveSize)
+        if (!Bridge.nativeReadSaveRam(save)) return false
+        val rtcSize = Bridge.nativeRtcSize()
+        val bytes = if (rtcSize > 0) {
+            val rtc = ByteArray(rtcSize)
+            if (!Bridge.nativeReadRtc(rtc)) return false
+            save + rtc
+        } else {
+            save
+        }
+        return try {
+            saveStore.saveFile(saveBase).apply { parentFile?.mkdirs() }.writeBytes(bytes)
+            true
+        } catch (_: Exception) {
+            false
+        }
+    }
+
+    /**
+     * Restore <base>.sav into the live buffers. Called right after
+     * load, before the first frame — the core's deferred setup
+     * copies the buffer into the emulated cart RAM. A missing or
+     * short file is simply no save yet; nothing to restore.
+     */
+    private fun loadSave() {
+        val file = saveStore.saveFile(saveBase)
+        if (!file.exists()) return
+        val bytes = try {
+            file.readBytes()
+        } catch (_: Exception) {
+            return
+        }
+        val saveSize = Bridge.nativeSaveRamSize()
+        if (saveSize <= 0 || bytes.size < saveSize) return
+        if (!Bridge.nativeWriteSaveRam(bytes.copyOfRange(0, saveSize))) return
+        val rtcSize = Bridge.nativeRtcSize()
+        if (rtcSize > 0 && bytes.size >= saveSize + rtcSize) {
+            Bridge.nativeWriteRtc(bytes.copyOfRange(saveSize, saveSize + rtcSize))
+        }
+    }
+
+    /** Write a save state to slot [slot]. Only while paused — serialize must never race retro_run. */
+    fun saveState(slot: Int): Boolean {
+        if (!loaded || !paused) return false
+        val size = Bridge.nativeSerializeSize()
+        if (size <= 0) return false
+        val data = ByteArray(size)
+        val written = Bridge.nativeSerialize(data)
+        if (written < 0) return false
+        return try {
+            saveStore.stateFile(saveBase, slot).apply { parentFile?.mkdirs() }
+                .writeBytes(data.copyOf(written))
+            true
+        } catch (_: Exception) {
+            false
+        }
+    }
+
+    /** Load the save state in slot [slot]. Only while paused. */
+    fun loadState(slot: Int): Boolean {
+        if (!loaded || !paused) return false
+        val file = saveStore.stateFile(saveBase, slot)
+        if (!file.exists()) return false
+        val data = try {
+            file.readBytes()
+        } catch (_: Exception) {
+            return false
+        }
+        return Bridge.nativeUnserialize(data)
+    }
+
+    fun stateExists(slot: Int): Boolean = saveStore.stateExists(saveBase, slot)
+    fun stateModifiedAt(slot: Int): Long? = saveStore.stateModifiedAt(saveBase, slot)
 
     fun start() {
         if (running) return
@@ -143,6 +260,8 @@ class PlayerSession(
             fail("Native libraries failed to load.")
             return
         }
+        // Core options before init: the core reads them in retro_init.
+        applyOptions()
         if (!Bridge.nativeInit(systemDir, saveDir)) {
             fail("Could not initialise the core.")
             return
@@ -153,6 +272,7 @@ class PlayerSession(
             fail("Could not load the game. $detail")
             return
         }
+        loaded = true
         val av = Bridge.nativeGetAvInfo()
         val width = av[0]
         val height = av[1]
@@ -162,10 +282,14 @@ class PlayerSession(
         Bridge.nativeSetInput(inputMask)
         if (width <= 0 || height <= 0 || fps <= 0.0) {
             Bridge.nativeUnloadGame()
+            loaded = false
             Bridge.nativeDeinit()
             fail("The core reported no video mode.")
             return
         }
+        // Restore the battery save before the first frame — the
+        // core's deferred setup copies the buffer into the cart RAM.
+        loadSave()
 
         val frameNs = (1_000_000_000.0 / fps).toLong()
         val pixels = IntArray(width * height)
@@ -245,7 +369,11 @@ class PlayerSession(
         }
 
         stopAudio()
+        // Flush the battery save before unload — the core never
+        // writes it itself, and unload is the last chance.
+        flushSave()
         Bridge.nativeUnloadGame()
+        loaded = false
         Bridge.nativeDeinit()
         Log.i(TAG, "session stopped")
     }

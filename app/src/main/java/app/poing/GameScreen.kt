@@ -82,6 +82,9 @@ fun GameScreen(
             systemDir = context.filesDir.resolve("system").apply { mkdirs() }.absolutePath,
             saveDir = context.filesDir.resolve("saves").apply { mkdirs() }.absolutePath,
             gamePath = gamePath,
+            // The stored ROM file is <sha256>.<ext>: its stem is the
+            // stable per-game key for <base>.sav and <base>.stateN.
+            saveBase = java.io.File(gamePath).nameWithoutExtension,
             onFrame = { bitmap = it },
             onStats = { stats = it },
             onError = onError,
