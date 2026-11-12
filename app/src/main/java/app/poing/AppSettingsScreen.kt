@@ -69,7 +69,8 @@ fun AppSettingsScreen(
     LazyColumn(
         modifier = Modifier
             .fillMaxSize()
-            .background(PoingPurpleDeep.copy(alpha = 0.45f)),
+            .background(PoingPurpleDeep.copy(alpha = 0.45f))
+            .testTag("settings-list"),
     ) {
         item {
             Column(modifier = Modifier.padding(24.dp)) {

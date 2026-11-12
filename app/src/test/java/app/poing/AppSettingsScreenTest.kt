@@ -8,6 +8,7 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
+import androidx.compose.ui.test.performScrollToIndex
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -140,10 +141,14 @@ class AppSettingsScreenTest {
                 AppSettingsScreen(store = s, onCoreOptions = {}, onBack = { })
             }
         }
-        // The Display section is the last one in the list: scroll
-        // the switch into view first, or the row is never composed
-        // in the small test window (the item 5b lesson).
-        composeRule.onNodeWithTag("jade-chain-switch").performScrollTo()
+        // The Display section is the last one in the list: its
+        // rows are never composed in the small test window until
+        // the list scrolls there (the item 5b lesson — a bare
+        // onNodeWithTag finds nothing below the fold). Scroll
+        // to the Jade row first: index 9 (header, Player,
+        // fast-forward, input display, haptics, RA title, RA,
+        // rewind, Display title, Jade).
+        composeRule.onNodeWithTag("settings-list").performScrollToIndex(9)
         composeRule.onNodeWithText("Jade").assertIsDisplayed()
         assertTrue(AppSettingsStore(temp.root).jadeEnabled())
         composeRule.onNodeWithTag("jade-chain-switch").performClick()
@@ -161,7 +166,10 @@ class AppSettingsScreenTest {
                 AppSettingsScreen(store = s, optionsStore = options, onCoreOptions = {}, onBack = { })
             }
         }
-        composeRule.onNodeWithTag("jade-palette-row").performScrollTo().performClick()
+        // The palette row is index 10 (the Jade row's index 9,
+        // plus the palette row itself — see the Jade test).
+        composeRule.onNodeWithTag("settings-list").performScrollToIndex(10)
+        composeRule.onNodeWithTag("jade-palette-row").performClick()
         composeRule.onNodeWithText("DMG Green").performScrollTo().performClick()
         assertEquals("DMG Green", options.get("mgba_gb_colors"))
     }
