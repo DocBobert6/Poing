@@ -64,4 +64,65 @@ class ThemeContrastTest {
             PoingDarkColors.onSurface.luminance() > 0.7f,
         )
     }
+
+    // Phase 5 palette guards (colours sampled from the supplied
+    // icon: deep purple face, gold trim, silver chrome). Gold and
+    // silver are accents on black; the purple is a container
+    // colour with white text, never text on black.
+
+    @Test
+    fun primaryIsTheIconsPurple() {
+        assertTrue(
+            "primary must be the icon's deep purple, not the old Material purple",
+            PoingDarkColors.primary == PoingPurple,
+        )
+    }
+
+    @Test
+    fun goldOnBlackIsReadable() {
+        val ratio = contrastRatio(PoingGold, PoingDarkColors.background)
+        assertTrue("gold vs black contrast $ratio, want >= 4.5", ratio >= 4.5)
+    }
+
+    @Test
+    fun silverOnBlackIsReadable() {
+        val ratio = contrastRatio(PoingSilver, PoingDarkColors.background)
+        assertTrue("silver vs black contrast $ratio, want >= 7", ratio >= 7.0)
+    }
+
+    @Test
+    fun textOnPrimaryContainerIsReadable() {
+        val ratio = contrastRatio(
+            PoingDarkColors.onPrimaryContainer,
+            PoingDarkColors.primaryContainer,
+        )
+        assertTrue("onPrimaryContainer vs primaryContainer contrast $ratio, want >= 4.5", ratio >= 4.5)
+    }
+
+    @Test
+    fun blackOnGoldIsReadable() {
+        val ratio = contrastRatio(PoingDarkColors.onTertiary, PoingDarkColors.tertiary)
+        assertTrue("onTertiary vs tertiary contrast $ratio, want >= 4.5", ratio >= 4.5)
+    }
+
+    @Test
+    fun purpleIsNeverTextOnBlack() {
+        // Purple on black is 4.03:1 — below the AA floor. The
+        // purple is for containers with white text only; if this
+        // ever passes, someone made the purple light enough to be
+        // text, and the guardrail above no longer describes it.
+        val ratio = contrastRatio(PoingPurple, PoingDarkColors.background)
+        assertTrue("purple vs black must stay below 4.5 (it is a container, not text)", ratio < 4.5)
+    }
+
+    @Test
+    fun powerLightColoursAreDistinct() {
+        // Green (playing), amber (paused) and dark (off) must be
+        // three visibly different dots — a test that just asserts
+        // the mapping, so a copy-paste slip shows up here.
+        assertTrue(powerLightColor(PowerState.Playing) == PoingPowerGreen)
+        assertTrue(powerLightColor(PowerState.Paused) == PoingPowerAmber)
+        assertTrue(powerLightColor(PowerState.Playing) != powerLightColor(PowerState.Paused))
+        assertTrue(powerLightColor(PowerState.Off) != powerLightColor(PowerState.Playing))
+    }
 }

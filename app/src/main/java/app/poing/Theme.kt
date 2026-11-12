@@ -30,18 +30,43 @@ import kotlin.math.min
  * The fix: an explicit dark scheme (background black, to match
  * the window background; text white) wrapped in a root `Surface`
  * that paints `scheme.background`, so the text colour and the
- * background it sits on can never drift apart again. The primary
- * purple is the light-scheme purple Robert already saw on the
- * buttons (#6750A4, white text on it), kept deliberately so the
- * buttons look the same as before the fix.
+ * background it sits on can never drift apart again.
+ *
+ * PHASE 5 PALETTE — sampled from the supplied icon
+ * (icon/poing-icon.jpg: silver chrome tile, deep purple octagonal
+ * face, gold trim). The purple replaces the plain Material purple
+ * (#6750A4) the buttons used before; gold is a thin accent only,
+ * never a second primary; silver-grey is the chrome.
+ *
+ * GUARDRAIL (pinned by ThemeContrastTest): the purple is for
+ * containers with white text, NEVER for text on black — purple on
+ * black is 4.03:1, below the 4.5 AA floor. Gold and silver ARE
+ * readable on black (8.68 and 12.73), so gold rules and silver
+ * secondary text are fine.
  */
+val PoingPurple = Color(0xFF7E57C2) // icon's deep purple — primary
+val PoingPurpleDeep = Color(0xFF5E35B1) // Atomic panel base
+val PoingSilver = Color(0xFFC9C9CE) // chrome text on black
+val PoingChrome = Color(0xFF9A9AA0) // secondary chrome
+val PoingGold = Color(0xFFC9A227) // gold accent only
+val PoingPowerGreen = Color(0xFF66BB6A) // power light: playing
+val PoingPowerAmber = Color(0xFFFFB300) // power light: paused
+
 val PoingDarkColors = darkColorScheme(
     background = Color.Black,
     surface = Color.Black,
     onBackground = Color.White,
     onSurface = Color.White,
-    primary = Color(0xFF6750A4),
+    surfaceVariant = Color(0xFF2A2A2A),
+    onSurfaceVariant = PoingSilver,
+    primary = PoingPurple,
     onPrimary = Color.White,
+    primaryContainer = PoingPurpleDeep,
+    onPrimaryContainer = Color.White,
+    secondary = PoingSilver,
+    onSecondary = Color.Black,
+    tertiary = PoingGold,
+    onTertiary = Color.Black,
 )
 
 @Composable
