@@ -40,6 +40,9 @@ fun GameRow(
     coverFile: File?,
     onPlay: () -> Unit,
     onRemove: () -> Unit,
+    // Phase 6 (item 5) — seconds played, shown as "Played 2h 5m"
+    // when the game has been played at all.
+    playtimeSeconds: Long = 0,
 ) {
     Row(
         modifier = Modifier
@@ -87,6 +90,15 @@ fun GameRow(
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
+            if (playtimeSeconds > 0) {
+                // A numeric readout with letters — DSEG14, like the
+                // save-state times (DSEG7 has no letters for "h"/"m").
+                Text(
+                    "Played ${formatPlaytime(playtimeSeconds)}",
+                    style = segmentTextStyle14(),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
         }
         TextButton(onClick = onRemove) {
             Text("Remove")

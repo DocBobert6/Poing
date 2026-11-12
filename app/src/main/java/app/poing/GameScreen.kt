@@ -112,6 +112,8 @@ fun GameScreen(
             // Phase 6 (item 3) — the per-game cheat store, for
             // applying the stored cheats after load.
             cheatsDir = context.filesDir.resolve("cheats").apply { mkdirs() }.absolutePath,
+            // Phase 6 (item 5) — playtime is banked on pause/stop.
+            playtimeDir = context.filesDir.absolutePath,
             // Core options as stored: pushed to the bridge after the
             // libraries load and before the game loads.
             options = optionsStore.all(),

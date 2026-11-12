@@ -76,6 +76,36 @@ class PlayerSessionTest {
     }
 
     @Test
+    fun playtimeSecondsIsZeroBeforeStart() {
+        val s = session()
+        // No playtime dir wired in the default helper: nothing
+        // tracked, nothing banked.
+        assertEquals(0L, s.playtimeSeconds())
+    }
+
+    @Test
+    fun playtimeSecondsReadsTheStoredTotal() {
+        PlaytimeStore(temp.root).add("game", 3600)
+        val system = File(temp.root, "system").apply { mkdirs() }
+        val saves = File(temp.root, "saves").apply { mkdirs() }
+        val s = PlayerSession(
+            systemDir = system.absolutePath,
+            saveDir = saves.absolutePath,
+            gamePath = File(temp.root, "game.gb").absolutePath,
+            saveBase = "game",
+            playtimeDir = temp.root.absolutePath,
+            onFrame = {},
+            onStats = {},
+            onError = {},
+        )
+        assertEquals(3600L, s.playtimeSeconds())
+        // Pause/stop before start bank nothing (never started).
+        s.pause()
+        s.stop()
+        assertEquals(3600L, PlaytimeStore(temp.root).get("game"))
+    }
+
+    @Test
     fun failedStartReportsErrorInsteadOfCrashing() {
         var message: String? = null
         val system = File(temp.root, "system").apply { mkdirs() }

@@ -60,6 +60,7 @@ class PlayerSession(
     private val gamePath: String,
     private val saveBase: String,
     private val cheatsDir: String = "",
+    private val playtimeDir: String = "",
     private val options: Map<String, String> = emptyMap(),
     private val onFrame: (Bitmap) -> Unit,
     private val onStats: (PlayerStats) -> Unit,
@@ -78,6 +79,36 @@ class PlayerSession(
     /** The per-game cheat store, when the caller supplies a cheats dir (empty means no cheats). */
     private val cheatStore: CheatStore? =
         cheatsDir.takeIf { it.isNotBlank() }?.let { CheatStore(java.io.File(it)) }
+
+    /** The playtime store, when the caller supplies a playtime dir (empty means no tracking). */
+    private val playtimeStore: PlaytimeStore? =
+        playtimeDir.takeIf { it.isNotBlank() }?.let { PlaytimeStore(java.io.File(it)) }
+
+    /**
+     * Phase 6 (item 5) — when the current run started, in wall
+     * time. Set when the loop starts running and on every resume;
+     * cleared when the seconds are banked. Volatile: written on
+     * the emu thread, read on the UI thread (pause/stop).
+     * Wall time is the honest measure — it is the time the user
+     * spent playing, at whatever speed the game ran.
+     */
+    @Volatile
+    private var playStartMillis: Long? = null
+
+    /** Seconds played for this game: banked total + the current unbanked run. */
+    fun playtimeSeconds(): Long {
+        val banked = playtimeStore?.get(saveBase) ?: 0L
+        val start = playStartMillis ?: return banked
+        return banked + (System.currentTimeMillis() - start) / 1000
+    }
+
+    /** Bank the current run's whole seconds into the store. */
+    private fun bankPlaytime() {
+        val store = playtimeStore ?: return
+        val start = playStartMillis ?: return
+        playStartMillis = null
+        store.add(saveBase, (System.currentTimeMillis() - start) / 1000)
+    }
 
     @Volatile
     private var running = false
@@ -162,6 +193,8 @@ class PlayerSession(
         // The core is idle now: flush the battery save while it is
         // safe to read the live save-RAM buffer.
         flushSave()
+        // Bank the run's playtime while the core is idle.
+        bankPlaytime()
     }
 
     /** Resume a paused game. */
@@ -175,6 +208,8 @@ class PlayerSession(
             }
         }
         paused = false
+        // A new run starts now.
+        playStartMillis = System.currentTimeMillis()
     }
 
     /** Push core options to the bridge. The core re-reads them on the next frame; safe to call before init (the bridge seeds its table on first use) and safe to call when no game is running — it just loads the libraries, which is harmless. */
@@ -394,6 +429,9 @@ class PlayerSession(
         // false, so nothing is written.
         if (loaded && running && !paused) pause()
         if (loaded && paused) saveAutoState()
+        // Any run not already banked by pause() (a no-op when the
+        // stamp is already cleared).
+        bankPlaytime()
         running = false
         paused = false
         try {
@@ -466,6 +504,9 @@ class PlayerSession(
         var statWindowFrames = 0L
 
         startAudio()
+
+        // The first run starts now (playtime banks on pause/stop).
+        playStartMillis = System.currentTimeMillis()
 
         while (running) {
             if (paused) {

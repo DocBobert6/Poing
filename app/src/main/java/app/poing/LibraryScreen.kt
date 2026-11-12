@@ -65,6 +65,10 @@ fun LibraryScreen(
     val store = remember { LibraryStore(context.filesDir) }
     val bios = remember { BiosStore(context.filesDir) }
     val art = remember { CoverArtStore(context.filesDir) }
+    // Phase 6 (item 5) — playtime totals for the rows; the store
+    // is re-read on refresh so a finished session's banked time
+    // shows when the player quits back here.
+    val playtime = remember { PlaytimeStore(context.filesDir) }
     var games by remember { mutableStateOf(store.list()) }
     var filter by remember { mutableStateOf<GameSystem?>(null) }
     var biosInstalled by remember {
@@ -254,6 +258,7 @@ fun LibraryScreen(
                     coverFile = art.coverFile(game).takeIf { it.exists() },
                     onPlay = { onPlay(game) },
                     onRemove = { pendingRemove = game },
+                    playtimeSeconds = playtime.get(game.id),
                 )
             }
         }
@@ -281,7 +286,11 @@ fun LibraryScreen(
             confirmButton = {
                 TextButton(onClick = {
                     scope.launch {
-                        withContext(Dispatchers.IO) { store.remove(game) }
+                        withContext(Dispatchers.IO) {
+                            store.remove(game)
+                            // The playtime entry goes with the game.
+                            playtime.remove(game.id)
+                        }
                         pendingRemove = null
                         message = "Removed ${game.title}."
                         refresh()
