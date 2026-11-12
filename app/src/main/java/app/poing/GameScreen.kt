@@ -1,9 +1,9 @@
 package app.poing
 
-import android.app.Activity
 import android.content.pm.ActivityInfo
 import android.graphics.Bitmap
 import android.view.WindowManager
+import androidx.activity.ComponentActivity
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.awaitEachGesture
@@ -42,6 +42,8 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 
 /**
  * Phase 2 spike player screen: a fullscreen game view, minimal
@@ -71,7 +73,7 @@ fun GameScreen(
     onError: (String) -> Unit,
 ) {
     val context = LocalContext.current
-    val activity = context as? Activity
+    val activity = context as? ComponentActivity
     var bitmap by remember { mutableStateOf<Bitmap?>(null) }
     var stats by remember { mutableStateOf<PlayerStats?>(null) }
     var paused by remember { mutableStateOf(false) }
@@ -95,6 +97,38 @@ fun GameScreen(
     // Either side changing re-pushes the merged mask.
     fun pushInput() {
         session.setInput(held.mask or GamepadInput.state.mask)
+    }
+
+    // Pause: clear every held input FIRST (a finger that lifts while
+    // the pause overlay covers the buttons never reaches the button's
+    // gesture loop, so without this the button stays stuck down),
+    // then pause the session (which flushes the battery save) and
+    // push the cleared mask so the core sees no buttons held.
+    fun doPause() {
+        if (paused) return
+        held.clear()
+        GamepadInput.state.clear()
+        session.pause()
+        paused = true
+        pushInput()
+    }
+
+    fun doResume() {
+        if (!paused) return
+        session.resume()
+        paused = false
+    }
+
+    // Auto-pause when the player loses focus (Home, lock, incoming
+    // call): a game left running in the background would keep
+    // playing unheard and unwatched.
+    DisposableEffect(activity) {
+        if (activity == null) return@DisposableEffect onDispose {}
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_PAUSE) doPause()
+        }
+        activity.lifecycle.addObserver(observer)
+        onDispose { activity.lifecycle.removeObserver(observer) }
     }
 
     // Gamepad input lives only while the player is showing: the
@@ -151,13 +185,7 @@ fun GameScreen(
                     color = Color.White,
                 )
                 Button(onClick = {
-                    if (paused) {
-                        session.resume()
-                        paused = false
-                    } else {
-                        session.pause()
-                        paused = true
-                    }
+                    if (paused) doResume() else doPause()
                 }) {
                     Text(if (paused) "Resume" else "Pause")
                 }
@@ -190,8 +218,8 @@ fun GameScreen(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceEvenly,
                 ) {
-                    HoldButton("L", InputMask.JOY_L, held, ::pushInput)
-                    HoldButton("R", InputMask.JOY_R, held, ::pushInput)
+                    HoldButton("L", InputMask.JOY_L, held, paused, ::pushInput)
+                    HoldButton("R", InputMask.JOY_R, held, paused, ::pushInput)
                 }
             }
             // Controls row: D-pad left, Start/Select centre, A/B right.
@@ -202,16 +230,16 @@ fun GameScreen(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                DpadControl(held, ::pushInput)
+                DpadControl(held, paused, ::pushInput)
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    HoldButton("Start", InputMask.JOY_START, held, ::pushInput)
+                    HoldButton("Start", InputMask.JOY_START, held, paused, ::pushInput)
                     Spacer(Modifier.height(8.dp))
-                    HoldButton("Select", InputMask.JOY_SELECT, held, ::pushInput)
+                    HoldButton("Select", InputMask.JOY_SELECT, held, paused, ::pushInput)
                 }
                 Row {
-                    HoldButton("B", InputMask.JOY_B, held, ::pushInput)
+                    HoldButton("B", InputMask.JOY_B, held, paused, ::pushInput)
                     Spacer(Modifier.width(12.dp))
-                    HoldButton("A", InputMask.JOY_A, held, ::pushInput)
+                    HoldButton("A", InputMask.JOY_A, held, paused, ::pushInput)
                 }
             }
         }
@@ -228,10 +256,7 @@ fun GameScreen(
                     Spacer(Modifier.height(8.dp))
                     Text(gameName, color = Color.White)
                     Spacer(Modifier.height(24.dp))
-                    Button(onClick = {
-                        session.resume()
-                        paused = false
-                    }) {
+                    Button(onClick = { doResume() }) {
                         Text("Resume")
                     }
                     Spacer(Modifier.height(12.dp))
@@ -267,6 +292,12 @@ class HeldInput {
         mask = (mask and dirBits.inv()) or dirMask
         return mask
     }
+
+    /** Clear every held input (pause / quit). Returns the new mask (0). */
+    fun clear(): Int {
+        mask = 0
+        return mask
+    }
 }
 
 /**
@@ -280,6 +311,7 @@ private fun HoldButton(
     label: String,
     bit: Int,
     held: HeldInput,
+    paused: Boolean,
     onInputChanged: () -> Unit,
 ) {
     var pressed by remember { mutableStateOf(false) }
@@ -288,7 +320,12 @@ private fun HoldButton(
             .size(64.dp)
             .clip(CircleShape)
             .background(if (pressed) Color(0xFF6750A4) else Color(0xFF3A3A3A))
-            .pointerInput(bit) {
+            // Keyed on [paused]: pausing restarts the gesture loop,
+            // so a finger that lifts under the pause overlay cannot
+            // leave this button stuck down (the lift never reaches
+            // the loop). The visual state resets with the loop.
+            .pointerInput(bit, paused) {
+                pressed = false
                 awaitEachGesture {
                     awaitFirstDown()
                     pressed = true
@@ -316,7 +353,7 @@ private fun HoldButton(
  * the pad works — a second thumb's direction adds to the first's.
  */
 @Composable
-private fun DpadControl(held: HeldInput, onInputChanged: () -> Unit) {
+private fun DpadControl(held: HeldInput, paused: Boolean, onInputChanged: () -> Unit) {
     var sizePx by remember { mutableStateOf(0f) }
     Box(
         modifier = Modifier
@@ -324,7 +361,11 @@ private fun DpadControl(held: HeldInput, onInputChanged: () -> Unit) {
             .clip(RoundedCornerShape(16.dp))
             .background(Color(0xFF3A3A3A))
             .onSizeChanged { sizePx = it.width.toFloat() }
-            .pointerInput(Unit) {
+            // Keyed on [paused]: pausing restarts the loop and drops
+            // its active-pointer map, so a direction held when the
+            // pause overlay appears cannot stay stuck (the lift
+            // under the overlay never reaches the loop).
+            .pointerInput(paused) {
                 awaitEachGesture {
                     val active = mutableMapOf<PointerId, androidx.compose.ui.geometry.Offset>()
                     while (true) {
