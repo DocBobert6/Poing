@@ -70,7 +70,10 @@ jobs:
             exit 1
           fi
           # Build route: mGBA has no ndk-build route upstream.
-          if find . -path ./.git -prune -o -name "Android.mk" -print | grep -q .; then
+          # (deps/ is Poing's own vendoring, not upstream — the
+          # rcheevos sources there are built by CMake, so an
+          # Android.mk under deps/ must not trip this guard.)
+          if find . -path ./.git -prune -o -path ./deps -prune -o -name "Android.mk" -print | grep -q .; then
             echo "Android.mk appeared upstream — the build route changed; re-audit before building."
             exit 1
           fi

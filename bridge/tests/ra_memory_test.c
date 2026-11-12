@@ -19,7 +19,7 @@
  *     -I../jni ra_memory_test.c ../jni/ra_client.c \
  *     <rcheevos sources, see the Makefile note below> \
  *     -o ra_memory_test && ./ra_memory_test
- * (rcheevos sources: the list in deps/rcheevos/Android.mk.)
+ * (rcheevos sources: the list in bridge/jni/CMakeLists.txt.)
  */
 
 #include <stdio.h>
