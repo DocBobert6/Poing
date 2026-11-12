@@ -7,6 +7,7 @@ import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -123,7 +124,11 @@ class AppSettingsScreenTest {
         }
         composeRule.onNodeWithText("Haptics").assertIsDisplayed()
         assertTrue(AppSettingsStore(temp.root).hapticsEnabled())
-        composeRule.onNodeWithTag("haptics-switch").performClick()
+        // The haptics row sits near the bottom of the settings
+        // list (below the FF and input-display rows): scroll it
+        // into view before clicking, or the click can miss a
+        // switch that is only just inside the viewport.
+        composeRule.onNodeWithTag("haptics-switch").performScrollTo().performClick()
         assertFalse(AppSettingsStore(temp.root).hapticsEnabled())
     }
 }
