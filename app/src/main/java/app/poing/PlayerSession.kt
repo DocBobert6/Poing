@@ -59,6 +59,7 @@ class PlayerSession(
     private val saveDir: String,
     private val gamePath: String,
     private val saveBase: String,
+    private val cheatsDir: String = "",
     private val options: Map<String, String> = emptyMap(),
     private val onFrame: (Bitmap) -> Unit,
     private val onStats: (PlayerStats) -> Unit,
@@ -73,6 +74,10 @@ class PlayerSession(
     }
 
     private val saveStore = SaveStore(java.io.File(saveDir))
+
+    /** The per-game cheat store, when the caller supplies a cheats dir (empty means no cheats). */
+    private val cheatStore: CheatStore? =
+        cheatsDir.takeIf { it.isNotBlank() }?.let { CheatStore(java.io.File(it)) }
 
     @Volatile
     private var running = false
@@ -176,6 +181,22 @@ class PlayerSession(
     fun applyOptions(options: Map<String, String>) {
         if (!Bridge.ensureLoaded()) return
         for ((key, value) in options) Bridge.nativeSetOption(key, value)
+    }
+
+    /**
+     * Phase 6 (item 3) — apply a cheat list to the running game:
+     * reset all, then set each enabled code. False (and nothing
+     * applied) when no game is loaded. Safe to call while paused
+     * (no retro_run in flight) and from the emu thread right after
+     * load; never call it mid-frame.
+     */
+    fun applyCheats(cheats: List<Cheat>): Boolean {
+        if (!loaded) return false
+        Bridge.nativeClearCheats()
+        for (cheat in cheats) {
+            if (cheat.enabled) Bridge.nativeSetCheat(cheat.code)
+        }
+        return true
     }
 
     fun applyOptions() = applyOptions(options)
@@ -429,6 +450,9 @@ class PlayerSession(
         // Restore the battery save before the first frame — the
         // core's deferred setup copies the buffer into the cart RAM.
         loadSave()
+        // Stored cheats for this game, applied before the first
+        // frame so they are live from the start.
+        cheatStore?.let { applyCheats(it.list(saveBase)) }
 
         val pixels = IntArray(width * height)
         val dims = IntArray(2)

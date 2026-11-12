@@ -76,6 +76,7 @@ fun GameScreen(
     var stats by remember { mutableStateOf<PlayerStats?>(null) }
     var paused by remember { mutableStateOf(false) }
     var showSettings by remember { mutableStateOf(false) }
+    var showCheats by remember { mutableStateOf(false) }
     var pauseMessage by remember { mutableStateOf<String?>(null) }
     val held = remember { HeldInput() }
 
@@ -96,6 +97,9 @@ fun GameScreen(
             // The stored ROM file is <sha256>.<ext>: its stem is the
             // stable per-game key for <base>.sav and <base>.stateN.
             saveBase = java.io.File(gamePath).nameWithoutExtension,
+            // Phase 6 (item 3) — the per-game cheat store, for
+            // applying the stored cheats after load.
+            cheatsDir = context.filesDir.resolve("cheats").apply { mkdirs() }.absolutePath,
             // Core options as stored: pushed to the bridge after the
             // libraries load and before the game loads.
             options = optionsStore.all(),
@@ -322,7 +326,7 @@ fun GameScreen(
         // Pause overlay: the Pocket screen dimmed — the game stays
         // visible behind the dim, and the menu is an Atomic panel
         // (see PauseMenu).
-        if (paused && !showSettings) {
+        if (paused && !showSettings && !showCheats) {
             Box(
                 modifier = Modifier
                     .fillMaxSize()
@@ -337,6 +341,7 @@ fun GameScreen(
                     onResume = { doResume() },
                     onQuit = onQuit,
                     onCoreOptions = { showSettings = true },
+                    onCheats = { showCheats = true },
                 )
             }
         }
@@ -353,6 +358,25 @@ fun GameScreen(
                     store = optionsStore,
                     onValueChanged = { session.applyOptions(optionsStore.all()) },
                     onBack = { showSettings = false },
+                )
+            }
+        }
+        // Cheats over the paused game: a change saves the list and
+        // re-applies the enabled codes to the session immediately.
+        if (showCheats) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.Black),
+            ) {
+                CheatsScreen(
+                    gameName = gameName,
+                    system = GameSystem.fromExtension(gamePath)
+                        ?: if (isGba) GameSystem.GBA else GameSystem.GB,
+                    saveBase = java.io.File(gamePath).nameWithoutExtension,
+                    store = remember { CheatStore(context.filesDir.resolve("cheats").apply { mkdirs() }) },
+                    session = session,
+                    onBack = { showCheats = false },
                 )
             }
         }

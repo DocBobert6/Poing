@@ -70,6 +70,10 @@ object Bridge {
     external fun nativeReadRtc(data: ByteArray): Boolean
     external fun nativeWriteRtc(data: ByteArray): Boolean
 
+    /** Cheats (see bridge.cpp). Only valid while a game is loaded; no-ops otherwise. */
+    external fun nativeSetCheat(code: String)
+    external fun nativeClearCheats()
+
     external fun nativeUnloadGame()
     external fun nativeDeinit()
     external fun nativeLastError(): String

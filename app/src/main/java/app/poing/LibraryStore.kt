@@ -25,8 +25,8 @@ data class LibraryGame(
  * copies under filesDir/games/ (the library never points at the
  * user's originals), the index is filesDir/library.txt — one
  * escaped pipe-delimited line per game. Battery saves live in
- * filesDir/saves/ (the PlayerSession save dir) and covers in
- * filesDir/covers/.
+ * filesDir/saves/ (the PlayerSession save dir), covers in
+ * filesDir/covers/, and per-game cheats in filesDir/cheats/.
  *
  * Pure java.io — no Android APIs — so the whole store runs under
  * plain JVM unit tests.
@@ -36,6 +36,7 @@ class LibraryStore(private val root: File) {
     val gamesDir: File get() = File(root, "games").apply { mkdirs() }
     private val savesDir: File get() = File(root, "saves").apply { mkdirs() }
     private val coversDir: File get() = File(root, "covers").apply { mkdirs() }
+    private val cheatsDir: File get() = File(root, "cheats").apply { mkdirs() }
     private val indexFile: File get() = File(root, "library.txt")
 
     /** Games sorted by title; entries whose file is gone are dropped (self-healing). */
@@ -112,7 +113,8 @@ class LibraryStore(private val root: File) {
     /**
      * Remove a game: deletes the stored copy and everything that
      * belongs to it — the battery save and any later save states in
-     * filesDir/saves/, the cached cover — then drops the index row.
+     * filesDir/saves/, the cached cover, the cheat file in
+     * filesDir/cheats/ — then drops the index row.
      */
     fun remove(game: LibraryGame) {
         File(gamesDir, game.fileName).delete()
@@ -123,6 +125,7 @@ class LibraryStore(private val root: File) {
         coversDir.listFiles()?.forEach { f ->
             if (f.nameWithoutExtension == game.id) f.delete()
         }
+        File(cheatsDir, "$base.txt").delete()
         saveIndex(list().filter { it.id != game.id })
     }
 

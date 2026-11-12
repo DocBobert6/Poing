@@ -833,4 +833,40 @@ Java_app_poing_Bridge_nativeLastError(JNIEnv *env, jobject /* thiz */) {
     return out;
 }
 
+// ---------------------------------------------------------------------------
+// Cheats (Phase 6, item 3)
+// ---------------------------------------------------------------------------
+//
+// The core implements retro_cheat_set/reset (libretro.c:2174-2215):
+// GBA codes are "XXXXXXXX XXXXXXXX" (GameShark) or "XXXXXXXX YYYY"
+// (CodeBreaker); GB codes are "XXX-XXX-XXX" (Game Genie), 8 hex
+// digits (GameShark) or "XXXX:XX" (VBA). The converter inside
+// retro_cheat_set splits the input into one line per code, so the
+// Kotlin side passes one code per call. retro_cheat_set ignores
+// its index/enabled arguments and appends to cheat set 0 — to
+// disable one cheat the Kotlin side resets all and re-adds the
+// enabled ones. Only valid while a game is loaded (the cheat
+// device lives on the core); the Kotlin side enforces that, and
+// these guards make a stray call a no-op instead of a crash.
+//
+JNIEXPORT void JNICALL
+Java_app_poing_Bridge_nativeSetCheat(JNIEnv *env, jobject /* thiz */,
+                                     jstring code) {
+    if (!g_inited || !g_loaded || !code)
+        return;
+    const char *c = env->GetStringUTFChars(code, nullptr);
+    if (!c)
+        return;
+    retro_cheat_set(0, true, c);
+    env->ReleaseStringUTFChars(code, c);
+}
+
+JNIEXPORT void JNICALL
+Java_app_poing_Bridge_nativeClearCheats(JNIEnv * /* env */,
+                                        jobject /* thiz */) {
+    if (!g_inited || !g_loaded)
+        return;
+    retro_cheat_reset();
+}
+
 } // extern "C"

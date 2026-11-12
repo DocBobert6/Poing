@@ -67,6 +67,15 @@ class PlayerSessionTest {
     }
 
     @Test
+    fun applyCheatsIsNoOpBeforeStart() {
+        val s = session()
+        // No game loaded: nothing is applied and the call reports
+        // false instead of touching native code.
+        assertFalse(s.applyCheats(listOf(Cheat("01234567", true))))
+        assertFalse(s.applyCheats(emptyList()))
+    }
+
+    @Test
     fun failedStartReportsErrorInsteadOfCrashing() {
         var message: String? = null
         val system = File(temp.root, "system").apply { mkdirs() }

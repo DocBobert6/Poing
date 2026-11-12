@@ -96,6 +96,17 @@ class LibraryStoreTest {
     }
 
     @Test
+    fun removeDeletesCheatFile() {
+        val store = store()
+        val game = store.addRom(GameSystemTest.fakeGbHeader(0x00, "TETRIS"), "tetris.gb")!!
+        val cheats = temp.root.resolve("cheats").apply { mkdirs() }
+        cheats.resolve("${game.id}.txt").writeText("1|01234567\n")
+        assertTrue(cheats.resolve("${game.id}.txt").exists())
+        store.remove(game)
+        assertFalse(cheats.resolve("${game.id}.txt").exists())
+    }
+
+    @Test
     fun malformedIndexLinesAreSkipped() {
         val store = store()
         store.addRom(GameSystemTest.fakeGbHeader(0x00, "TETRIS"), "tetris.gb")
