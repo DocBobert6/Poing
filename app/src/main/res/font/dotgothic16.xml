@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- DotGothic16 (Fontworks) — the dot-matrix display face.
+     SIL OFL 1.1; full text in assets/fonts/OFL-DotGothic16.txt.
+     Single weight 400; see PoingFonts.kt for the approved sizes. -->
+<font-family xmlns:android="http://schemas.android.com/apk/res/android">
+    <font
+        android:fontStyle="normal"
+        android:fontWeight="400"
+        android:font="@font/dotgothic16_regular" />
+</font-family>

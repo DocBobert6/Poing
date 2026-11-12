@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- DSEG7 Classic (keshikan) — the seven-segment LCD face for
+     numeric readouts only. SIL OFL 1.1, Reserved Font Name "DSEG"
+     — the name is kept exactly as the author reserved it; do not
+     rename this font. Full text in assets/fonts/OFL-DSEG.txt. -->
+<font-family xmlns:android="http://schemas.android.com/apk/res/android">
+    <font
+        android:fontStyle="normal"
+        android:fontWeight="400"
+        android:font="@font/dseg7classic_regular" />
+</font-family>

@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- VT323 (Peter Hull) — the terminal face for the diagnostic
+     overlay and terminal-style text. SIL OFL 1.1; full text in
+     assets/fonts/OFL-VT323.txt. -->
+<font-family xmlns:android="http://schemas.android.com/apk/res/android">
+    <font
+        android:fontStyle="normal"
+        android:fontWeight="400"
+        android:font="@font/vt323_regular" />
+</font-family>

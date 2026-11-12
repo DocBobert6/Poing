@@ -12,6 +12,31 @@ for individual copyright notices.
 
 Poing! is not affiliated with or endorsed by Nintendo.
 
+Fonts
+-----
+
+Poing!'s display type uses three open fonts, all under the SIL Open
+Font License Version 1.1. The full licence text for each travels
+with the font in the app (assets/fonts/ in the APK):
+
+- DotGothic16 — Copyright 2020 The DotGothic16 Project Authors
+  (https://github.com/fontworks-fonts/DotGothic16). The dot-matrix
+  display face: wordmark, headers, system badges, boot splash.
+  Full text: assets/fonts/OFL-DotGothic16.txt.
+- VT323 — Copyright 2011, The VT323 Project Authors
+  (peter.hull@oikoi.com). The terminal face: diagnostic overlay
+  and terminal-style text. Full text: assets/fonts/OFL-VT323.txt.
+- DSEG — Copyright (c) 2020, keshikan (https://www.keshikan.net),
+  with Reserved Font Name "DSEG". The seven- and fourteen-segment
+  LCD faces (DSEG7 / DSEG14): numeric readouts only. The font name
+  is kept as the author reserved it. Full text:
+  assets/fonts/OFL-DSEG.txt.
+
+No font is sold on its own; each is bundled with this software
+under the OFL, as the licence allows.
+
+-----------------------------------------------------------------
+
 -----------------------------------------------------------------
 
 Mozilla Public License Version 2.0

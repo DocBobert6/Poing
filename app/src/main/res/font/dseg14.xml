@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- DSEG14 Classic (keshikan) — the fourteen-segment LCD face,
+     used only where a numeric readout needs letters (e.g. a
+     save-state time with a month name). SIL OFL 1.1, Reserved Font
+     Name "DSEG" — the name is kept exactly as the author reserved
+     it; do not rename this font. Full text in
+     assets/fonts/OFL-DSEG.txt. -->
+<font-family xmlns:android="http://schemas.android.com/apk/res/android">
+    <font
+        android:fontStyle="normal"
+        android:fontWeight="400"
+        android:font="@font/dseg14classic_regular" />
+</font-family>
