@@ -1,9 +1,10 @@
 package app.poing
 
 import android.content.Context
-import androidx.compose.ui.test.assertDoesNotExist
+import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
+import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.test.core.app.ApplicationProvider
@@ -64,7 +65,10 @@ class LibraryScreenTest {
         composeRule.onNodeWithText("POKEMON GOLD").assertIsDisplayed()
         composeRule.onNodeWithText("GBC").performClick()
         composeRule.onNodeWithText("POKEMON GOLD").assertIsDisplayed()
-        composeRule.onNodeWithText("TETRIS").assertDoesNotExist()
+        // No single-node assertDoesNotExist on this classpath —
+        // count the matches instead: zero TETRIS rows after the
+        // GBC filter.
+        composeRule.onAllNodesWithText("TETRIS").assertCountEquals(0)
         composeRule.onNodeWithText("ALL").performClick()
         composeRule.onNodeWithText("TETRIS").assertIsDisplayed()
         composeRule.onNodeWithText("POKEMON GOLD").assertIsDisplayed()
