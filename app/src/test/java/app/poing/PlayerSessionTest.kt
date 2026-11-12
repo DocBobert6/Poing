@@ -5,6 +5,7 @@ import java.io.File
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
@@ -101,5 +102,14 @@ class PlayerSessionTest {
         assertEquals(PlaySpeed.FF3, s.currentSpeed)
         s.setSpeed(PlaySpeed.SLOW)
         assertEquals(PlaySpeed.SLOW, s.currentSpeed)
+    }
+
+    @Test
+    fun noAutoSaveBeforeStartAndStopWritesNone() {
+        val s = session()
+        assertFalse(s.autoStateExists())
+        assertNull(s.autoStateModifiedAt())
+        s.stop()
+        assertFalse(s.autoStateExists())
     }
 }

@@ -31,6 +31,12 @@ import android.util.Log
  * right after load, before the first frame: the core's deferred
  * setup copies the save-RAM buffer into the emulated cart RAM.
  *
+ * Save-state thumbnails (Phase 6, item 2): every saved state gets
+ * a small PNG of the frame it was saved on, written beside the
+ * state file. Quitting writes an auto-save to a dedicated slot
+ * (the latest quit wins) — the pause menu offers it back as a
+ * Load, it never auto-loads on the next start.
+ *
  * Core options ([options]) are pushed to the bridge after the
  * native libraries load and before the game loads; [applyOptions]
  * re-pushes them live (the core re-reads them on the next frame).
@@ -61,6 +67,9 @@ class PlayerSession(
     companion object {
         private const val TAG = "Poing"
         private const val AUDIO_RATE = 48000
+
+        /** Width of a save-state thumbnail in pixels (aspect kept from the frame). */
+        const val THUMBNAIL_WIDTH = 120
     }
 
     private val saveStore = SaveStore(java.io.File(saveDir))
@@ -90,6 +99,10 @@ class PlayerSession(
 
     @Volatile
     private var inputMask = 0
+
+    /** The latest frame drawn, for save-state thumbnails. Written by the emu loop, read only while paused (the loop is idle then, so the Bitmap is stable). */
+    @Volatile
+    private var latestFrame: Bitmap? = null
 
     fun setInput(mask: Int) {
         inputMask = mask
@@ -221,17 +234,114 @@ class PlayerSession(
     /** Write a save state to slot [slot]. Only while paused — serialize must never race retro_run. */
     fun saveState(slot: Int): Boolean {
         if (!loaded || !paused) return false
+        if (!serializeTo(saveStore.stateFile(saveBase, slot))) return false
+        // A missing thumbnail never fails the save itself.
+        try {
+            writeThumbnail(saveStore.thumbnailFile(saveBase, slot))
+        } catch (_: Exception) {
+        }
+        return true
+    }
+
+    /** Write the auto-save state (the dedicated auto slot). Only while paused — same rule as saveState. */
+    fun saveAutoState(): Boolean {
+        if (!loaded || !paused) return false
+        if (!serializeTo(saveStore.autoStateFile(saveBase))) return false
+        try {
+            writeThumbnail(saveStore.autoThumbnailFile(saveBase))
+        } catch (_: Exception) {
+        }
+        return true
+    }
+
+    /** Load the auto-save state. Only while paused. */
+    fun loadAutoState(): Boolean {
+        if (!loaded || !paused) return false
+        val file = saveStore.autoStateFile(saveBase)
+        if (!file.exists()) return false
+        val data = try {
+            file.readBytes()
+        } catch (_: Exception) {
+            return false
+        }
+        return Bridge.nativeUnserialize(data)
+    }
+
+    fun stateExists(slot: Int): Boolean = saveStore.stateExists(saveBase, slot)
+    fun stateModifiedAt(slot: Int): Long? = saveStore.stateModifiedAt(saveBase, slot)
+    fun thumbnailExists(slot: Int): Boolean = saveStore.thumbnailExists(saveBase, slot)
+    fun autoStateExists(): Boolean = saveStore.autoStateExists(saveBase)
+    fun autoStateModifiedAt(): Long? = saveStore.autoStateModifiedAt(saveBase)
+    fun autoThumbnailExists(): Boolean = saveStore.autoThumbnailFile(saveBase).exists()
+
+    /**
+     * The thumbnail PNG for a save state, decoded — or null when
+     * the slot has no thumbnail yet (states saved before this
+     * feature, or saved before the first frame). Decodes on the
+     * caller's thread; the files are ~120px wide, so this is
+     * milliseconds — the pause menu calls it during composition.
+     */
+    fun stateThumbnail(slot: Int): Bitmap? {
+        val file = saveStore.thumbnailFile(saveBase, slot)
+        if (!file.exists()) return null
+        return try {
+            android.graphics.BitmapFactory.decodeFile(file.absolutePath)
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    /** The auto-save's thumbnail, decoded — or null when there is none. */
+    fun autoStateThumbnail(): Bitmap? {
+        val file = saveStore.autoThumbnailFile(saveBase)
+        if (!file.exists()) return null
+        return try {
+            android.graphics.BitmapFactory.decodeFile(file.absolutePath)
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    /**
+     * Serialize the core state into [file]. Only valid while the
+     * emu loop is paused — serialize must never race retro_run.
+     */
+    private fun serializeTo(file: java.io.File): Boolean {
         val size = Bridge.nativeSerializeSize()
         if (size <= 0) return false
         val data = ByteArray(size)
         val written = Bridge.nativeSerialize(data)
         if (written < 0) return false
         return try {
-            saveStore.stateFile(saveBase, slot).apply { parentFile?.mkdirs() }
-                .writeBytes(data.copyOf(written))
+            file.apply { parentFile?.mkdirs() }.writeBytes(data.copyOf(written))
             true
         } catch (_: Exception) {
             false
+        }
+    }
+
+    /**
+     * Write a small PNG of the latest frame to [file]. Nothing when
+     * no frame has been drawn yet (a state saved before the first
+     * frame has no picture to show). Runs on the caller's thread —
+     * the pause menu calls saveState on IO, and the auto-save runs
+     * on the quit path, where the battery save already does file IO.
+     */
+    private fun writeThumbnail(file: java.io.File) {
+        val frame = latestFrame ?: return
+        val scaled = Bitmap.createScaledBitmap(
+            frame,
+            THUMBNAIL_WIDTH,
+            (frame.height * THUMBNAIL_WIDTH) / frame.width,
+            false,
+        )
+        try {
+            file.parentFile?.mkdirs()
+            file.outputStream().use { out ->
+                scaled.compress(Bitmap.CompressFormat.PNG, 100, out)
+            }
+        } finally {
+            if (scaled != frame) scaled.recycle()
         }
     }
 
@@ -248,9 +358,6 @@ class PlayerSession(
         return Bridge.nativeUnserialize(data)
     }
 
-    fun stateExists(slot: Int): Boolean = saveStore.stateExists(saveBase, slot)
-    fun stateModifiedAt(slot: Int): Long? = saveStore.stateModifiedAt(saveBase, slot)
-
     fun start() {
         if (running) return
         running = true
@@ -258,6 +365,14 @@ class PlayerSession(
     }
 
     fun stop() {
+        // Quit auto-save (Phase 6, item 2): the game is paused
+        // first if it is still running, so the serialize can never
+        // race a frame — then the auto state is written before the
+        // game unloads, which is the last chance to capture it.
+        // Never started (or a failed start) is a no-op: loaded is
+        // false, so nothing is written.
+        if (loaded && running && !paused) pause()
+        if (loaded && paused) saveAutoState()
         running = false
         paused = false
         try {
@@ -354,6 +469,7 @@ class PlayerSession(
                     bitmaps[back].setPixels(pixels, 0, width, 0, 0, width, height)
                     front = back
                     val frame = bitmaps[front]
+                    latestFrame = frame
                     mainHandler.post { onFrame(frame) }
                     framesDrawn++
                     statWindowFrames++

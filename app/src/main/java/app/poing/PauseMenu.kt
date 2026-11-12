@@ -1,6 +1,9 @@
 package app.poing
 
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -9,15 +12,20 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -102,11 +110,15 @@ fun PauseMenu(
             Text("Save states", style = displayTextStyle(DisplaySizeMedium), color = Color.White)
             for (slot in 0 until SaveStore.SLOT_COUNT) {
                 val savedAt = session.stateModifiedAt(slot)
+                // Keyed on the saved time: a fresh save re-decodes
+                // the new thumbnail instead of showing the old one.
+                val thumb = remember(savedAt) { session.stateThumbnail(slot) }
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     modifier = Modifier.padding(vertical = 4.dp),
                 ) {
+                    StateThumbnail(thumb, "state-thumb-$slot")
                     Text(
                         "Slot $slot" + if (slot == SaveStore.QUICK_SLOT) " (quick)" else "",
                         color = Color.White,
@@ -143,6 +155,42 @@ fun PauseMenu(
                     }
                 }
             }
+            Spacer(Modifier.height(16.dp))
+            Text("Auto-save", style = displayTextStyle(DisplaySizeMedium), color = Color.White)
+            Text(
+                "Written when you quit, so you can pick up where you left off. It never loads itself.",
+                color = Color.White,
+            )
+            run {
+                val savedAt = session.autoStateModifiedAt()
+                val thumb = remember(savedAt) { session.autoStateThumbnail() }
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.padding(vertical = 4.dp),
+                ) {
+                    StateThumbnail(thumb, "state-thumb-auto")
+                    Text(
+                        savedAt?.let { formatStateTime(it) } ?: "empty",
+                        color = Color.White,
+                        style = segmentTextStyle14(),
+                    )
+                    Button(
+                        onClick = {
+                            onMessage(null)
+                            scope.launch(Dispatchers.IO) {
+                                val ok = session.loadAutoState()
+                                withContext(Dispatchers.Main) {
+                                    onMessage(if (ok) "Auto-save loaded." else "Load failed.")
+                                }
+                            }
+                        },
+                        enabled = savedAt != null,
+                    ) {
+                        Text("Load")
+                    }
+                }
+            }
             Spacer(Modifier.height(12.dp))
             Button(onClick = onCoreOptions) {
                 Text("Core options")
@@ -159,4 +207,30 @@ fun PauseMenu(
 private fun formatStateTime(millis: Long): String {
     val fmt = java.text.SimpleDateFormat("MMM d, HH:mm", java.util.Locale.getDefault())
     return fmt.format(java.util.Date(millis))
+}
+
+/**
+ * A save-state thumbnail: the 120px-wide PNG in a small dark
+ * frame, or an empty dark frame when the slot has no thumbnail
+ * yet (a state saved before this feature, or before the first
+ * frame). The frame keeps the rows aligned either way.
+ */
+@Composable
+private fun StateThumbnail(bitmap: android.graphics.Bitmap?, testTag: String) {
+    Box(
+        modifier = Modifier
+            .size(width = 72.dp, height = 54.dp)
+            .testTag(testTag)
+            .background(Color(0xFF111111)),
+        contentAlignment = Alignment.Center,
+    ) {
+        if (bitmap != null) {
+            Image(
+                bitmap = bitmap.asImageBitmap(),
+                contentDescription = null,
+                modifier = Modifier.fillMaxSize(),
+                contentScale = ContentScale.Fit,
+            )
+        }
+    }
 }

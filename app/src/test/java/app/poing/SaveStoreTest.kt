@@ -58,4 +58,32 @@ class SaveStoreTest {
         assertEquals(0, SaveStore.QUICK_SLOT)
         assertEquals(4, SaveStore.SLOT_COUNT)
     }
+
+    @Test
+    fun thumbnailFilesSitBesideTheirStates() {
+        val store = store()
+        assertEquals("abc.state0.png", store.thumbnailFile("abc", 0).name)
+        assertEquals("abc.state3.png", store.thumbnailFile("abc", 3).name)
+        assertFalse(store.thumbnailExists("abc", 0))
+        store.thumbnailFile("abc", 0).writeBytes(byteArrayOf(1))
+        assertTrue(store.thumbnailExists("abc", 0))
+        try {
+            store.thumbnailFile("abc", 4)
+            throw AssertionError("thumbnail slot 4 must be rejected")
+        } catch (_: IllegalArgumentException) {
+            // Expected: same slot range as the states.
+        }
+    }
+
+    @Test
+    fun autoSaveFilesAreTheirOwnSlot() {
+        val store = store()
+        assertEquals("abc.stateAuto", store.autoStateFile("abc").name)
+        assertEquals("abc.stateAuto.png", store.autoThumbnailFile("abc").name)
+        assertFalse(store.autoStateExists("abc"))
+        assertNull(store.autoStateModifiedAt("abc"))
+        store.autoStateFile("abc").writeBytes(byteArrayOf(1, 2))
+        assertTrue(store.autoStateExists("abc"))
+        assertNotNull(store.autoStateModifiedAt("abc"))
+    }
 }
