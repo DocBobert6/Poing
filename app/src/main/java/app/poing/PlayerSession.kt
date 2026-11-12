@@ -61,6 +61,12 @@ class PlayerSession(
     private val saveBase: String,
     private val cheatsDir: String = "",
     private val playtimeDir: String = "",
+    // Phase 6 (item 5) — a pending load from the Save Manager:
+    // a save-state slot, or the auto-save. Applied in the emu
+    // loop before the first frame, so the game starts exactly
+    // where the state left it.
+    private val loadStateOnStart: Int? = null,
+    private val loadAutoOnStart: Boolean = false,
     private val options: Map<String, String> = emptyMap(),
     private val onFrame: (Bitmap) -> Unit,
     private val onStats: (PlayerStats) -> Unit,
@@ -313,7 +319,17 @@ class PlayerSession(
     /** Load the auto-save state. Only while paused. */
     fun loadAutoState(): Boolean {
         if (!loaded || !paused) return false
-        val file = saveStore.autoStateFile(saveBase)
+        return unserializeStateFile(saveStore.autoStateFile(saveBase))
+    }
+
+    /**
+     * Read a state file and unserialize it into the core. False
+     * when the file is missing or unreadable, or the core refuses
+     * it. Shared by the paused loads and the pending load at
+     * startup (where no frame is running yet, so the paused guard
+     * does not apply).
+     */
+    private fun unserializeStateFile(file: java.io.File): Boolean {
         if (!file.exists()) return false
         val data = try {
             file.readBytes()
@@ -404,14 +420,7 @@ class PlayerSession(
     /** Load the save state in slot [slot]. Only while paused. */
     fun loadState(slot: Int): Boolean {
         if (!loaded || !paused) return false
-        val file = saveStore.stateFile(saveBase, slot)
-        if (!file.exists()) return false
-        val data = try {
-            file.readBytes()
-        } catch (_: Exception) {
-            return false
-        }
-        return Bridge.nativeUnserialize(data)
+        return unserializeStateFile(saveStore.stateFile(saveBase, slot))
     }
 
     fun start() {
@@ -491,6 +500,11 @@ class PlayerSession(
         // Stored cheats for this game, applied before the first
         // frame so they are live from the start.
         cheatStore?.let { applyCheats(it.list(saveBase)) }
+        // A pending load from the Save Manager: the state is
+        // unserialized before the first frame, so the game starts
+        // exactly where the state left it.
+        loadStateOnStart?.let { unserializeStateFile(saveStore.stateFile(saveBase, it)) }
+        if (loadAutoOnStart) unserializeStateFile(saveStore.autoStateFile(saveBase))
 
         val pixels = IntArray(width * height)
         val dims = IntArray(2)

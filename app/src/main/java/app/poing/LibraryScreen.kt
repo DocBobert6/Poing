@@ -60,6 +60,8 @@ fun LibraryScreen(
     onPlay: (LibraryGame) -> Unit,
     onLicences: () -> Unit,
     onSettings: () -> Unit,
+    // Phase 6 (item 5) — open the Save Manager for a game.
+    onSaveManager: (LibraryGame) -> Unit = {},
 ) {
     val context = LocalContext.current
     val store = remember { LibraryStore(context.filesDir) }
@@ -259,6 +261,7 @@ fun LibraryScreen(
                     onPlay = { onPlay(game) },
                     onRemove = { pendingRemove = game },
                     playtimeSeconds = playtime.get(game.id),
+                    onSaveManager = { onSaveManager(game) },
                 )
             }
         }

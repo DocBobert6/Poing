@@ -43,6 +43,8 @@ fun GameRow(
     // Phase 6 (item 5) — seconds played, shown as "Played 2h 5m"
     // when the game has been played at all.
     playtimeSeconds: Long = 0,
+    // Phase 6 (item 5) — open the Save Manager for this game.
+    onSaveManager: () -> Unit = {},
 ) {
     Row(
         modifier = Modifier
@@ -99,6 +101,9 @@ fun GameRow(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
+        }
+        TextButton(onClick = onSaveManager) {
+            Text("Saves")
         }
         TextButton(onClick = onRemove) {
             Text("Remove")

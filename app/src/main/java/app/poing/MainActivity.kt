@@ -58,7 +58,8 @@ private sealed interface Screen {
     data object Licences : Screen
     data object Settings : Screen
     data object CoreOptions : Screen
-    data class Player(val game: LibraryGame) : Screen
+    data class Player(val game: LibraryGame, val loadState: Int? = null, val loadAuto: Boolean = false) : Screen
+    data class SaveManager(val game: LibraryGame) : Screen
 }
 
 @Composable
@@ -90,11 +91,25 @@ fun PoingHome() {
             isGba = s.game.system == GameSystem.GBA,
             optionsStore = optionsStore,
             appSettings = settingsStore,
+            loadStateOnStart = s.loadState,
+            loadAutoOnStart = s.loadAuto,
             onQuit = { screen = Screen.Library },
             onError = { message ->
                 error = message
                 screen = Screen.Library
             },
+        )
+        is Screen.SaveManager -> SaveManagerScreen(
+            game = s.game,
+            onLoadState = { slot ->
+                error = null
+                screen = Screen.Player(s.game, loadState = slot)
+            },
+            onLoadAuto = {
+                error = null
+                screen = Screen.Player(s.game, loadAuto = true)
+            },
+            onBack = { screen = Screen.Library },
         )
         is Screen.Licences -> LicencesScreen(onBack = { screen = Screen.Library })
         is Screen.Settings -> AppSettingsScreen(
@@ -114,6 +129,7 @@ fun PoingHome() {
             },
             onLicences = { screen = Screen.Licences },
             onSettings = { screen = Screen.Settings },
+            onSaveManager = { game -> screen = Screen.SaveManager(game) },
         )
     }
 }

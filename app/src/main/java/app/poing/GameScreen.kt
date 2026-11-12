@@ -68,6 +68,10 @@ fun GameScreen(
     isGba: Boolean,
     optionsStore: CoreOptionsStore,
     appSettings: AppSettingsStore,
+    // Phase 6 (item 5) — a pending load from the Save Manager,
+    // applied by the session before the first frame.
+    loadStateOnStart: Int? = null,
+    loadAutoOnStart: Boolean = false,
     onQuit: () -> Unit,
     onError: (String) -> Unit,
 ) {
@@ -114,6 +118,9 @@ fun GameScreen(
             cheatsDir = context.filesDir.resolve("cheats").apply { mkdirs() }.absolutePath,
             // Phase 6 (item 5) — playtime is banked on pause/stop.
             playtimeDir = context.filesDir.absolutePath,
+            // Phase 6 (item 5) — a pending load from the Save Manager.
+            loadStateOnStart = loadStateOnStart,
+            loadAutoOnStart = loadAutoOnStart,
             // Core options as stored: pushed to the bridge after the
             // libraries load and before the game loads.
             options = optionsStore.all(),
