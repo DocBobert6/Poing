@@ -1,9 +1,10 @@
 name: Android CI
 
-# Poing! Phase 1: the mGBA libretro core imported at a pinned commit,
-# built stock and untouched, plus a minimal app skeleton (app.poing)
-# with a Licences screen and a Robolectric startup gate. No releases:
-# a push to main only builds and verifies. No keystore yet.
+# Poing! Phase 2: the mGBA libretro core imported at a pinned commit,
+# built stock and untouched, plus the JNI bridge to it and a bare
+# player spike (app.poing) with a Licences screen and a Robolectric
+# startup gate. No releases: a push to main only builds and verifies.
+# No keystore yet.
 #
 # Core: mGBA at 7a12d6d4b9acb14c0ae62c9166b6a2f3d08007f6
 # (libretro/mgba HEAD, 2026-09-16, "Libretro: Disable debug
@@ -11,10 +12,14 @@ name: Android CI
 # Android.mk): it builds via CMake exactly as libretro's own CI
 # does (-DLIBMGBA_ONLY=ON -DBUILD_LIBRETRO=ON, NDK
 # android.toolchain.cmake; BINARY_NAME mgba -> mgba_libretro.so).
+# The bridge (bridge/jni/) is a separate CMake module linking
+# against the prebuilt core .so; both .so files are staged into
+# app/src/main/jniLibs/arm64-v8a/ before Gradle assembles the APK.
 #
-# Order matters: audit checks -> core -> verify core -> unit tests
-# -> APK -> dex guard. A red build stops the line: fix it and
-# verify green before pushing anything new.
+# Order matters: audit checks -> core -> verify core -> bridge ->
+# verify bridge -> stage native libs -> unit tests -> APK -> dex
+# guard. A red build stops the line: fix it and verify green before
+# pushing anything new.
 
 on:
   push:
@@ -147,6 +152,55 @@ jobs:
           done
           echo "core=mgba pin=7a12d6d4b9acb14c0ae62c9166b6a2f3d08007f6 size=$SIZE sha256=$(sha256sum "$SO" | cut -d' ' -f1)" >> "$GITHUB_STEP_SUMMARY"
 
+      - name: Build JNI bridge (arm64-v8a only)
+        run: |
+          set -euo pipefail
+          NDK="$ANDROID_HOME/ndk/27.2.12479018"
+          cmake -S bridge/jni -B build-bridge \
+            -DCMAKE_TOOLCHAIN_FILE="$NDK/build/cmake/android.toolchain.cmake" \
+            -DANDROID_ABI=arm64-v8a \
+            -DANDROID_PLATFORM=android-21 \
+            -DMGBA_ROOT="$GITHUB_WORKSPACE" \
+            -DMGBA_SO="$GITHUB_WORKSPACE/$BUILT_SO" \
+            -DCMAKE_BUILD_TYPE=Release
+          cmake --build build-bridge -j"$(nproc)"
+          BRIDGE="build-bridge/libpoing-bridge.so"
+          if [ ! -f "$BRIDGE" ]; then
+            echo "bridge .so missing: $BRIDGE"
+            find build-bridge -name "*.so" | head
+            exit 1
+          fi
+          echo "BUILT_BRIDGE=$BRIDGE" >> "$GITHUB_ENV"
+
+      - name: Verify bridge
+        run: |
+          set -euo pipefail
+          BRIDGE="$BUILT_BRIDGE"
+          file "$BRIDGE"
+          file "$BRIDGE" | grep -q "ELF 64-bit.*ARM aarch64" || {
+            echo "not an ARM64 ELF: $(file "$BRIDGE")"
+            exit 1
+          }
+          NM="$ANDROID_HOME/ndk/27.2.12479018/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-nm"
+          EXPORTS=$("$NM" -D "$BRIDGE")
+          # Every JNI entry point the Kotlin Bridge object declares.
+          for sym in Java_app_poing_Bridge_nativeInit Java_app_poing_Bridge_nativeLoadGame Java_app_poing_Bridge_nativeGetAvInfo Java_app_poing_Bridge_nativeRunFrame Java_app_poing_Bridge_nativeGetFrame Java_app_poing_Bridge_nativeReadAudio Java_app_poing_Bridge_nativeSetInput Java_app_poing_Bridge_nativeSetOption Java_app_poing_Bridge_nativeUnloadGame Java_app_poing_Bridge_nativeDeinit Java_app_poing_Bridge_nativeLastError; do
+            echo "$EXPORTS" | grep -q " $sym$" || {
+              echo "missing JNI export: $sym"
+              echo "$EXPORTS"
+              exit 1
+            }
+          done
+          echo "bridge=$BRIDGE size=$(stat -c%s "$BRIDGE") sha256=$(sha256sum "$BRIDGE" | cut -d' ' -f1)" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Stage native libraries into the APK
+        run: |
+          set -euo pipefail
+          mkdir -p app/src/main/jniLibs/arm64-v8a
+          cp "$BUILT_SO" app/src/main/jniLibs/arm64-v8a/libmgba_libretro.so
+          cp "$BUILT_BRIDGE" app/src/main/jniLibs/arm64-v8a/libpoing-bridge.so
+          ls -l app/src/main/jniLibs/arm64-v8a/
+
       - name: Run unit tests (incl. Robolectric startup gate)
         run: ./gradlew :app:testDebugUnitTest
 
@@ -211,6 +265,13 @@ jobs:
         with:
           name: mgba-libretro-android
           path: ${{ env.BUILT_SO }}
+          if-no-files-found: error
+
+      - name: Upload bridge artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: poing-bridge-android
+          path: ${{ env.BUILT_BRIDGE }}
           if-no-files-found: error
 
       - name: Upload debug APK artifact
