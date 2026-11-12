@@ -79,4 +79,21 @@ class PoingFontsTest {
             }
         }
     }
+
+    /**
+     * The readout faces: the diagnostic overlay's terminal face is
+     * VT323, and the save-state times' segment face is DSEG14 —
+     * numbers are always segment, never the display face.
+     */
+    @Test
+    fun terminalStyleIsVt323() {
+        val style = terminalTextStyle()
+        assertTrue(style.fontFamily == Vt323)
+        assertTrue(style.fontSize.value == 16f)
+    }
+
+    @Test
+    fun segment14StyleIsDseg14() {
+        assertTrue(segmentTextStyle14().fontFamily == Dseg14)
+    }
 }

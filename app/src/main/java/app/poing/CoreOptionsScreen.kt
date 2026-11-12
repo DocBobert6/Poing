@@ -1,5 +1,6 @@
 package app.poing
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -24,6 +25,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
 
@@ -38,6 +40,10 @@ import androidx.compose.ui.unit.dp
  * after each change so the player can push it live to a running
  * game (non-restart options take effect on the next frame; restart
  * options apply the next time a game starts, and are tagged).
+ *
+ * Phase 5 — this is a settings sheet, so it wears the Atomic
+ * look: a translucent purple wash over the black background, with
+ * DotGothic16 section titles. Body copy stays the neutral sans.
  */
 @Composable
 fun CoreOptionsScreen(
@@ -52,10 +58,14 @@ fun CoreOptionsScreen(
         values = store.all()
     }
 
-    LazyColumn(modifier = Modifier.fillMaxSize()) {
+    LazyColumn(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(PoingPurpleDeep.copy(alpha = 0.45f)),
+    ) {
         item {
             Column(modifier = Modifier.padding(24.dp)) {
-                Text("Core options", style = MaterialTheme.typography.displaySmall)
+                Text("Core options", style = displayTextStyle(DisplaySizeLarge))
                 Spacer(Modifier.height(8.dp))
                 Text(
                     "The mGBA core's own settings. Options marked (restart) apply " +
@@ -76,7 +86,7 @@ fun CoreOptionsScreen(
             item {
                 Text(
                     category.label,
-                    style = MaterialTheme.typography.titleLarge,
+                    style = displayTextStyle(DisplaySizeMedium),
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
                 )
             }
@@ -115,6 +125,9 @@ fun CoreOptionsScreen(
         val current = values[option.key] ?: option.default
         AlertDialog(
             onDismissRequest = { editing = null },
+            // The dialog is a menu, so it wears the Atomic panel
+            // colour too (near-solid so the options stay readable).
+            containerColor = PoingPurpleDeep.copy(alpha = 0.92f),
             title = { Text(option.label) },
             text = {
                 LazyColumn {
