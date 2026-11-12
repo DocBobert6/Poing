@@ -120,7 +120,10 @@ class PauseMenuTest {
             }
         }
         composeRule.onNodeWithText("Auto-save").performScrollTo().assertIsDisplayed()
-        composeRule.onNodeWithTag("state-thumb-auto").assertIsDisplayed()
+        // The thumbnail row sits below the header + description,
+        // so it starts below the fold too — scroll it into view
+        // before asserting it is displayed (same as Slot 3).
+        composeRule.onNodeWithTag("state-thumb-auto").performScrollTo().assertIsDisplayed()
         // Four empty slots; the auto-save row shows a time, not
         // "empty", so the count stays four.
         composeRule.onAllNodesWithText("empty").assertCountEquals(4)
