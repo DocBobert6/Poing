@@ -55,9 +55,15 @@ fun InputDisplay(
         horizontalArrangement = Arrangement.Center,
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        for ((id, bit) in pills) {
+        // No spacer after the last pill: with all ten GBA pills
+        // the row must fit a 320dp window (the Robolectric test
+        // window is portrait-narrow; the player itself is
+        // landscape and wider, but the row fits either way).
+        pills.forEachIndexed { index, (id, bit) ->
             InputPill(id = id, pressed = mask and (1 shl bit) != 0)
-            Spacer(Modifier.width(4.dp))
+            if (index < pills.lastIndex) {
+                Spacer(Modifier.width(3.dp))
+            }
         }
     }
 }
@@ -66,7 +72,7 @@ fun InputDisplay(
 private fun InputPill(id: String, pressed: Boolean) {
     Box(
         modifier = Modifier
-            .size(28.dp)
+            .size(24.dp)
             .clip(RoundedCornerShape(6.dp))
             .background(if (pressed) PoingPurpleDeep else Color(0xFF2A2A2A))
             .testTag(if (pressed) "input-pressed-$id" else "input-released-$id"),
