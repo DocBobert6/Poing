@@ -9,6 +9,7 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import androidx.test.core.app.ApplicationProvider
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
@@ -40,6 +41,9 @@ class MainActivityStartupTest {
 
     @Test
     fun activityLaunchesAndShowsHome() {
+        // Phase 5 — the boot splash shows first (~1s); wait for a
+        // library-only node before asserting the home screen.
+        composeRule.waitForText("Add game")
         composeRule.onNodeWithText("Poing!").assertIsDisplayed()
         composeRule.onNodeWithText("Game Boy · Game Boy Color · Game Boy Advance")
             .assertIsDisplayed()
@@ -52,6 +56,7 @@ class MainActivityStartupTest {
 
     @Test
     fun licencesScreenShowsNotice() {
+        composeRule.waitForText("Add game")
         composeRule.onNodeWithText("Licences").performClick()
         composeRule.onNodeWithText("Licences").assertIsDisplayed()
         composeRule.onNodeWithText("Mozilla Public License", substring = true)
@@ -89,12 +94,26 @@ class MainActivityStartupTest {
     }
 
     /**
+     * Phase 5 — the supplied icon is the launcher icon: the
+     * manifest must point at the mipmap icon (the cropped
+     * handheld), not the Phase 1 placeholder vector.
+     */
+    @Test
+    fun launcherIconIsTheSuppliedArtwork() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val info = context.packageManager.getApplicationInfo(context.packageName, 0)
+        assertEquals(R.mipmap.ic_launcher, info.icon)
+    }
+
+    /**
      * If the activity IS ever recreated, the fallback must be a clean
      * home screen, not a crash.
      */
     @Test
     fun activitySurvivesRecreation() {
         composeRule.activityRule.scenario.recreate()
+        // Recreation re-shows the boot splash; wait it out.
+        composeRule.waitForText("Add game")
         composeRule.onNodeWithText("Poing!").assertIsDisplayed()
     }
 }

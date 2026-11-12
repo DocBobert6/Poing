@@ -6,11 +6,13 @@ import android.view.MotionEvent
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
+import kotlinx.coroutines.delay
 
 /**
  * Poing! Phase 3 — the library is the home screen. The Phase 2
@@ -60,11 +62,24 @@ private sealed interface Screen {
 
 @Composable
 fun PoingHome() {
+    // Phase 5 — the dot-matrix boot: a brief "Poing!" on a dark
+    // screen at launch, auto-dismissed after BOOT_SPLASH_MS. All
+    // state is remembered before the early return so the remember
+    // calls run unconditionally on every composition.
+    var booted by remember { mutableStateOf(false) }
     var screen by remember { mutableStateOf<Screen>(Screen.Library) }
     var error by remember { mutableStateOf<String?>(null) }
     val context = LocalContext.current
     val store = remember { LibraryStore(context.filesDir) }
     val optionsStore = remember { CoreOptionsStore(context.filesDir) }
+    LaunchedEffect(Unit) {
+        delay(BOOT_SPLASH_MS)
+        booted = true
+    }
+    if (!booted) {
+        BootSplash()
+        return
+    }
 
     when (val s = screen) {
         is Screen.Player -> GameScreen(

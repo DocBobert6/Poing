@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Phase 5 — the supplied icon as the launcher icon. The foreground
+  is the centre 768x768 crop of icon/poing-icon.jpg (left 374, top
+  0 — centred on the purple face), full-bleed at 108dp: the tile
+  fills the frame, so the handheld centre holds at launcher size
+  and the thin gold ornament only fades small, never vanishes. The
+  background is near-black and only shows if a launcher leaves a
+  gap around the opaque foreground.
+-->
+<adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
+    <background android:drawable="@color/ic_launcher_background" />
+    <foreground android:drawable="@drawable/ic_launcher_foreground" />
+</adaptive-icon>

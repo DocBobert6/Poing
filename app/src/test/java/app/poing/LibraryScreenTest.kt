@@ -53,6 +53,8 @@ class LibraryScreenTest {
     @Test
     fun seededGameShowsInLibrary() {
         seedGame()
+        // Phase 5 — recreation re-shows the boot splash (~1s).
+        composeRule.waitForText("TETRIS")
         composeRule.onNodeWithText("TETRIS").assertIsDisplayed()
         composeRule.onNodeWithText("GB · tetris.gb").assertIsDisplayed()
     }
@@ -65,6 +67,7 @@ class LibraryScreenTest {
     @Test
     fun shoulderTabsFilterTheList() {
         seedTwoGames()
+        composeRule.waitForText("TETRIS")
         composeRule.onNodeWithText("TETRIS").assertIsDisplayed()
         composeRule.onNodeWithText("POKEMON").assertIsDisplayed()
         // The tab is clicked by tag, not by text: the cover-tile
@@ -84,6 +87,7 @@ class LibraryScreenTest {
     @Test
     fun tappingGameReturnsHomeWithLoadError() {
         seedGame()
+        composeRule.waitForText("TETRIS")
         composeRule.onNodeWithText("TETRIS").performClick()
         composeRule.waitUntil(timeoutMillis = 10_000) {
             try {
