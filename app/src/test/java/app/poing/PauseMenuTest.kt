@@ -5,6 +5,7 @@ import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.performScrollTo
 import java.io.File
 import org.junit.Rule
 import org.junit.Test
@@ -69,7 +70,10 @@ class PauseMenuTest {
         composeRule.onNodeWithText("TETRIS").assertIsDisplayed()
         composeRule.onNodeWithText("Save states").assertIsDisplayed()
         composeRule.onNodeWithText("Slot 0 (quick)").assertIsDisplayed()
-        composeRule.onNodeWithText("Slot 3").assertIsDisplayed()
+        // The menu scrolls (it is taller than the test window), so
+        // the last slot row starts below the fold — scroll it into
+        // view before asserting it is displayed.
+        composeRule.onNodeWithText("Slot 3").performScrollTo().assertIsDisplayed()
         composeRule.onAllNodesWithText("empty").assertCountEquals(4)
     }
 }
