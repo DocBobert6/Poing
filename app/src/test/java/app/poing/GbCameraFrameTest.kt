@@ -82,8 +82,8 @@ class GbCameraFrameTest {
         val height = 144
         val y = ByteArray(width * height) { i -> if ((i % width) < 88) 0.toByte() else 255.toByte() }
         val uvSize = (width / 2) * (height / 2)
-        val u = ByteArray(uvSize) { 128 }
-        val v = ByteArray(uvSize) { 128 }
+        val u = ByteArray(uvSize) { 128.toByte() }
+        val v = ByteArray(uvSize) { 128.toByte() }
         val out = convert(y, u, v, width, height)
         assertEquals(0xFF000000.toInt(), out[0])
         assertEquals(0xFFFFFFFF.toInt(), out[64])
