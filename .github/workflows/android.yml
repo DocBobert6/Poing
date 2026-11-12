@@ -145,11 +145,16 @@ jobs:
             exit 1
           fi
           NM="$ANDROID_HOME/ndk/27.2.12479018/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-nm"
-          EXPORTS=$("$NM" -D "$SO")
+          # The export list goes to a file, not through a pipe:
+          # `echo "$EXPORTS" | grep -q` races under pipefail —
+          # grep -q exits the moment it finds a symbol, echo
+          # then dies on SIGPIPE and the check fails for a
+          # symbol that is present (bit run 43330971555).
+          "$NM" -D "$SO" > "$RUNNER_TEMP/core-exports.txt"
           for sym in retro_api_version retro_get_system_info retro_get_system_av_info retro_set_environment retro_set_video_refresh retro_set_audio_sample retro_set_audio_sample_batch retro_set_input_poll retro_set_input_state retro_init retro_deinit retro_load_game retro_unload_game retro_run retro_reset retro_serialize_size retro_serialize retro_unserialize retro_get_memory_data retro_get_memory_size retro_load_game_special retro_get_region retro_cheat_set retro_cheat_reset; do
-            echo "$EXPORTS" | grep -q " $sym$" || {
+            grep -q " $sym$" "$RUNNER_TEMP/core-exports.txt" || {
               echo "missing export: $sym"
-              echo "$EXPORTS"
+              cat "$RUNNER_TEMP/core-exports.txt"
               exit 1
             }
           done
@@ -185,12 +190,17 @@ jobs:
             exit 1
           }
           NM="$ANDROID_HOME/ndk/27.2.12479018/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-nm"
-          EXPORTS=$("$NM" -D "$BRIDGE")
+          # The export list goes to a file, not through a pipe:
+          # `echo "$EXPORTS" | grep -q` races under pipefail —
+          # grep -q exits the moment it finds a symbol, echo
+          # then dies on SIGPIPE and the check fails for a
+          # symbol that is present (bit run 43330971555).
+          "$NM" -D "$BRIDGE" > "$RUNNER_TEMP/bridge-exports.txt"
           # Every JNI entry point the Kotlin Bridge object declares.
           for sym in Java_app_poing_Bridge_nativeInit Java_app_poing_Bridge_nativeLoadGame Java_app_poing_Bridge_nativeGetAvInfo Java_app_poing_Bridge_nativeRunFrame Java_app_poing_Bridge_nativeGetFrame Java_app_poing_Bridge_nativeReadAudio Java_app_poing_Bridge_nativeSetInput Java_app_poing_Bridge_nativeSetOption Java_app_poing_Bridge_nativeSerializeSize Java_app_poing_Bridge_nativeSerialize Java_app_poing_Bridge_nativeUnserialize Java_app_poing_Bridge_nativeSaveRamSize Java_app_poing_Bridge_nativeReadSaveRam Java_app_poing_Bridge_nativeWriteSaveRam Java_app_poing_Bridge_nativeRtcSize Java_app_poing_Bridge_nativeReadRtc Java_app_poing_Bridge_nativeWriteRtc Java_app_poing_Bridge_nativeSetCheat Java_app_poing_Bridge_nativeClearCheats Java_app_poing_Bridge_nativeUnloadGame Java_app_poing_Bridge_nativeDeinit Java_app_poing_Bridge_nativeLastError Java_app_poing_Bridge_nativeRaInit Java_app_poing_Bridge_nativeRaLogin Java_app_poing_Bridge_nativeRaLoginWithToken Java_app_poing_Bridge_nativeRaToken Java_app_poing_Bridge_nativeRaLogout Java_app_poing_Bridge_nativeRaIsLoggedIn Java_app_poing_Bridge_nativeRaLoggedInUsername Java_app_poing_Bridge_nativeRaLoadGame Java_app_poing_Bridge_nativeRaUnloadGame Java_app_poing_Bridge_nativeRaIsGameLoaded Java_app_poing_Bridge_nativeRaGameTitle Java_app_poing_Bridge_nativeRaDoFrame Java_app_poing_Bridge_nativeRaReset Java_app_poing_Bridge_nativeRaSerializeProgress Java_app_poing_Bridge_nativeRaDeserializeProgress Java_app_poing_Bridge_nativeRaGetAchievements Java_app_poing_Bridge_nativeRaHasLeaderboards Java_app_poing_Bridge_nativeRaGetLeaderboards Java_app_poing_Bridge_nativeRaFetchLeaderboardEntries Java_app_poing_Bridge_nativeRaHasRichPresence Java_app_poing_Bridge_nativeRaGetRichPresence Java_app_poing_Bridge_nativeRaHttpResponse Java_app_poing_Bridge_nativeSetSensorValue Java_app_poing_Bridge_nativePushCameraFrame; do
-            echo "$EXPORTS" | grep -q " $sym$" || {
+            grep -q " $sym$" "$RUNNER_TEMP/bridge-exports.txt" || {
               echo "missing JNI export: $sym"
-              echo "$EXPORTS"
+              cat "$RUNNER_TEMP/bridge-exports.txt"
               exit 1
             }
           done
