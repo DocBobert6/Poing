@@ -59,6 +59,17 @@ class AppSettingsStoreTest {
     }
 
     @Test
+    fun hapticsDefaultsOnAndRoundTrips() {
+        val s = store()
+        assertTrue(s.hapticsEnabled())
+        s.setHapticsEnabled(false)
+        assertFalse(s.hapticsEnabled())
+        assertFalse(AppSettingsStore(temp.root).hapticsEnabled())
+        s.setHapticsEnabled(true)
+        assertTrue(s.hapticsEnabled())
+    }
+
+    @Test
     fun corruptFileReadsAsDefaults() {
         val s = store()
         File(temp.root, "app-settings.properties").writeText("this is not properties: [[[\n")

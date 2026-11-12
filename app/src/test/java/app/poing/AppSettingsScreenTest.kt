@@ -112,4 +112,18 @@ class AppSettingsScreenTest {
         composeRule.onNodeWithTag("input-display-switch").performClick()
         assertTrue(AppSettingsStore(temp.root).inputDisplayVisible())
     }
+
+    @Test
+    fun hapticsOnByDefaultAndTogglingPersists() {
+        val s = store()
+        composeRule.setContent {
+            PoingTheme {
+                AppSettingsScreen(store = s, onCoreOptions = {}, onBack = {})
+            }
+        }
+        composeRule.onNodeWithText("Haptics").assertIsDisplayed()
+        assertTrue(AppSettingsStore(temp.root).hapticsEnabled())
+        composeRule.onNodeWithTag("haptics-switch").performClick()
+        assertFalse(AppSettingsStore(temp.root).hapticsEnabled())
+    }
 }

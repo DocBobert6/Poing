@@ -117,6 +117,9 @@ fun HoldButton(
     onInputChanged: () -> Unit,
     sizeDp: Dp = 64.dp,
     shoulder: Boolean = false,
+    // Phase 6 (item 7) — haptics: fires once when the finger
+    // lands. Only A/B pass one; Start/Select/L/R stay silent.
+    onDown: (() -> Unit)? = null,
 ) {
     var pressed by remember { mutableStateOf(false) }
     val shape = if (shoulder) RoundedCornerShape(12.dp) else CircleShape
@@ -141,6 +144,7 @@ fun HoldButton(
                     pressed = true
                     held.setBit(bit, true)
                     onInputChanged()
+                    onDown?.invoke()
                     var stillDown = true
                     while (stillDown) {
                         val event = awaitPointerEvent()
@@ -251,7 +255,16 @@ fun ToggleActionButton(
  * direction adds to the first's.
  */
 @Composable
-fun DpadControl(held: HeldInput, paused: Boolean, onInputChanged: () -> Unit) {
+fun DpadControl(
+    held: HeldInput,
+    paused: Boolean,
+    onInputChanged: () -> Unit,
+    // Phase 6 (item 7) — haptics: fires when the direction set
+    // changes to something non-empty — once per press and once
+    // per direction change while held, never on release and never
+    // on a pointer event that leaves the directions unchanged.
+    onDirectionChange: (() -> Unit)? = null,
+) {
     var sizePx by remember { mutableStateOf(0f) }
     Box(
         modifier = Modifier
@@ -267,6 +280,7 @@ fun DpadControl(held: HeldInput, paused: Boolean, onInputChanged: () -> Unit) {
             .pointerInput(paused) {
                 awaitEachGesture {
                     val active = mutableMapOf<PointerId, androidx.compose.ui.geometry.Offset>()
+                    var lastDirs = 0
                     while (true) {
                         val event = awaitPointerEvent()
                         for (change in event.changes) {
@@ -279,6 +293,10 @@ fun DpadControl(held: HeldInput, paused: Boolean, onInputChanged: () -> Unit) {
                         val dirs = active.values.fold(0) { acc, pos ->
                             acc or DpadInput.directionFromPress(pos.x, pos.y, sizePx)
                         }
+                        if (dirs != lastDirs && dirs != 0) {
+                            onDirectionChange?.invoke()
+                        }
+                        lastDirs = dirs
                         held.setDirections(dirs)
                         onInputChanged()
                         if (active.isEmpty()) break

@@ -47,6 +47,7 @@ fun AppSettingsScreen(
     var ffControl by remember { mutableStateOf(store.ffControlVisible()) }
     var ffSpeed by remember { mutableStateOf(store.ffSpeed()) }
     var inputDisplay by remember { mutableStateOf(store.inputDisplayVisible()) }
+    var haptics by remember { mutableStateOf(store.hapticsEnabled()) }
 
     LazyColumn(
         modifier = Modifier
@@ -160,12 +161,40 @@ fun AppSettingsScreen(
             }
         }
         item {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        "Haptics",
+                        style = MaterialTheme.typography.titleMedium,
+                    )
+                    Text(
+                        "A short click when you press the D-pad or the A and B buttons. On by default.",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
+                Switch(
+                    checked = haptics,
+                    onCheckedChange = {
+                        store.setHapticsEnabled(it)
+                        haptics = it
+                    },
+                    modifier = Modifier.testTag("haptics-switch"),
+                )
+            }
+        }
+        item {
             Row(modifier = Modifier.padding(16.dp)) {
                 TextButton(onClick = {
                     store.reset()
                     ffControl = store.ffControlVisible()
                     ffSpeed = store.ffSpeed()
                     inputDisplay = store.inputDisplayVisible()
+                    haptics = store.hapticsEnabled()
                 }) {
                     Text("Reset player settings")
                 }

@@ -22,6 +22,7 @@ class AppSettingsStore(private val root: File) {
         const val KEY_FF_CONTROL = "ff_control_visible"
         const val KEY_FF_SPEED = "ff_speed"
         const val KEY_INPUT_DISPLAY = "input_display_visible"
+        const val KEY_HAPTICS = "haptics_enabled"
         const val DEFAULT_FF_SPEED = 2
         val FF_SPEEDS = setOf(2, 3, 4)
     }
@@ -33,6 +34,12 @@ class AppSettingsStore(private val root: File) {
     /** The input display (pressed buttons above the game): off by default (the standing overlay rule). */
     fun inputDisplayVisible(): Boolean = readBoolean(KEY_INPUT_DISPLAY, false)
     fun setInputDisplayVisible(visible: Boolean) = write(KEY_INPUT_DISPLAY, visible.toString())
+
+    /** Haptics (D-pad and A/B clicks): on by default — it is
+     * tactile feedback, not an overlay control, so the standing
+     * overlay rule does not apply. */
+    fun hapticsEnabled(): Boolean = readBoolean(KEY_HAPTICS, true)
+    fun setHapticsEnabled(enabled: Boolean) = write(KEY_HAPTICS, enabled.toString())
 
     /** The fast-forward multiplier (2, 3 or 4); 2 by default. */
     fun ffSpeed(): Int {

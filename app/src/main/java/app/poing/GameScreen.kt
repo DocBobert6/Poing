@@ -2,6 +2,7 @@ package app.poing
 
 import android.content.pm.ActivityInfo
 import android.graphics.Bitmap
+import android.os.Vibrator
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.compose.foundation.Image
@@ -72,6 +73,9 @@ fun GameScreen(
     // applied by the session before the first frame.
     loadStateOnStart: Int? = null,
     loadAutoOnStart: Boolean = false,
+    // Phase 6 (item 7) — haptics, injected for tests; null builds
+    // one from the context (the production path).
+    haptics: Haptics? = null,
     onQuit: () -> Unit,
     onError: (String) -> Unit,
 ) {
@@ -113,6 +117,17 @@ fun GameScreen(
     // is open.
     val inputDisplayVisible = remember { appSettings.inputDisplayVisible() }
     var displayedMask by remember { mutableStateOf(0) }
+
+    // Phase 6 (item 7) — haptics: a short click for the D-pad and
+    // A/B, on by default, toggleable in Settings. Snapshotted here
+    // like the other player settings: settings can only change on
+    // the Settings screen, never while the player is open.
+    val hapticsImpl = remember {
+        haptics ?: Haptics(
+            context.getSystemService(Vibrator::class.java),
+            appSettings.hapticsEnabled(),
+        )
+    }
 
     val session = remember(gamePath) {
         PlayerSession(
@@ -401,7 +416,7 @@ fun GameScreen(
                     onMove = { layout = layout.with(ControlGroup.DPAD, it) },
                     onMoveEnd = { layoutStore.save(saveBase, latestLayout) },
                 ) {
-                    DpadControl(held, paused, ::pushInput)
+                    DpadControl(held, paused, ::pushInput, onDirectionChange = { hapticsImpl.click() })
                 }
                 MovableControl(
                     position = layout.startSelect,
@@ -424,9 +439,9 @@ fun GameScreen(
                     onMoveEnd = { layoutStore.save(saveBase, latestLayout) },
                 ) {
                     Row {
-                        HoldButton("B", InputMask.JOY_B, held, paused, ::pushInput)
+                        HoldButton("B", InputMask.JOY_B, held, paused, ::pushInput, onDown = { hapticsImpl.click() })
                         Spacer(Modifier.width(12.dp))
-                        HoldButton("A", InputMask.JOY_A, held, paused, ::pushInput)
+                        HoldButton("A", InputMask.JOY_A, held, paused, ::pushInput, onDown = { hapticsImpl.click() })
                     }
                 }
             }
