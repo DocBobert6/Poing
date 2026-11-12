@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
@@ -170,10 +171,15 @@ fun GameScreen(
         Column(modifier = Modifier.fillMaxSize()) {
             // Top bar: power light + diagnostic text + pause. The
             // light is green while a game is playing, amber while
-            // paused — the Pocket's power LED.
+            // paused — the Pocket's power LED. statusBarsPadding:
+            // the player is edge-to-edge like the library, so
+            // without this the light sits in the status-bar band
+            // (and, in landscape, by the punch-hole camera). The
+            // light's top edge is now status-bar height + 8dp.
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
+                    .statusBarsPadding()
                     .padding(horizontal = 12.dp, vertical = 8.dp),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically,

@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -154,9 +155,15 @@ fun LibraryScreen(
             // Top bar: the power light. No game is loaded on the
             // library, so the light is off — it turns green in the
             // player and amber while paused (see GameScreen).
+            // statusBarsPadding: the app draws edge-to-edge
+            // (targetSdk 36 + activity 1.11 enable it by default),
+            // so without this the light sits in the status-bar
+            // band, tight against the clock. The light's top edge
+            // is now status-bar height + 16dp.
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
+                    .statusBarsPadding()
                     .padding(start = 16.dp, top = 16.dp),
             ) {
                 PowerLight(PowerState.Off)
