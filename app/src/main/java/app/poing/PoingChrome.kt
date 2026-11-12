@@ -1,5 +1,6 @@
 package app.poing
 
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -8,12 +9,16 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.unit.dp
 
 /**
@@ -95,5 +100,32 @@ fun PowerLight(state: PowerState, modifier: Modifier = Modifier) {
                 .clip(CircleShape)
                 .background(color),
         )
+    }
+}
+
+/**
+ * The "Poing!" wordmark in DotGothic16 (32sp, the large grid
+ * step). With [withRing], one thin gold arc is drawn behind the
+ * word — idea (7), home screen only, nowhere else. The boot
+ * splash uses the plain wordmark, no ring.
+ */
+@Composable
+fun Wordmark(withRing: Boolean, modifier: Modifier = Modifier) {
+    Box(modifier = modifier, contentAlignment = Alignment.Center) {
+        if (withRing) {
+            Canvas(modifier = Modifier.size(width = 240.dp, height = 88.dp)) {
+                val inset = 8.dp.toPx()
+                drawArc(
+                    color = PoingGold,
+                    startAngle = 135f,
+                    sweepAngle = 270f,
+                    useCenter = false,
+                    topLeft = Offset(inset, inset),
+                    size = Size(size.width - 2 * inset, size.height - 2 * inset),
+                    style = Stroke(width = 2.dp.toPx()),
+                )
+            }
+        }
+        Text("Poing!", style = displayTextStyle(DisplaySizeLarge), color = Color.White)
     }
 }

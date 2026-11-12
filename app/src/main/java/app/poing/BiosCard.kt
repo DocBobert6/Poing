@@ -7,7 +7,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Button
-import androidx.compose.material3.Card
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -28,22 +27,23 @@ fun BiosCard(
     onImport: (BiosKind) -> Unit,
     onDelete: (BiosKind) -> Unit,
 ) {
-    Card(
+    // The BIOS card is a settings sheet, so it gets the Atomic
+    // translucent purple panel (with the faint sheen) — the library
+    // list itself stays solid, never washed in purple.
+    AtomicPanel(
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 16.dp, vertical = 8.dp),
     ) {
-        Column(modifier = Modifier.padding(16.dp)) {
-            Text("BIOS (optional)", style = MaterialTheme.typography.titleMedium)
-            Spacer(Modifier.height(4.dp))
-            Text(
-                "mGBA runs on its built-in BIOS — these are never required to play.",
-                style = MaterialTheme.typography.bodySmall,
-            )
-            Spacer(Modifier.height(12.dp))
-            for (kind in BiosKind.entries) {
-                BiosRow(kind, installed[kind] == true, onImport, onDelete)
-            }
+        Text("BIOS (optional)", style = MaterialTheme.typography.titleMedium)
+        Spacer(Modifier.height(4.dp))
+        Text(
+            "mGBA runs on its built-in BIOS — these are never required to play.",
+            style = MaterialTheme.typography.bodySmall,
+        )
+        Spacer(Modifier.height(12.dp))
+        for (kind in BiosKind.entries) {
+            BiosRow(kind, installed[kind] == true, onImport, onDelete)
         }
     }
 }

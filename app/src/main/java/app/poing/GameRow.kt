@@ -75,7 +75,7 @@ fun GameRow(
                 Text(
                     game.system.label,
                     color = Color.White,
-                    style = MaterialTheme.typography.titleMedium,
+                    style = displayTextStyle(DisplaySizeSmall),
                 )
             }
         }

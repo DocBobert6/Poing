@@ -3,7 +3,10 @@ package app.poing
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -13,6 +16,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
@@ -27,6 +31,8 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.Dispatchers
@@ -58,6 +64,7 @@ fun LibraryScreen(
     val bios = remember { BiosStore(context.filesDir) }
     val art = remember { CoverArtStore(context.filesDir) }
     var games by remember { mutableStateOf(store.list()) }
+    var filter by remember { mutableStateOf<GameSystem?>(null) }
     var biosInstalled by remember {
         mutableStateOf(BiosKind.entries.associateWith { bios.isInstalled(it) })
     }
@@ -143,13 +150,25 @@ fun LibraryScreen(
 
     LazyColumn(modifier = Modifier.fillMaxSize()) {
         item {
+            // Top bar: the power light. No game is loaded on the
+            // library, so the light is off — it turns green in the
+            // player and amber while paused (see GameScreen).
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(start = 16.dp, top = 16.dp),
+            ) {
+                PowerLight(PowerState.Off)
+            }
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(24.dp),
+                    .padding(horizontal = 24.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
-                Text("Poing!", style = MaterialTheme.typography.displayMedium)
+                // The wordmark in DotGothic16 with the one gold ring
+                // behind it — home screen only, nowhere else.
+                Wordmark(withRing = true)
                 Spacer(Modifier.height(8.dp))
                 Text("Game Boy · Game Boy Color · Game Boy Advance")
             }
@@ -180,6 +199,22 @@ fun LibraryScreen(
                 }
             }
         }
+        item {
+            // The L/R shoulders as the system filter (idea 5):
+            // silver shoulder tabs at the top of the library. ALL
+            // shows every system; a system tab shows only its games.
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
+            ) {
+                ShoulderTab("ALL", filter == null) { filter = null }
+                for (system in GameSystem.entries) {
+                    ShoulderTab(system.label, filter == system) { filter = system }
+                }
+            }
+        }
         message?.let {
             item {
                 Text(
@@ -196,7 +231,16 @@ fun LibraryScreen(
                 )
             }
         } else {
-            items(games, key = { it.id }) { game ->
+            val shown = filterGames(games, filter)
+            if (shown.isEmpty()) {
+                item {
+                    Text(
+                        "No ${filter?.label} games yet.",
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                    )
+                }
+            }
+            items(shown, key = { it.id }) { game ->
                 GameRow(
                     game = game,
                     coverFile = art.coverFile(game).takeIf { it.exists() },
@@ -243,6 +287,33 @@ fun LibraryScreen(
                     Text("Cancel")
                 }
             },
+        )
+    }
+}
+
+/** The library filter, as a pure function so it is unit-testable. */
+fun filterGames(games: List<LibraryGame>, filter: GameSystem?): List<LibraryGame> =
+    if (filter == null) games else games.filter { it.system == filter }
+
+/**
+ * One shoulder tab (idea 5): the L/R shoulders as the system
+ * filter. Selected is solid silver with black dot-matrix text;
+ * unselected is dark chrome with silver text.
+ */
+@Composable
+private fun ShoulderTab(label: String, selected: Boolean, onClick: () -> Unit) {
+    Box(
+        modifier = Modifier
+            .clip(RoundedCornerShape(8.dp))
+            .background(if (selected) PoingSilver else Color(0xFF2A2A2A))
+            .clickable(onClick = onClick)
+            .padding(horizontal = 16.dp, vertical = 8.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            label,
+            style = displayTextStyle(DisplaySizeSmall),
+            color = if (selected) Color.Black else PoingSilver,
         )
     }
 }

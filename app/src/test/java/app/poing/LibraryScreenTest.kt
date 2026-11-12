@@ -1,6 +1,7 @@
 package app.poing
 
 import android.content.Context
+import androidx.compose.ui.test.assertDoesNotExist
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithText
@@ -36,11 +37,37 @@ class LibraryScreenTest {
         composeRule.activityRule.scenario.recreate()
     }
 
+    private fun seedTwoGames() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val store = LibraryStore(context.filesDir)
+        store.addRom(GameSystemTest.fakeGbHeader(0x00, "TETRIS"), "tetris.gb")
+        store.addRom(GameSystemTest.fakeGbHeader(0x80, "POKEMON GOLD"), "pokemon.gbc")
+        composeRule.activityRule.scenario.recreate()
+    }
+
     @Test
     fun seededGameShowsInLibrary() {
         seedGame()
         composeRule.onNodeWithText("TETRIS").assertIsDisplayed()
         composeRule.onNodeWithText("GB · tetris.gb").assertIsDisplayed()
+    }
+
+    /**
+     * Phase 5 — the shoulder filter (idea 5): the GB / GBC / GBA
+     * tabs at the top of the library filter the list, ALL shows
+     * everything again.
+     */
+    @Test
+    fun shoulderTabsFilterTheList() {
+        seedTwoGames()
+        composeRule.onNodeWithText("TETRIS").assertIsDisplayed()
+        composeRule.onNodeWithText("POKEMON GOLD").assertIsDisplayed()
+        composeRule.onNodeWithText("GBC").performClick()
+        composeRule.onNodeWithText("POKEMON GOLD").assertIsDisplayed()
+        composeRule.onNodeWithText("TETRIS").assertDoesNotExist()
+        composeRule.onNodeWithText("ALL").performClick()
+        composeRule.onNodeWithText("TETRIS").assertIsDisplayed()
+        composeRule.onNodeWithText("POKEMON GOLD").assertIsDisplayed()
     }
 
     @Test
