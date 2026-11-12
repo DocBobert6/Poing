@@ -146,6 +146,79 @@ class PlayerSession(
     @Volatile
     private var latestFrame: Bitmap? = null
 
+    /**
+     * Phase 6 (item 9) — the rewind ring: one serialized state a
+     * second while the game runs (30 snapshots = 30 seconds).
+     * Captured on the emu thread, between frames — no retro_run
+     * in flight there, so the serialize is safe (the paused-only
+     * rule for saveState is about the UI thread racing the loop).
+     * The ring is in-memory only: quitting never writes it, and
+     * a state load clears it — the future diverges there.
+     */
+    private val rewindBuffer = RewindBuffer()
+    private var framesSinceRewindCapture = 0
+
+    /** Snapshots held for rewind (0 when the game just started). */
+    fun rewindSize(): Int = rewindBuffer.size
+
+    /**
+     * Capture one rewind snapshot (the serialized core state plus
+     * the RA progress that belongs to it). Only on the emu thread,
+     * between frames — never call it from the UI thread.
+     */
+    private fun captureRewindSnapshot() {
+        val size = Bridge.nativeSerializeSize()
+        if (size <= 0) return
+        val data = ByteArray(size)
+        val written = Bridge.nativeSerialize(data)
+        if (written < 0) return
+        rewindBuffer.push(data.copyOf(written), RaClient.serializeProgress())
+    }
+
+    /**
+     * Start rewinding: pause the loop (which flushes the battery
+     * save and banks the playtime, like any pause) and hold the
+     * game still for [stepRewind]. False when there is nothing to
+     * rewind to, or the game is already paused — the rewind
+     * control only runs while playing.
+     */
+    @Volatile
+    private var rewinding = false
+
+    fun startRewind(): Boolean {
+        if (!loaded || !running || paused) return false
+        if (rewindBuffer.isEmpty) return false
+        pause()
+        rewinding = true
+        return true
+    }
+
+    /**
+     * Step one snapshot back: unserialize the newest snapshot
+     * and restore the RA progress that belongs to it (or reset
+     * the progress when the snapshot had none, so the progress
+     * matches the rewound game). Only while rewinding — the loop
+     * is paused, so no frame races the unserialize. A failed
+     * unserialize leaves the snapshot in place for a retry.
+     * False when the ring is empty or the game is not rewinding.
+     */
+    fun stepRewind(): Boolean {
+        if (!loaded || !paused || !rewinding) return false
+        val snapshot = rewindBuffer.peek() ?: return false
+        if (!Bridge.nativeUnserialize(snapshot.state)) return false
+        rewindBuffer.pop()
+        if (snapshot.raProgress != null) RaClient.deserializeProgress(snapshot.raProgress)
+        else RaClient.resetProgress()
+        return true
+    }
+
+    /** Stop rewinding and resume from the rewound state. A no-op when not rewinding — a pause from the pause menu never resumes through here. */
+    fun endRewind() {
+        if (!rewinding) return
+        rewinding = false
+        resume()
+    }
+
     fun setInput(mask: Int) {
         inputMask = mask
         if (running) Bridge.nativeSetInput(mask)
@@ -329,6 +402,9 @@ class PlayerSession(
         // as it was before the load (a paused load: the game is
         // already loaded in RA, so the restore applies at once).
         readRaSidecar(saveStore.autoRaSidecarFile(saveBase))
+        // The timeline diverges here: snapshots from before the
+        // load belong to a future that no longer exists.
+        rewindBuffer.clear()
         return true
     }
 
@@ -433,6 +509,8 @@ class PlayerSession(
         if (!unserializeStateFile(saveStore.stateFile(saveBase, slot))) return false
         // The RA progress belongs to this state (see loadAutoState).
         readRaSidecar(saveStore.raSidecarFile(saveBase, slot))
+        // The timeline diverges here (see loadAutoState).
+        rewindBuffer.clear()
         return true
     }
 
@@ -633,6 +711,12 @@ class PlayerSession(
             // per displayed frame, after the frame run. A no-op
             // while no game is loaded in RA.
             RaClient.onFrame()
+            // Rewind (Phase 6, item 9): one snapshot a second, on
+            // this thread between frames — no retro_run in flight.
+            if (++framesSinceRewindCapture >= RewindBuffer.CAPTURE_EVERY_FRAMES) {
+                framesSinceRewindCapture = 0
+                captureRewindSnapshot()
+            }
             if (Bridge.nativeGetFrame(pixels, dims)) {
                 val w = dims[0]
                 val h = dims[1]

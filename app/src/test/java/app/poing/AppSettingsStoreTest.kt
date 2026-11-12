@@ -86,4 +86,15 @@ class AppSettingsStoreTest {
         assertFalse(s.ffControlVisible())
         assertEquals(AppSettingsStore.DEFAULT_FF_SPEED, s.ffSpeed())
     }
+
+    @Test
+    fun rewindControlOffByDefaultAndRoundTrips() {
+        val s = store()
+        assertFalse(s.rewindControlVisible())
+        s.setRewindControlVisible(true)
+        assertTrue(s.rewindControlVisible())
+        assertTrue(AppSettingsStore(temp.root).rewindControlVisible())
+        s.setRewindControlVisible(false)
+        assertFalse(s.rewindControlVisible())
+    }
 }

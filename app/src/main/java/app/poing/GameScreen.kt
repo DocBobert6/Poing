@@ -25,6 +25,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -42,6 +43,7 @@ import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
+import kotlinx.coroutines.delay
 
 /**
  * Phase 2 spike player screen: a fullscreen game view, minimal
@@ -113,6 +115,14 @@ fun GameScreen(
     var slowOn by remember { mutableStateOf(false) }
     var ffHeld by remember { mutableStateOf(false) }
 
+    // Phase 6 (item 9) — rewind: hold the RW button to step back
+    // through the last 30 seconds. The control is snapshotted
+    // here like the fast-forward control (off by default, per the
+    // standing overlay rule). While held, the session is paused
+    // and a snapshot is unserialized every 150ms.
+    val rewindControlVisible = remember { appSettings.rewindControlVisible() }
+    var rewinding by remember { mutableStateOf(false) }
+
     // Phase 6 (item 6) — the input display: the merged mask the
     // core sees (touch + gamepad), mirrored into state on every
     // input change so the pills update live. The toggle itself is
@@ -169,6 +179,19 @@ fun GameScreen(
         displayedMask = mask
     }
 
+    // Phase 6 (item 9) — while the RW button is held, step one
+    // snapshot back every 150ms: 30 seconds of game in ~4.5
+    // seconds of holding. The loop ends when the ring is empty
+    // (stepRewind returns false) or when the hold ends; doPause
+    // cancels it too (see below).
+    LaunchedEffect(rewinding) {
+        if (!rewinding) return@LaunchedEffect
+        while (true) {
+            delay(150)
+            if (!session.stepRewind()) break
+        }
+    }
+
     // Phase 6 (item 1) — the effective speed: a held FF button
     // wins over the slow-motion toggle, which wins over normal.
     fun effectiveSpeed(): PlaySpeed =
@@ -193,6 +216,10 @@ fun GameScreen(
         // gesture loop restarts under the overlay, so its onUp
         // never fires — drop the hold here instead.
         ffHeld = false
+        // Same for a held RW button: dropping the hold cancels
+        // the stepping loop, and the session stays paused under
+        // the pause menu (it resumes from the rewound state).
+        rewinding = false
         session.pause()
         paused = true
         pushInput()
@@ -347,11 +374,13 @@ fun GameScreen(
                     Text("Loading $gameName…", color = Color.White)
                 }
             }
-            // Fast-forward / slow motion (Phase 6, item 1): shown
-            // only when the Settings toggle is on — off by default,
-            // per the standing overlay rule. FF is hold-to-run at
-            // the chosen speed; 0.5x is a toggle.
-            if (ffControlVisible) {
+            // Fast-forward / slow motion (Phase 6, item 1) and
+            // rewind (Phase 6, item 9): shown only when their
+            // Settings toggle is on — both off by default, per the
+            // standing overlay rule. FF is hold-to-run at the
+            // chosen speed; 0.5x is a toggle; RW is hold-to-step
+            // back through the last 30 seconds.
+            if (ffControlVisible || rewindControlVisible) {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -359,26 +388,46 @@ fun GameScreen(
                     horizontalArrangement = Arrangement.spacedBy(12.dp, Alignment.End),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    ToggleActionButton(
-                        label = "0.5x",
-                        checked = slowOn,
-                        onToggle = {
-                            slowOn = !slowOn
-                            applySpeed()
-                        },
-                    )
-                    HoldActionButton(
-                        label = "FF",
-                        paused = paused,
-                        onDown = {
-                            ffHeld = true
-                            applySpeed()
-                        },
-                        onUp = {
-                            ffHeld = false
-                            applySpeed()
-                        },
-                    )
+                    if (rewindControlVisible) {
+                        HoldActionButton(
+                            label = "RW",
+                            paused = paused,
+                            onDown = {
+                                if (session.startRewind()) {
+                                    rewinding = true
+                                    session.stepRewind()
+                                }
+                            },
+                            onUp = {
+                                if (rewinding) {
+                                    rewinding = false
+                                    session.endRewind()
+                                }
+                            },
+                        )
+                    }
+                    if (ffControlVisible) {
+                        ToggleActionButton(
+                            label = "0.5x",
+                            checked = slowOn,
+                            onToggle = {
+                                slowOn = !slowOn
+                                applySpeed()
+                            },
+                        )
+                        HoldActionButton(
+                            label = "FF",
+                            paused = paused,
+                            onDown = {
+                                ffHeld = true
+                                applySpeed()
+                            },
+                            onUp = {
+                                ffHeld = false
+                                applySpeed()
+                            },
+                        )
+                    }
                 }
             }
             // L/R shoulder tabs (GBA only).

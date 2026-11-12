@@ -23,6 +23,7 @@ class AppSettingsStore(private val root: File) {
         const val KEY_FF_SPEED = "ff_speed"
         const val KEY_INPUT_DISPLAY = "input_display_visible"
         const val KEY_HAPTICS = "haptics_enabled"
+        const val KEY_REWIND_CONTROL = "rewind_control_visible"
         const val DEFAULT_FF_SPEED = 2
         val FF_SPEEDS = setOf(2, 3, 4)
     }
@@ -40,6 +41,10 @@ class AppSettingsStore(private val root: File) {
      * overlay rule does not apply. */
     fun hapticsEnabled(): Boolean = readBoolean(KEY_HAPTICS, true)
     fun setHapticsEnabled(enabled: Boolean) = write(KEY_HAPTICS, enabled.toString())
+
+    /** The rewind control (hold to step back through the last 30 seconds): off by default (the standing overlay rule). */
+    fun rewindControlVisible(): Boolean = readBoolean(KEY_REWIND_CONTROL, false)
+    fun setRewindControlVisible(visible: Boolean) = write(KEY_REWIND_CONTROL, visible.toString())
 
     /** The fast-forward multiplier (2, 3 or 4); 2 by default. */
     fun ffSpeed(): Int {

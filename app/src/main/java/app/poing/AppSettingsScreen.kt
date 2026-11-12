@@ -49,6 +49,7 @@ fun AppSettingsScreen(
     var ffSpeed by remember { mutableStateOf(store.ffSpeed()) }
     var inputDisplay by remember { mutableStateOf(store.inputDisplayVisible()) }
     var haptics by remember { mutableStateOf(store.hapticsEnabled()) }
+    var rewindControl by remember { mutableStateOf(store.rewindControlVisible()) }
 
     LazyColumn(
         modifier = Modifier
@@ -218,6 +219,33 @@ fun AppSettingsScreen(
             }
         }
         item {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        "Rewind control",
+                        style = MaterialTheme.typography.titleMedium,
+                    )
+                    Text(
+                        "Shows the hold-to-rewind button on the player: hold it to step back through the last 30 seconds. Off by default.",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
+                Switch(
+                    checked = rewindControl,
+                    onCheckedChange = {
+                        store.setRewindControlVisible(it)
+                        rewindControl = it
+                    },
+                    modifier = Modifier.testTag("rewind-control-switch"),
+                )
+            }
+        }
+        item {
             Row(modifier = Modifier.padding(16.dp)) {
                 TextButton(onClick = {
                     store.reset()
@@ -225,6 +253,7 @@ fun AppSettingsScreen(
                     ffSpeed = store.ffSpeed()
                     inputDisplay = store.inputDisplayVisible()
                     haptics = store.hapticsEnabled()
+                    rewindControl = store.rewindControlVisible()
                 }) {
                     Text("Reset player settings")
                 }
