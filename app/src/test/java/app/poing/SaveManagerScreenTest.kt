@@ -149,8 +149,16 @@ class SaveManagerScreenTest {
         composeRule.onNodeWithTag("save-delete-battery").performScrollTo().performClick()
         composeRule.onNodeWithText("Delete battery save?").assertIsDisplayed()
         composeRule.onNodeWithTag("save-delete-confirm").performClick()
-        // The delete runs on IO: wait until the file is actually gone.
-        composeRule.waitUntil(timeoutMillis = 5_000) { !savesDir.resolve("game.sav").exists() }
+        // The delete runs on IO: wait until both files are gone.
+        composeRule.waitUntil(timeoutMillis = 5_000) {
+            !savesDir.resolve("game.sav").exists()
+        }
+        // The files going does not mean the UI caught up: the
+        // refresh (refreshTick++) runs on Main after the IO delete,
+        // so wait for the empty state to actually appear before
+        // asserting it — asserting on the files alone raced the
+        // recomposition and failed CI run 43271084505.
+        composeRule.waitForText("No battery save yet.")
         composeRule.onNodeWithText("No battery save yet.").performScrollTo().assertIsDisplayed()
     }
 
@@ -168,6 +176,9 @@ class SaveManagerScreenTest {
             !savesDir.resolve("game.state1").exists() &&
                 !savesDir.resolve("game.state1.png").exists()
         }
+        // Same race as the battery delete (see above): wait for the
+        // empty state to appear, not just for the files to go.
+        composeRule.waitForText("Slot 1 — empty")
         composeRule.onNodeWithText("Slot 1 — empty").performScrollTo().assertIsDisplayed()
     }
 
