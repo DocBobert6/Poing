@@ -151,4 +151,19 @@ class PlayerSessionTest {
         s.stop()
         assertFalse(s.autoStateExists())
     }
+
+    @Test
+    fun recordingGuardsAreNoOpsBeforeStart() {
+        val s = session()
+        assertFalse(s.isRecording)
+        assertEquals(0L, s.recordingElapsedSeconds())
+        assertEquals(0, s.recordingFrameCount())
+        assertNull(s.latestFrameBitmap())
+        // No game loaded: a recording cannot start, and stopping
+        // one that never ran is a no-op.
+        val fd = java.io.FileDescriptor()
+        assertFalse(s.startRecording(fd))
+        assertFalse(s.stopRecording())
+        assertFalse(s.isRecording)
+    }
 }

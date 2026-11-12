@@ -32,6 +32,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -46,7 +47,10 @@ import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /**
  * Phase 2 spike player screen: a fullscreen game view, minimal
@@ -95,6 +99,15 @@ fun GameScreen(
     // paused game, like the cheats screen.
     var showAchievements by remember { mutableStateOf(false) }
     var showLeaderboards by remember { mutableStateOf(false) }
+    // Phase 6 (item 11) — capture: whether a recording is
+    // running (the source of truth for the REC indicator and the
+    // pause menu's Record button) and its output (the
+    // FileDescriptor the recorder's muxer writes to — closed
+    // when the recording stops or the player leaves).
+    var recording by remember { mutableStateOf(false) }
+    var recordingElapsed by remember { mutableStateOf(0L) }
+    var videoOutput by remember { mutableStateOf<CaptureStore.VideoOutput?>(null) }
+    val captureScope = rememberCoroutineScope()
     var pauseMessage by remember { mutableStateOf<String?>(null) }
     val held = remember { HeldInput() }
 
@@ -192,6 +205,17 @@ fun GameScreen(
         while (true) {
             delay(150)
             if (!session.stepRewind()) break
+        }
+    }
+
+    // Phase 6 (item 11) — the REC clock: while a recording runs,
+    // the elapsed seconds tick once a second for the top-bar
+    // indicator.
+    LaunchedEffect(recording) {
+        if (!recording) return@LaunchedEffect
+        while (true) {
+            delay(1000)
+            recordingElapsed = session.recordingElapsedSeconds()
         }
     }
 
@@ -313,6 +337,20 @@ fun GameScreen(
             cartridgeRumble.stop()
             cartridgeSensors.stop()
             session.stop()
+            // Phase 6 (item 11): a recording left running at quit
+            // was finalized by session.stop(); the FileDescriptor
+            // is GameScreen's to close. A 0-frame recording (started
+            // from the pause menu, quit before resume) leaves an
+            // empty file — drop it rather than presenting it as saved.
+            val out = videoOutput
+            if (out != null && session.recordingFrameCount() == 0) {
+                CaptureStore.delete(context, out.uri)
+            }
+            try {
+                out?.pfd?.close()
+            } catch (_: Exception) {
+            }
+            videoOutput = null
         }
     }
 
@@ -351,6 +389,15 @@ fun GameScreen(
             ) {
                 PowerLight(if (paused) PowerState.Paused else PowerState.Playing)
                 Spacer(Modifier.width(8.dp))
+                // Phase 6 (item 11) — the REC indicator while a
+                // recording runs: a red dot + elapsed m:ss.
+                if (recording) {
+                    Text(
+                        text = "● REC ${recordingElapsed / 60}:${"%02d".format(recordingElapsed % 60)}",
+                        color = Color.Red,
+                    )
+                    Spacer(Modifier.width(8.dp))
+                }
                 DiagnosticLine(stats = stats, modifier = Modifier.weight(1f))
                 // While editing the layout the top-bar button is
                 // Done: it saves the layout and returns to the pause
@@ -604,6 +651,75 @@ fun GameScreen(
                     onAchievements = { showAchievements = true },
                     onLeaderboards = { showLeaderboards = true },
                     onMoveControls = { editingLayout = true },
+                    // Phase 6 (item 11) — capture: a screenshot is
+                    // the latest frame as a PNG in Pictures/Poing!;
+                    // recording toggles the MP4 in Movies/Poing!
+                    // (video only, no audio). Both run on IO; the
+                    // recording starts even while paused — frames
+                    // simply start flowing on resume.
+                    isRecording = recording,
+                    onScreenshot = {
+                        captureScope.launch(Dispatchers.IO) {
+                            val frame = session.latestFrameBitmap()
+                            if (frame == null) {
+                                withContext(Dispatchers.Main) {
+                                    pauseMessage = "No frame yet."
+                                }
+                                return@launch
+                            }
+                            val uri = CaptureStore.saveScreenshot(context, gameName, frame)
+                            withContext(Dispatchers.Main) {
+                                pauseMessage = if (uri != null) "Screenshot saved." else "Screenshot failed."
+                            }
+                        }
+                    },
+                    onToggleRecording = {
+                        if (recording) {
+                            // A 0-frame recording (started while paused,
+                            // stopped before resume) is not a saved file —
+                            // drop the empty entry and say so.
+                            val ok = session.stopRecording()
+                            val out = videoOutput
+                            try {
+                                out?.pfd?.close()
+                            } catch (_: Exception) {
+                            }
+                            videoOutput = null
+                            recording = false
+                            pauseMessage = if (ok) {
+                                "Recording saved."
+                            } else {
+                                if (out != null) CaptureStore.delete(context, out.uri)
+                                "Recording failed."
+                            }
+                        } else {
+                            captureScope.launch(Dispatchers.IO) {
+                                val out = CaptureStore.createVideoOutput(context, gameName)
+                                if (out == null) {
+                                    withContext(Dispatchers.Main) {
+                                        pauseMessage = "Recording failed."
+                                    }
+                                    return@launch
+                                }
+                                val ok = session.startRecording(out.pfd.fileDescriptor)
+                                withContext(Dispatchers.Main) {
+                                    if (ok) {
+                                        videoOutput = out
+                                        recordingElapsed = 0
+                                        recording = true
+                                        pauseMessage = "Recording…"
+                                    } else {
+                                        try {
+                                            out.pfd.close()
+                                        } catch (_: Exception) {
+                                        }
+                                        CaptureStore.delete(context, out.uri)
+                                        pauseMessage = "Recording failed."
+                                    }
+                                }
+                            }
+                        }
+                    },
                 )
             }
         }

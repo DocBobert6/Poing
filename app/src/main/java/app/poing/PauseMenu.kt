@@ -56,6 +56,11 @@ fun PauseMenu(
     onAchievements: () -> Unit = {},
     onLeaderboards: () -> Unit = {},
     onMoveControls: () -> Unit = {},
+    // Phase 6 (item 11) — capture: a screenshot (the latest
+    // frame) and the video recording toggle.
+    isRecording: Boolean = false,
+    onScreenshot: () -> Unit = {},
+    onToggleRecording: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val scope = rememberCoroutineScope()
@@ -216,6 +221,15 @@ fun PauseMenu(
             Spacer(Modifier.height(12.dp))
             Button(onClick = onMoveControls) {
                 Text("Move controls")
+            }
+            Spacer(Modifier.height(12.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(onClick = onScreenshot) {
+                    Text("Screenshot")
+                }
+                Button(onClick = onToggleRecording) {
+                    Text(if (isRecording) "Stop recording" else "Record")
+                }
             }
             Spacer(Modifier.height(12.dp))
             Button(onClick = onQuit) {

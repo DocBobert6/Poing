@@ -146,6 +146,50 @@ class PlayerSession(
     @Volatile
     private var latestFrame: Bitmap? = null
 
+    /** The latest frame drawn, for screenshots (null before the first frame). */
+    fun latestFrameBitmap(): Bitmap? = latestFrame
+
+    /**
+     * Phase 6 (item 11) — video recording: the game's frames into
+     * an H.264 MP4 (see VideoRecorder — video only, no audio).
+     * The recorder is created by [startRecording] and fed one
+     * frame per displayed frame by the emu loop; [stopRecording]
+     * finalizes the file. The caller owns the FileDescriptor
+     * (see CaptureStore) and closes it after stop.
+     */
+    private val videoRecorder = VideoRecorder()
+
+    /** The game's native frame size, once loaded (0 before load). */
+    @Volatile
+    private var videoWidth = 0
+
+    @Volatile
+    private var videoHeight = 0
+
+    /** True while a recording is running. */
+    val isRecording: Boolean get() = videoRecorder.isRecording
+
+    /** Seconds since the recording started (0 when not recording). */
+    fun recordingElapsedSeconds(): Long = videoRecorder.elapsedSeconds()
+
+    /**
+     * Start recording into [outputFd]. False when the game is not
+     * loaded yet (no frame size to configure the encoder with)
+     * or a recording is already running. The recording starts
+     * even while paused — frames simply start flowing on resume.
+     */
+    fun startRecording(outputFd: java.io.FileDescriptor): Boolean {
+        if (!loaded) return false
+        if (videoWidth <= 0 || videoHeight <= 0) return false
+        return videoRecorder.start(outputFd, videoWidth, videoHeight)
+    }
+
+    /** Stop recording and finalize the MP4. False when nothing was recording, or when no frame was ever recorded. */
+    fun stopRecording(): Boolean = videoRecorder.stop()
+
+    /** Frames recorded in the current (or just-finished) recording — 0 when it never saw a frame. */
+    fun recordingFrameCount(): Int = videoRecorder.framesRecorded
+
     /**
      * Phase 6 (item 9) — the rewind ring: one serialized state a
      * second while the game runs (30 snapshots = 30 seconds).
@@ -590,6 +634,10 @@ class PlayerSession(
         // Any run not already banked by pause() (a no-op when the
         // stamp is already cleared).
         bankPlaytime()
+        // Phase 6 (item 11): a recording left running at quit is
+        // finalized here, so the MP4 is a whole file (the caller
+        // still closes the FileDescriptor).
+        videoRecorder.stop()
         running = false
         paused = false
         try {
@@ -636,6 +684,11 @@ class PlayerSession(
         val width = av[0]
         val height = av[1]
         val fps = av[2] / 1000.0
+        // Phase 6 (item 11) — the recording size, for the encoder
+        // (configured at the game's native size when a recording
+        // starts).
+        videoWidth = width
+        videoHeight = height
         Log.i(TAG, "playing ${width}x${height} @ $fps fps, audio ${av[3]} Hz -> $AUDIO_RATE Hz")
         // Push any input the UI already recorded before the load finished.
         Bridge.nativeSetInput(inputMask)
@@ -726,6 +779,12 @@ class PlayerSession(
                     front = back
                     val frame = bitmaps[front]
                     latestFrame = frame
+                    // Phase 6 (item 11): the recording eats one
+                    // frame per displayed frame, drawn onto the
+                    // encoder's surface on this thread (the front
+                    // Bitmap is stable until the next swap — the
+                    // next frame writes the other buffer).
+                    if (videoRecorder.isRecording) videoRecorder.recordFrame(frame)
                     mainHandler.post { onFrame(frame) }
                     framesDrawn++
                     statWindowFrames++
