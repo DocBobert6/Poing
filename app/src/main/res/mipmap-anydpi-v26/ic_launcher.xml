@@ -1,12 +1,15 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  Phase 5 — the supplied icon as the launcher icon. The foreground
-  is the centre 768x768 crop of icon/poing-icon.jpg (left 374, top
-  0 — centred on the purple face), full-bleed at 108dp: the tile
-  fills the frame, so the handheld centre holds at launcher size
-  and the thin gold ornament only fades small, never vanishes. The
-  background is near-black and only shows if a launcher leaves a
-  gap around the opaque foreground.
+  Launcher icon — the supplied icon, cropped to the tile's true
+  bounding box (pixel scan, including the gold ornament rings:
+  x[405,1002] y[80,686] in icon/poing-icon.jpg, centre 703.5,383),
+  with even 12px margins, composed at 66% of the 108dp canvas
+  (285px of 432px) and centred on transparent padding — inside
+  the safe zone, so no launcher mask (square, circle, squircle)
+  touches the tile, the L/R shoulders, or the gold ornament. The
+  full-bleed Phase 5 version clipped the shoulders and ornament
+  under the circular mask; this is the fix. The background is
+  near-black and only shows around the tile.
 -->
 <adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
     <background android:drawable="@color/ic_launcher_background" />
