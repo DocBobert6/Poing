@@ -51,6 +51,7 @@ fun LibraryScreen(
     notice: String?,
     onPlay: (LibraryGame) -> Unit,
     onLicences: () -> Unit,
+    onSettings: () -> Unit,
 ) {
     val context = LocalContext.current
     val store = remember { LibraryStore(context.filesDir) }
@@ -173,6 +174,9 @@ fun LibraryScreen(
             ) {
                 TextButton(onClick = onLicences) {
                     Text("Licences")
+                }
+                TextButton(onClick = onSettings) {
+                    Text("Settings")
                 }
             }
         }

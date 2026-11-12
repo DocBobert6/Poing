@@ -54,6 +54,7 @@ class MainActivity : ComponentActivity() {
 private sealed interface Screen {
     data object Library : Screen
     data object Licences : Screen
+    data object Settings : Screen
     data class Player(val game: LibraryGame) : Screen
 }
 
@@ -63,12 +64,14 @@ fun PoingHome() {
     var error by remember { mutableStateOf<String?>(null) }
     val context = LocalContext.current
     val store = remember { LibraryStore(context.filesDir) }
+    val optionsStore = remember { CoreOptionsStore(context.filesDir) }
 
     when (val s = screen) {
         is Screen.Player -> GameScreen(
             gamePath = store.gameFile(s.game).absolutePath,
             gameName = s.game.title,
             isGba = s.game.system == GameSystem.GBA,
+            optionsStore = optionsStore,
             onQuit = { screen = Screen.Library },
             onError = { message ->
                 error = message
@@ -76,6 +79,10 @@ fun PoingHome() {
             },
         )
         is Screen.Licences -> LicencesScreen(onBack = { screen = Screen.Library })
+        is Screen.Settings -> CoreOptionsScreen(
+            store = optionsStore,
+            onBack = { screen = Screen.Library },
+        )
         is Screen.Library -> LibraryScreen(
             notice = error,
             onPlay = { game ->
@@ -83,6 +90,7 @@ fun PoingHome() {
                 screen = Screen.Player(game)
             },
             onLicences = { screen = Screen.Licences },
+            onSettings = { screen = Screen.Settings },
         )
     }
 }

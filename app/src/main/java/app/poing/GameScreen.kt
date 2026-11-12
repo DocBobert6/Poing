@@ -10,6 +10,8 @@ import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -30,6 +32,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -44,6 +47,9 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /**
  * Phase 2 spike player screen: a fullscreen game view, minimal
@@ -69,6 +75,7 @@ fun GameScreen(
     gamePath: String,
     gameName: String,
     isGba: Boolean,
+    optionsStore: CoreOptionsStore,
     onQuit: () -> Unit,
     onError: (String) -> Unit,
 ) {
@@ -77,7 +84,10 @@ fun GameScreen(
     var bitmap by remember { mutableStateOf<Bitmap?>(null) }
     var stats by remember { mutableStateOf<PlayerStats?>(null) }
     var paused by remember { mutableStateOf(false) }
+    var showSettings by remember { mutableStateOf(false) }
+    var pauseMessage by remember { mutableStateOf<String?>(null) }
     val held = remember { HeldInput() }
+    val scope = rememberCoroutineScope()
 
     val session = remember(gamePath) {
         PlayerSession(
@@ -87,6 +97,9 @@ fun GameScreen(
             // The stored ROM file is <sha256>.<ext>: its stem is the
             // stable per-game key for <base>.sav and <base>.stateN.
             saveBase = java.io.File(gamePath).nameWithoutExtension,
+            // Core options as stored: pushed to the bridge after the
+            // libraries load and before the game loads.
+            options = optionsStore.all(),
             onFrame = { bitmap = it },
             onStats = { stats = it },
             onError = onError,
@@ -243,21 +256,110 @@ fun GameScreen(
                 }
             }
         }
-        // Pause overlay.
-        if (paused) {
+        // Pause overlay: resume, quick save/load (slot 0), the four
+        // save-state slots, core options, quit. Save/load run on IO
+        // (serialize + file write) and only ever run while paused,
+        // so a state can never race a frame.
+        if (paused && !showSettings) {
             Box(
                 modifier = Modifier
                     .fillMaxSize()
                     .background(Color.Black.copy(alpha = 0.7f)),
                 contentAlignment = Alignment.Center,
             ) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    modifier = Modifier
+                        .padding(16.dp)
+                        .verticalScroll(rememberScrollState()),
+                ) {
                     Text("Paused", style = MaterialTheme.typography.headlineMedium, color = Color.White)
                     Spacer(Modifier.height(8.dp))
                     Text(gameName, color = Color.White)
+                    pauseMessage?.let {
+                        Spacer(Modifier.height(8.dp))
+                        Text(it, color = Color.White)
+                    }
                     Spacer(Modifier.height(24.dp))
                     Button(onClick = { doResume() }) {
                         Text("Resume")
+                    }
+                    Spacer(Modifier.height(12.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Button(onClick = {
+                            pauseMessage = null
+                            scope.launch(Dispatchers.IO) {
+                                val ok = session.saveState(SaveStore.QUICK_SLOT)
+                                withContext(Dispatchers.Main) {
+                                    pauseMessage = if (ok) "Quick saved." else "Quick save failed."
+                                }
+                            }
+                        }) {
+                            Text("Quick save")
+                        }
+                        Button(
+                            onClick = {
+                                pauseMessage = null
+                                scope.launch(Dispatchers.IO) {
+                                    val ok = session.loadState(SaveStore.QUICK_SLOT)
+                                    withContext(Dispatchers.Main) {
+                                        pauseMessage = if (ok) "Quick loaded." else "No quick save yet."
+                                    }
+                                }
+                            },
+                            enabled = session.stateExists(SaveStore.QUICK_SLOT),
+                        ) {
+                            Text("Quick load")
+                        }
+                    }
+                    Spacer(Modifier.height(16.dp))
+                    Text("Save states", color = Color.White, style = MaterialTheme.typography.titleMedium)
+                    for (slot in 0 until SaveStore.SLOT_COUNT) {
+                        val savedAt = session.stateModifiedAt(slot)
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            modifier = Modifier.padding(vertical = 4.dp),
+                        ) {
+                            Text(
+                                "Slot $slot" + if (slot == SaveStore.QUICK_SLOT) " (quick)" else "",
+                                color = Color.White,
+                            )
+                            Text(
+                                savedAt?.let { formatStateTime(it) } ?: "empty",
+                                color = Color.White,
+                                style = MaterialTheme.typography.bodySmall,
+                            )
+                            Button(onClick = {
+                                pauseMessage = null
+                                scope.launch(Dispatchers.IO) {
+                                    val ok = session.saveState(slot)
+                                    withContext(Dispatchers.Main) {
+                                        pauseMessage = if (ok) "Saved to slot $slot." else "Save failed."
+                                    }
+                                }
+                            }) {
+                                Text("Save")
+                            }
+                            Button(
+                                onClick = {
+                                    pauseMessage = null
+                                    scope.launch(Dispatchers.IO) {
+                                        val ok = session.loadState(slot)
+                                        withContext(Dispatchers.Main) {
+                                            pauseMessage = if (ok) "Loaded slot $slot." else "Load failed."
+                                        }
+                                    }
+                                },
+                                enabled = savedAt != null,
+                            ) {
+                                Text("Load")
+                            }
+                        }
+                    }
+                    Spacer(Modifier.height(12.dp))
+                    Button(onClick = { showSettings = true }) {
+                        Text("Core options")
                     }
                     Spacer(Modifier.height(12.dp))
                     Button(onClick = onQuit) {
@@ -266,7 +368,29 @@ fun GameScreen(
                 }
             }
         }
+        // Core options over the paused game: a change pushes live to
+        // the session (non-restart options apply on the next frame
+        // after resume; restart options apply next game).
+        if (showSettings) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.Black),
+            ) {
+                CoreOptionsScreen(
+                    store = optionsStore,
+                    onValueChanged = { session.applyOptions(optionsStore.all()) },
+                    onBack = { showSettings = false },
+                )
+            }
+        }
     }
+}
+
+/** "Mar 4, 21:30" for a save-state slot's last-modified time. */
+private fun formatStateTime(millis: Long): String {
+    val fmt = java.text.SimpleDateFormat("MMM d, HH:mm", java.util.Locale.getDefault())
+    return fmt.format(java.util.Date(millis))
 }
 
 /**
