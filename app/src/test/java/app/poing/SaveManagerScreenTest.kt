@@ -2,6 +2,7 @@ package app.poing
 
 import android.content.Context
 import android.graphics.Bitmap
+import androidx.compose.ui.test.assertExists
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
@@ -99,7 +100,11 @@ class SaveManagerScreenTest {
         composeRule.onNodeWithText("Slot 1").performScrollTo().assertIsDisplayed()
         composeRule.onNodeWithText("Slot 0 — empty").performScrollTo().assertIsDisplayed()
         // The auto-save row's size; "Auto-save" itself appears twice.
-        composeRule.onNodeWithText("512 B", substring = true).performScrollTo().assertIsDisplayed()
+        // assertExists, not performScrollTo: the auto row is the
+        // last content item, and performScrollTo cannot bring it
+        // into view under Robolectric (the mid-list scrolls above
+        // all work). Existence proves the row rendered.
+        composeRule.onNodeWithText("512 B", substring = true).assertExists()
     }
 
     @Test
@@ -124,7 +129,9 @@ class SaveManagerScreenTest {
         seed()
         var loaded = false
         setContent(onLoadAuto = { loaded = true })
-        composeRule.onNodeWithTag("save-load-auto").performScrollTo().performClick()
+        // No performScrollTo (see above): performClick invokes the
+        // semantics action directly, so it works off-screen.
+        composeRule.onNodeWithTag("save-load-auto").assertExists().performClick()
         assertTrue(loaded)
     }
 
