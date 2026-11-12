@@ -95,6 +95,15 @@ fun GameScreen(
     var paused by remember { mutableStateOf(false) }
     var showSettings by remember { mutableStateOf(false) }
     var showCheats by remember { mutableStateOf(false) }
+    // Phase 6 (item 12) — Cartridge Surgery: the slide-out
+    // cartridge schematic. The hardware toggles are session-only
+    // (default on, this game only); the RTC time and the solar
+    // level are loaded fresh each time the panel opens.
+    var showCartridge by remember { mutableStateOf(false) }
+    var cartridgeTime by remember { mutableStateOf<CartridgeClock.RtcTime?>(null) }
+    var solarLevel by remember { mutableStateOf(optionsStore.get("mgba_solar_sensor_level")) }
+    var rumbleEnabled by remember { mutableStateOf(true) }
+    var sensorsEnabled by remember { mutableStateOf(true) }
     // Phase 6 (item 8c) — the RetroAchievements screens over the
     // paused game, like the cheats screen.
     var showAchievements by remember { mutableStateOf(false) }
@@ -216,6 +225,33 @@ fun GameScreen(
         while (true) {
             delay(1000)
             recordingElapsed = session.recordingElapsedSeconds()
+        }
+    }
+
+    // Phase 6 (item 12) — the panel's live state, loaded fresh
+    // each time it opens (the RTC clock keeps running while the
+    // game is paused, and the solar level may have changed in
+    // Core Options since the panel last opened).
+    LaunchedEffect(showCartridge) {
+        if (!showCartridge) return@LaunchedEffect
+        cartridgeTime = session.readRtcBytes()?.let {
+            CartridgeClock.currentTime(it, System.currentTimeMillis() / 1000)
+        }
+        solarLevel = optionsStore.get("mgba_solar_sensor_level")
+    }
+
+    // Phase 6 (item 12) — spin the cartridge clock by
+    // [deltaSeconds] (the thumbwheel). Reads the live RTC buffer,
+    // adjusts it, and writes it back through the session (which
+    // also records it as the RTC the next flushSave writes). The
+    // panel's time is re-read from the written buffer, so what it
+    // shows is what the .sav will carry.
+    fun spinRtc(deltaSeconds: Long) {
+        val bytes = session.readRtcBytes() ?: return
+        val now = System.currentTimeMillis() / 1000
+        val adjusted = CartridgeClock.adjust(bytes, deltaSeconds, now) ?: return
+        if (session.spinRtc(adjusted)) {
+            cartridgeTime = CartridgeClock.currentTime(adjusted, now)
         }
     }
 
@@ -651,6 +687,8 @@ fun GameScreen(
                     onAchievements = { showAchievements = true },
                     onLeaderboards = { showLeaderboards = true },
                     onMoveControls = { editingLayout = true },
+                    // Phase 6 (item 12) — Cartridge Surgery.
+                    onCartridge = { showCartridge = true },
                     // Phase 6 (item 11) — capture: a screenshot is
                     // the latest frame as a PNG in Pictures/Poing!;
                     // recording toggles the MP4 in Movies/Poing!
@@ -755,6 +793,58 @@ fun GameScreen(
                     store = remember { CheatStore(context.filesDir.resolve("cheats").apply { mkdirs() }) },
                     session = session,
                     onBack = { showCheats = false },
+                )
+            }
+        }
+        // Cartridge Surgery over the paused game: the slide-out
+        // cartridge schematic with live hardware controls. The
+        // solar level saves like any core option and pushes live
+        // (non-restart, next frame); the rumble / sensor toggles
+        // are session-only — off gates the hardware for this game
+        // (rumble: drop the bridge callback + stop the motor;
+        // sensors: stop the listeners + zero every value, so the
+        // core reads flat instead of a frozen tilt).
+        if (showCartridge) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.Black),
+            ) {
+                CartridgeSurgeryPanel(
+                    gameName = gameName,
+                    isGba = isGba,
+                    rtcTime = cartridgeTime,
+                    onSpinRtc = { spinRtc(it) },
+                    solarLevel = solarLevel,
+                    onSolarLevel = { value ->
+                        if (optionsStore.set("mgba_solar_sensor_level", value)) {
+                            solarLevel = value
+                            session.applyOptions(optionsStore.all())
+                        }
+                    },
+                    rumbleEnabled = rumbleEnabled,
+                    onRumbleEnabled = { enabled ->
+                        rumbleEnabled = enabled
+                        if (enabled) {
+                            Bridge.onRumbleHandler = { strength ->
+                                cartridgeRumble.setStrength(strength)
+                            }
+                        } else {
+                            Bridge.onRumbleHandler = null
+                            cartridgeRumble.stop()
+                        }
+                    },
+                    sensorsEnabled = sensorsEnabled,
+                    onSensorsEnabled = { enabled ->
+                        sensorsEnabled = enabled
+                        if (enabled) {
+                            cartridgeSensors.start()
+                        } else {
+                            cartridgeSensors.stop()
+                            cartridgeSensors.zero()
+                        }
+                    },
+                    onDone = { showCartridge = false },
                 )
             }
         }

@@ -74,6 +74,18 @@ class CartridgeSensors(context: Context) : SensorEventListener {
         started = false
     }
 
+    /**
+     * Phase 6 (item 12) — push zero for every sensor id (0–6):
+     * when the Cartridge Surgery panel switches the sensors off,
+     * the core must read flat (no tilt, no light), not the last
+     * pushed values frozen in place. A sensor the core never
+     * enabled reads zero anyway; this only matters for enabled
+     * ones. Safe to call before the native libraries load.
+     */
+    fun zero() {
+        for (id in 0..6) push(id, 0f)
+    }
+
     override fun onSensorChanged(event: SensorEvent) {
         when (event.sensor.type) {
             Sensor.TYPE_ACCELEROMETER -> {

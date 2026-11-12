@@ -166,4 +166,11 @@ class PlayerSessionTest {
         assertFalse(s.stopRecording())
         assertFalse(s.isRecording)
     }
+
+    @Test
+    fun rtcGuardsAreNoOpsBeforeStart() {
+        val s = session()
+        assertNull(s.readRtcBytes())
+        assertFalse(s.spinRtc(ByteArray(CartridgeClock.BUFFER_SIZE)))
+    }
 }

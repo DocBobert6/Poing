@@ -56,6 +56,9 @@ fun PauseMenu(
     onAchievements: () -> Unit = {},
     onLeaderboards: () -> Unit = {},
     onMoveControls: () -> Unit = {},
+    // Phase 6 (item 12) — Cartridge Surgery: the slide-out
+    // cartridge schematic with live hardware controls.
+    onCartridge: () -> Unit = {},
     // Phase 6 (item 11) — capture: a screenshot (the latest
     // frame) and the video recording toggle.
     isRecording: Boolean = false,
@@ -221,6 +224,10 @@ fun PauseMenu(
             Spacer(Modifier.height(12.dp))
             Button(onClick = onMoveControls) {
                 Text("Move controls")
+            }
+            Spacer(Modifier.height(12.dp))
+            Button(onClick = onCartridge) {
+                Text("Cartridge")
             }
             Spacer(Modifier.height(12.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {

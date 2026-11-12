@@ -253,6 +253,9 @@ class PlayerSession(
         rewindBuffer.pop()
         if (snapshot.raProgress != null) RaClient.deserializeProgress(snapshot.raProgress)
         else RaClient.resetProgress()
+        // The rewound state's own RTC replaces any spun clock
+        // (see rtcOverride).
+        rtcOverride = null
         return true
     }
 
@@ -357,6 +360,50 @@ class PlayerSession(
         return true
     }
 
+    /**
+     * Phase 6 (item 12) — the cartridge clock (MBC3 RTC): read
+     * the live 48-byte RTC buffer, or null when this cartridge
+     * has no clock (every GBA game, and GB/GBC games without an
+     * MBC3 RTC) or the read fails. Only safe while paused or
+     * stopped — never mid-frame. The panel reads it when it
+     * opens, and again for each thumbwheel spin.
+     */
+    fun readRtcBytes(): ByteArray? {
+        if (!loaded) return null
+        val rtcSize = Bridge.nativeRtcSize()
+        if (rtcSize <= 0) return null
+        val bytes = ByteArray(rtcSize)
+        return if (Bridge.nativeReadRtc(bytes)) bytes else null
+    }
+
+    /**
+     * The RTC the next flushSave() writes, when the panel spun
+     * the clock (see [spinRtc]). The live clock is untouched —
+     * the core only reads the RTC buffer at load — so the spun
+     * time must survive in the .sav even if the core's periodic
+     * save-clean overwrites the live buffer with the unspun time
+     * after the game resumes. Cleared whenever a state is loaded
+     * or the game is rewound: the loaded state's own RTC replaces
+     * it, and the spun time belongs to the timeline that was left.
+     */
+    @Volatile
+    private var rtcOverride: ByteArray? = null
+
+    /**
+     * Phase 6 (item 12) — spin the cartridge clock: write the
+     * adjusted RTC buffer ([CartridgeClock.adjust] builds it)
+     * and record it as the RTC the next flushSave() writes, so
+     * the game sees the new time when it next loads. False (and
+     * nothing recorded) when no game is loaded or the write
+     * fails. Only safe while paused — never mid-frame.
+     */
+    fun spinRtc(adjusted: ByteArray): Boolean {
+        if (!loaded || !paused) return false
+        if (!Bridge.nativeWriteRtc(adjusted)) return false
+        rtcOverride = adjusted.copyOf()
+        return true
+    }
+
     fun applyOptions() = applyOptions(options)
 
     /**
@@ -373,8 +420,15 @@ class PlayerSession(
         if (!Bridge.nativeReadSaveRam(save)) return false
         val rtcSize = Bridge.nativeRtcSize()
         val bytes = if (rtcSize > 0) {
-            val rtc = ByteArray(rtcSize)
-            if (!Bridge.nativeReadRtc(rtc)) return false
+            // Phase 6 (item 12): a spun clock (rtcOverride) wins
+            // over the live buffer — the core's periodic save-clean
+            // may already have overwritten the buffer with the
+            // unspun time after the game resumed.
+            val rtc = rtcOverride?.takeIf { it.size == rtcSize } ?: run {
+                val live = ByteArray(rtcSize)
+                if (!Bridge.nativeReadRtc(live)) return false
+                live
+            }
             save + rtc
         } else {
             save
@@ -449,6 +503,9 @@ class PlayerSession(
         // The timeline diverges here: snapshots from before the
         // load belong to a future that no longer exists.
         rewindBuffer.clear()
+        // The loaded state's own RTC replaces any spun clock
+        // (see rtcOverride).
+        rtcOverride = null
         return true
     }
 
@@ -555,6 +612,9 @@ class PlayerSession(
         readRaSidecar(saveStore.raSidecarFile(saveBase, slot))
         // The timeline diverges here (see loadAutoState).
         rewindBuffer.clear()
+        // The loaded state's own RTC replaces any spun clock
+        // (see rtcOverride).
+        rtcOverride = null
         return true
     }
 
