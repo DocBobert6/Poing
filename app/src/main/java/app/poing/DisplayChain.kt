@@ -14,10 +14,8 @@ enum class JadeMode {
  * system — the chain's inner workings are never surfaced.
  *
  * Each chain is the default look for its system. The mapping
- * grows one system per commit: Jade landed first, Prism
- * (GBC) now; GBA runs clean until Dusk lands in its own
- * commit, so this file is the single place the mapping
- * lives.
+ * is complete: Jade (GB), Prism (GBC), Dusk (GBA). This file
+ * is the single place the mapping lives.
  *
  * Pure Kotlin — no Android APIs — so the mapping runs under
  * plain JVM unit tests.
@@ -31,14 +29,11 @@ enum class DisplayChain {
 
     companion object {
 
-        /**
-         * The chain for a system. GBA runs clean until Dusk
-         * lands in its own commit — never a half-built chain.
-         */
+        /** The chain for a system — one named look each. */
         fun forSystem(system: GameSystem): DisplayChain = when (system) {
             GameSystem.GB -> JADE
             GameSystem.GBC -> PRISM
-            GameSystem.GBA -> CLEAN
+            GameSystem.GBA -> DUSK
         }
 
         /**

@@ -139,4 +139,24 @@ class AppSettingsStoreTest {
         s.setPrismEnabled(false)
         assertFalse(s.chainEnabled(DisplayChain.PRISM))
     }
+
+    @Test
+    fun duskDefaultsOnAndRoundTrips() {
+        // Each chain is the default look for its system.
+        val s = store()
+        assertTrue(s.duskEnabled())
+        s.setDuskEnabled(false)
+        assertFalse(s.duskEnabled())
+        assertFalse(AppSettingsStore(temp.root).duskEnabled())
+        s.setDuskEnabled(true)
+        assertTrue(s.duskEnabled())
+    }
+
+    @Test
+    fun chainEnabledFollowsTheDuskToggle() {
+        val s = store()
+        assertTrue(s.chainEnabled(DisplayChain.DUSK))
+        s.setDuskEnabled(false)
+        assertFalse(s.chainEnabled(DisplayChain.DUSK))
+    }
 }

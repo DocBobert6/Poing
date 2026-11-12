@@ -77,17 +77,16 @@ class DisplayRenderer : GLSurfaceView.Renderer {
 
     /**
      * Apply a chain. A chain this build does not know yet
-     * (Dusk before its commit) runs clean rather than
-     * drawing a wrong look — the mapping in
-     * DisplayChain.forSystem never returns it yet, and this
-     * is the backstop.
+     * runs clean rather than drawing a wrong look — the
+     * mapping in DisplayChain.forSystem never returns it,
+     * and this is the backstop.
      */
     fun setChain(chain: DisplayChain, jadeMode: JadeMode) {
         this.chain = when (chain) {
             DisplayChain.JADE -> DisplayChain.JADE
             DisplayChain.PRISM -> DisplayChain.PRISM
+            DisplayChain.DUSK -> DisplayChain.DUSK
             DisplayChain.CLEAN -> DisplayChain.CLEAN
-            DisplayChain.DUSK -> DisplayChain.CLEAN
         }
         this.jadeMode = jadeMode
     }
@@ -169,13 +168,15 @@ class DisplayRenderer : GLSurfaceView.Renderer {
         GLES20.glUniform1f(uniform(colourProgram, "uFlipV"), 0f)
         GLES20.glUniform1i(uniform(colourProgram, "uTex"), 0)
         // Colour mode: 0 = Jade FSTN, 1 = Jade pass-through,
-        // 2 = Prism. The grid mode follows the chain: the
-        // dot-matrix is Jade's, the TFT lines are Prism's.
+        // 2 = Prism, 3 = Dusk. The grid mode follows the
+        // chain: the dot-matrix is Jade's, the TFT lines are
+        // Prism's and Dusk's.
         GLES20.glUniform1i(
             uniform(colourProgram, "uMode"),
             when (chain) {
                 DisplayChain.JADE -> if (jadeMode == JadeMode.FSTN) 0 else 1
                 DisplayChain.PRISM -> 2
+                DisplayChain.DUSK -> 3
                 else -> 1
             },
         )
@@ -196,7 +197,7 @@ class DisplayRenderer : GLSurfaceView.Renderer {
         )
         GLES20.glUniform1i(
             uniform(gridProgram, "uGridMode"),
-            if (chain == DisplayChain.PRISM) 1 else 0,
+            if (chain == DisplayChain.PRISM || chain == DisplayChain.DUSK) 1 else 0,
         )
         GLES20.glUniform1f(uniform(gridProgram, "uGridStrength"), GRID_STRENGTH)
         GLES20.glActiveTexture(GLES20.GL_TEXTURE0)

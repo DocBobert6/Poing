@@ -54,6 +54,17 @@ class DisplayShadersTest {
     }
 
     @Test
+    fun colourPassHasTheDuskMode() {
+        val src = DisplayShaders.COLOUR_FRAGMENT
+        // Dusk is mode 3: the Advance's gamma, then a gamma
+        // lift and a saturation lift for a dark, unlit screen.
+        assertTrue(src.contains("uMode == 3"))
+        assertTrue(src.contains("pow(col, vec3(3.2))"))
+        assertTrue(src.contains("pow(col, vec3(0.85))"))
+        assertTrue(src.contains("mix(vec3(luma), col, 1.15)"))
+    }
+
+    @Test
     fun gridPassHasTheTftMode() {
         val src = DisplayShaders.GRID_FRAGMENT
         assertTrue(src.contains("uGridMode"))

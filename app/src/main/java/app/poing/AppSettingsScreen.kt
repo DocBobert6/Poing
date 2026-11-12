@@ -68,6 +68,9 @@ fun AppSettingsScreen(
     // Phase 8 — Prism, the Game Boy Color display chain,
     // same rule as Jade.
     var prism by remember { mutableStateOf(store.prismEnabled()) }
+    // Phase 8 — Dusk, the Game Boy Advance display chain,
+    // same rule as Jade.
+    var dusk by remember { mutableStateOf(store.duskEnabled()) }
 
     LazyColumn(
         modifier = Modifier
@@ -351,6 +354,33 @@ fun AppSettingsScreen(
             }
         }
         item {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        "Dusk",
+                        style = MaterialTheme.typography.titleMedium,
+                    )
+                    Text(
+                        "The Game Boy Advance display chain. On by default; off shows the game exactly as the core renders it.",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
+                Switch(
+                    checked = dusk,
+                    onCheckedChange = {
+                        store.setDuskEnabled(it)
+                        dusk = it
+                    },
+                    modifier = Modifier.testTag("dusk-chain-switch"),
+                )
+            }
+        }
+        item {
             Row(modifier = Modifier.padding(16.dp)) {
                 TextButton(onClick = {
                     store.reset()
@@ -361,6 +391,7 @@ fun AppSettingsScreen(
                     rewindControl = store.rewindControlVisible()
                     jade = store.jadeEnabled()
                     prism = store.prismEnabled()
+                    dusk = store.duskEnabled()
                     palette = optionsStore?.get("mgba_gb_colors")
                         ?: CoreOptions.GB_PALETTES.first()
                 }) {

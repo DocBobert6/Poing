@@ -26,6 +26,7 @@ class AppSettingsStore(private val root: File) {
         const val KEY_REWIND_CONTROL = "rewind_control_visible"
         const val KEY_JADE_CHAIN = "display_jade"
         const val KEY_PRISM_CHAIN = "display_prism"
+        const val KEY_DUSK_CHAIN = "display_dusk"
         const val DEFAULT_FF_SPEED = 2
         val FF_SPEEDS = setOf(2, 3, 4)
     }
@@ -52,7 +53,7 @@ class AppSettingsStore(private val root: File) {
      * Phase 8 — the Jade display chain (GB): on by default,
      * because each chain is the default look for its system.
      * Off runs the game clean, exactly as the core rendered
-     * it. Dusk gains its own key in its commit.
+     * it.
      */
     fun jadeEnabled(): Boolean = readBoolean(KEY_JADE_CHAIN, true)
     fun setJadeEnabled(enabled: Boolean) = write(KEY_JADE_CHAIN, enabled.toString())
@@ -61,17 +62,19 @@ class AppSettingsStore(private val root: File) {
     fun prismEnabled(): Boolean = readBoolean(KEY_PRISM_CHAIN, true)
     fun setPrismEnabled(enabled: Boolean) = write(KEY_PRISM_CHAIN, enabled.toString())
 
+    /** Phase 8 — the Dusk display chain (GBA): on by default, same rule as Jade. */
+    fun duskEnabled(): Boolean = readBoolean(KEY_DUSK_CHAIN, true)
+    fun setDuskEnabled(enabled: Boolean) = write(KEY_DUSK_CHAIN, enabled.toString())
+
     /**
-     * Phase 8 — whether a chain is on. A chain this build
-     * does not know yet (Dusk before its commit) reads as
-     * on: the mapping in DisplayChain.forSystem runs it
-     * clean until its commit lands, and this is the
-     * backstop.
+     * Phase 8 — whether a chain is on. Clean is never gated
+     * by a toggle.
      */
     fun chainEnabled(chain: DisplayChain): Boolean = when (chain) {
         DisplayChain.JADE -> jadeEnabled()
         DisplayChain.PRISM -> prismEnabled()
-        DisplayChain.DUSK, DisplayChain.CLEAN -> true
+        DisplayChain.DUSK -> duskEnabled()
+        DisplayChain.CLEAN -> true
     }
 
     /** The fast-forward multiplier (2, 3 or 4); 2 by default. */

@@ -13,11 +13,9 @@ class DisplayChainTest {
     }
 
     @Test
-    fun gbcRunsPrismAndGbaRunsCleanUntilDuskLands() {
-        // Dusk lands in its own commit — never a half-built
-        // chain.
+    fun gbcRunsPrismAndGbaRunsDusk() {
         assertEquals(DisplayChain.PRISM, DisplayChain.forSystem(GameSystem.GBC))
-        assertEquals(DisplayChain.CLEAN, DisplayChain.forSystem(GameSystem.GBA))
+        assertEquals(DisplayChain.DUSK, DisplayChain.forSystem(GameSystem.GBA))
     }
 
     @Test
@@ -46,6 +44,11 @@ class DisplayChainTest {
         assertEquals(
             "OFF",
             DisplayChain.effectiveCoreOptions(options, DisplayChain.PRISM)["mgba_color_correction"],
+        )
+        // And Dusk.
+        assertEquals(
+            "OFF",
+            DisplayChain.effectiveCoreOptions(options, DisplayChain.DUSK)["mgba_color_correction"],
         )
     }
 

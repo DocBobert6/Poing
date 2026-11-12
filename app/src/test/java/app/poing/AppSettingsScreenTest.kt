@@ -192,4 +192,23 @@ class AppSettingsScreenTest {
         composeRule.onNodeWithTag("prism-chain-switch").performClick()
         assertFalse(AppSettingsStore(temp.root).prismEnabled())
     }
+
+    @Test
+    fun duskOnByDefaultAndTogglingPersists() {
+        val s = store()
+        composeRule.setContent {
+            PoingTheme {
+                AppSettingsScreen(store = s, onCoreOptions = {}, onBack = { })
+            }
+        }
+        // The Dusk row is index 11 here (no options store,
+        // so no palette row: header, Player, fast-forward,
+        // input display, haptics, RA title, RA, rewind,
+        // Display title, Jade, Prism, Dusk).
+        composeRule.onNodeWithTag("settings-list").performScrollToIndex(11)
+        composeRule.onNodeWithText("Dusk").assertIsDisplayed()
+        assertTrue(AppSettingsStore(temp.root).duskEnabled())
+        composeRule.onNodeWithTag("dusk-chain-switch").performClick()
+        assertFalse(AppSettingsStore(temp.root).duskEnabled())
+    }
 }
