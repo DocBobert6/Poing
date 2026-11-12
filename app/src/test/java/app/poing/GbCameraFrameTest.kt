@@ -98,8 +98,8 @@ class GbCameraFrameTest {
         val height = 144
         val (y, _, _) = flatFrame(76, 128, 128, width, height)
         val uvSize = (width / 2) * (height / 2) * 2
-        val u = ByteArray(uvSize) { i -> if (i % 2 == 0) 85.toByte() else 0 }
-        val v = ByteArray(uvSize) { i -> if (i % 2 == 0) 255.toByte() else 0 }
+        val u = ByteArray(uvSize) { i -> if (i % 2 == 0) 85.toByte() else 0.toByte() }
+        val v = ByteArray(uvSize) { i -> if (i % 2 == 0) 255.toByte() else 0.toByte() }
         val out = convert(y, u, v, width, height, uvPixelStride = 2)
         val pixel = out[0]
         val r = (pixel shr 16) and 0xFF
