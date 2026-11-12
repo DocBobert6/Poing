@@ -77,4 +77,93 @@ object Bridge {
     external fun nativeUnloadGame()
     external fun nativeDeinit()
     external fun nativeLastError(): String
+
+    // Phase 6 (item 8) — RetroAchievements (bridge/jni/ra_client.c).
+    // The client is created once and lives for the app's lifetime;
+    // login persists, so it is NOT shut down in nativeDeinit. Only
+    // the loaded game is unloaded in nativeRaUnloadGame. The memory
+    // maps come from the core's SET_MEMORY_MAPS capture; HTTP
+    // responses and the achievements JSON cross as byte[] (UTF-8,
+    // encoding-safe).
+    external fun nativeRaInit(): Boolean
+    // Password login: the password is used once for this login and
+    // is never stored. The session token the server returns is kept
+    // instead, via nativeRaToken, and the next launch re-logs in
+    // with nativeRaLoginWithToken.
+    external fun nativeRaLogin(username: String, password: String)
+    external fun nativeRaLoginWithToken(username: String, token: String)
+    external fun nativeRaToken(): String?
+    external fun nativeRaLogout()
+    external fun nativeRaIsLoggedIn(): Boolean
+    external fun nativeRaLoggedInUsername(): String?
+    external fun nativeRaLoadGame(path: String)
+    external fun nativeRaUnloadGame()
+    external fun nativeRaIsGameLoaded(): Boolean
+    external fun nativeRaGameTitle(): String?
+    external fun nativeRaDoFrame()
+    external fun nativeRaReset()
+    external fun nativeRaSerializeProgress(): ByteArray?
+    external fun nativeRaDeserializeProgress(data: ByteArray)
+    external fun nativeRaGetAchievements(): ByteArray?
+    // Leaderboards and rich presence. The entries fetch is async:
+    // the result arrives through raLeaderboardEntriesResult, and
+    // nativeRaFetchLeaderboardEntries returns false when no game
+    // is loaded (no callback then).
+    external fun nativeRaHasLeaderboards(): Boolean
+    external fun nativeRaGetLeaderboards(): ByteArray?
+    external fun nativeRaFetchLeaderboardEntries(leaderboardId: Int, aroundUser: Boolean): Boolean
+    external fun nativeRaHasRichPresence(): Boolean
+    external fun nativeRaGetRichPresence(): String?
+    external fun nativeRaHttpResponse(requestId: Int, body: ByteArray, httpStatus: Int)
+
+    /**
+     * The Kotlin-side handlers for the RA callbacks the native
+     * layer calls (looked up by GetMethodID in nativeRaInit, so
+     * the function names and signatures below must match
+     * bridge.cpp exactly). They are nullable lambdas, set by
+     * [RaClient] when it initialises — Bridge itself stays free
+     * of the RA session, so the pure-test harness still compiles
+     * this file. A callback with no handler set is a no-op (the
+     * native client is only created after the handlers are set).
+     */
+    var raHttpRequestHandler: ((requestId: Int, url: String, postData: String?) -> Unit)? = null
+    var raEventUnlockedHandler: ((id: Int, title: String, description: String, points: Int) -> Unit)? = null
+    // A leaderboard event (tracker show/hide/update, scoreboard)
+    // and the entries-fetch result. The event's json is the
+    // tracker {"display"} or the scoreboard payload, or null when
+    // the event carries none.
+    var raLeaderboardEventHandler: ((type: Int, leaderboardId: Int, json: String?) -> Unit)? = null
+    var raLeaderboardEntriesResultHandler: ((success: Boolean, error: String?, json: String?) -> Unit)? = null
+    var raLoginResultHandler: ((success: Boolean, error: String?) -> Unit)? = null
+    var raLoadGameResultHandler: ((success: Boolean, error: String?) -> Unit)? = null
+
+    /** A server call from the native layer (url + optional POST body). */
+    fun raHttpRequest(requestId: Int, url: String, postData: String?) {
+        raHttpRequestHandler?.invoke(requestId, url, postData)
+    }
+
+    /** An achievement was unlocked. */
+    fun raEventUnlocked(id: Int, title: String, description: String, points: Int) {
+        raEventUnlockedHandler?.invoke(id, title, description, points)
+    }
+
+    /** A leaderboard event (tracker show/hide/update, scoreboard). */
+    fun raLeaderboardEvent(type: Int, leaderboardId: Int, json: String?) {
+        raLeaderboardEventHandler?.invoke(type, leaderboardId, json)
+    }
+
+    /** The leaderboard entries fetch finished. */
+    fun raLeaderboardEntriesResult(success: Boolean, error: String?, json: String?) {
+        raLeaderboardEntriesResultHandler?.invoke(success, error, json)
+    }
+
+    /** The login result. */
+    fun raLoginResult(success: Boolean, error: String?) {
+        raLoginResultHandler?.invoke(success, error)
+    }
+
+    /** The game-load result. */
+    fun raLoadGameResult(success: Boolean, error: String?) {
+        raLoadGameResultHandler?.invoke(success, error)
+    }
 }

@@ -81,6 +81,7 @@
 #include <string.h>
 
 #include "libretro.h"
+#include "ra_client.h"
 
 #define LOG_TAG "Poing"
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
@@ -251,6 +252,150 @@ static void bridge_options_init(void) {
     pthread_mutex_unlock(&g_opt_mutex);
 }
 
+// ---------------------------------------------------------------------------
+// RetroAchievements (Phase 6, item 8)
+// ---------------------------------------------------------------------------
+//
+// The RA client (ra_client.c) is pure C; this section is the JNI
+// layer: the callbacks ra_client needs (the memory maps, the HTTP
+// request, the unlock event, the async results), performed through
+// JNI into Kotlin (Bridge.raHttpRequest / raEventUnlocked / ...),
+// and the nativeRa* entry points Kotlin calls.
+//
+// The memory maps: the core hands them over in
+// RETRO_ENVIRONMENT_SET_MEMORY_MAPS at load (see bridge_environ) —
+// the core's descriptor array is stack memory in _setupMaps, so
+// the bridge copies the descriptors (start/len/offset/select/ptr)
+// into g_ra_descs. The pointers stay live while the game is
+// loaded; the count is cleared on unload. ra_client translates RA
+// addresses through the rcheevos region tables + these descriptors
+// (see ra_client.h); the bridge never interprets the memory itself.
+#define RA_MAX_DESCS 32
+static ra_mem_desc_t g_ra_descs[RA_MAX_DESCS];
+static size_t g_ra_num_descs = 0;
+
+static JavaVM *g_ra_vm = NULL;
+static jobject g_ra_bridge = NULL; // global ref to the Bridge object
+static jmethodID g_ra_http_request_method = NULL;
+static jmethodID g_ra_event_unlocked_method = NULL;
+static jmethodID g_ra_leaderboard_event_method = NULL;
+static jmethodID g_ra_leaderboard_entries_result_method = NULL;
+static jmethodID g_ra_login_result_method = NULL;
+static jmethodID g_ra_load_game_result_method = NULL;
+
+static JNIEnv *ra_get_env() {
+    JNIEnv *env = NULL;
+    if (!g_ra_vm)
+        return NULL;
+    if (g_ra_vm->GetEnv((void **)&env, JNI_VERSION_1_6) != JNI_OK) {
+        if (g_ra_vm->AttachCurrentThread(&env, NULL) != JNI_OK)
+            return NULL;
+    }
+    return env;
+}
+
+static void ra_call_http_request(int request_id, const char *url, const char *post_data) {
+    JNIEnv *env = ra_get_env();
+    jstring jurl;
+    jstring jpost;
+    if (!env || !g_ra_bridge || !g_ra_http_request_method)
+        return;
+    jurl = env->NewStringUTF(url ? url : "");
+    jpost = post_data ? env->NewStringUTF(post_data) : NULL;
+    env->CallVoidMethod(g_ra_bridge, g_ra_http_request_method, (jint)request_id, jurl, jpost);
+    if (jurl)
+        env->DeleteLocalRef(jurl);
+    if (jpost)
+        env->DeleteLocalRef(jpost);
+}
+
+static void ra_call_event_unlocked(uint32_t id, const char *title, const char *description, uint32_t points) {
+    JNIEnv *env = ra_get_env();
+    jstring jtitle;
+    jstring jdesc;
+    if (!env || !g_ra_bridge || !g_ra_event_unlocked_method)
+        return;
+    jtitle = env->NewStringUTF(title ? title : "");
+    jdesc = env->NewStringUTF(description ? description : "");
+    env->CallVoidMethod(g_ra_bridge, g_ra_event_unlocked_method, (jint)id, jtitle, jdesc, (jint)points);
+    if (jtitle)
+        env->DeleteLocalRef(jtitle);
+    if (jdesc)
+        env->DeleteLocalRef(jdesc);
+}
+
+static void ra_call_result(jmethodID method, int result, const char *error_message) {
+    JNIEnv *env = ra_get_env();
+    jstring jerror;
+    if (!env || !g_ra_bridge || !method)
+        return;
+    jerror = error_message ? env->NewStringUTF(error_message) : NULL;
+    env->CallVoidMethod(g_ra_bridge, method, result == 0 ? JNI_TRUE : JNI_FALSE, jerror);
+    if (jerror)
+        env->DeleteLocalRef(jerror);
+}
+
+// The core's captured memory maps, through the RA provider. The
+// descriptors are only valid while a game is loaded (the count is
+// cleared on unload); before that the provider reports none.
+static void bridge_ra_map_provider(const ra_mem_desc_t **descs, size_t *num_descs, void *ctx) {
+    (void)ctx;
+    *descs = g_ra_descs;
+    *num_descs = g_ra_num_descs;
+}
+
+static void bridge_ra_server_call(int request_id, const char *url, const char *post_data, void *ctx) {
+    (void)ctx;
+    ra_call_http_request(request_id, url, post_data);
+}
+
+static void bridge_ra_event(int type, uint32_t achievement_id, const char *title, const char *description, uint32_t points, void *ctx) {
+    (void)ctx;
+    if (type == RA_EVENT_ACHIEVEMENT_TRIGGERED)
+        ra_call_event_unlocked(achievement_id, title, description, points);
+    // RA_EVENT_GAME_COMPLETED is not surfaced: the achievements
+    // list the app refreshes on every unlock already shows the
+    // completed state.
+}
+
+static void bridge_ra_leaderboard_event(int type, uint32_t leaderboard_id, const char *json, void *ctx) {
+    JNIEnv *env = ra_get_env();
+    jstring jjson;
+    (void)ctx;
+    if (!env || !g_ra_bridge || !g_ra_leaderboard_event_method)
+        return;
+    jjson = json ? env->NewStringUTF(json) : NULL;
+    env->CallVoidMethod(g_ra_bridge, g_ra_leaderboard_event_method, (jint)type, (jint)leaderboard_id, jjson);
+    if (jjson)
+        env->DeleteLocalRef(jjson);
+}
+
+static void bridge_ra_leaderboard_entries_result(int result, const char *error_message, const char *json, void *ctx) {
+    JNIEnv *env = ra_get_env();
+    jstring jerror;
+    jstring jjson;
+    (void)ctx;
+    if (!env || !g_ra_bridge || !g_ra_leaderboard_entries_result_method)
+        return;
+    jerror = error_message ? env->NewStringUTF(error_message) : NULL;
+    jjson = json ? env->NewStringUTF(json) : NULL;
+    env->CallVoidMethod(g_ra_bridge, g_ra_leaderboard_entries_result_method, result == 0 ? JNI_TRUE : JNI_FALSE, jerror, jjson);
+    if (jerror)
+        env->DeleteLocalRef(jerror);
+    if (jjson)
+        env->DeleteLocalRef(jjson);
+}
+
+static void bridge_ra_login_result(int result, const char *error_message, void *ctx) {
+    (void)ctx;
+    ra_call_result(g_ra_login_result_method, result, error_message);
+}
+
+static void bridge_ra_load_game_result(int result, const char *error_message, void *ctx) {
+    (void)ctx;
+    ra_call_result(g_ra_load_game_result_method, result, error_message);
+}
+
 static bool bridge_environ(unsigned cmd, void *data) {
     switch (cmd) {
         case RETRO_ENVIRONMENT_SET_PIXEL_FORMAT: {
@@ -321,16 +466,45 @@ static bool bridge_environ(unsigned cmd, void *data) {
         }
         case RETRO_ENVIRONMENT_SET_GEOMETRY:
         case RETRO_ENVIRONMENT_SET_SYSTEM_AV_INFO:
-        case RETRO_ENVIRONMENT_SET_MEMORY_MAPS:
         case RETRO_ENVIRONMENT_SET_INPUT_DESCRIPTORS:
         case RETRO_ENVIRONMENT_SET_MINIMUM_AUDIO_LATENCY:
         case RETRO_ENVIRONMENT_SET_AUDIO_BUFFER_STATUS_CALLBACK:
             // Acknowledged, no action in the spike.
             return true;
+        case RETRO_ENVIRONMENT_SET_MEMORY_MAPS: {
+            // Phase 6 (item 8) — capture the core's memory maps
+            // for RetroAchievements: the core's descriptor array
+            // is stack memory in _setupMaps, so copy the entries
+            // (the pointers stay live while the game is loaded).
+            // The RA read translates through these (see
+            // ra_client.h); the bridge never interprets them.
+            const struct retro_memory_map *mmaps = (const struct retro_memory_map *)data;
+            size_t i;
+            size_t n;
+            if (!mmaps || !mmaps->descriptors)
+                return false;
+            n = mmaps->num_descriptors;
+            if (n > RA_MAX_DESCS)
+                n = RA_MAX_DESCS;
+            for (i = 0; i < n; ++i) {
+                g_ra_descs[i].start = (uint32_t)mmaps->descriptors[i].start;
+                g_ra_descs[i].len = (uint32_t)mmaps->descriptors[i].len;
+                g_ra_descs[i].offset = (uint32_t)mmaps->descriptors[i].offset;
+                g_ra_descs[i].select = (uint32_t)mmaps->descriptors[i].select;
+                g_ra_descs[i].ptr = (const uint8_t *)mmaps->descriptors[i].ptr;
+            }
+            g_ra_num_descs = n;
+            return true;
+        }
         case RETRO_ENVIRONMENT_SET_SUPPORT_ACHIEVEMENTS:
-            // RetroAchievements is Phase 6, not the spike: the core
-            // then skips its achievement hooks.
-            return false;
+            // Phase 6 (item 8) — RetroAchievements is supported:
+            // the core's `yes` local is never read after this call
+            // in the pinned tree, but the answer is the truthful
+            // one, and the RA work lives in the bridge + rcheevos.
+            if (!data)
+                return false;
+            *(bool *)data = true;
+            return true;
         case RETRO_ENVIRONMENT_GET_RUMBLE_INTERFACE:
         case RETRO_ENVIRONMENT_GET_SENSOR_INTERFACE:
         case RETRO_ENVIRONMENT_GET_CAMERA_INTERFACE:
@@ -635,6 +809,10 @@ Java_app_poing_Bridge_nativeUnloadGame(JNIEnv * /* env */,
         retro_unload_game();
         g_loaded = false;
     }
+    // The captured memory maps point at the unloaded game's
+    // memory: drop them so the RA read sees nothing (and
+    // ra_unload_game is also called from nativeRaUnloadGame).
+    g_ra_num_descs = 0;
     pthread_mutex_lock(&g_audio_mutex);
     g_audio_head = g_audio_tail = g_audio_count = 0;
     pthread_mutex_unlock(&g_audio_mutex);
@@ -817,6 +995,7 @@ Java_app_poing_Bridge_nativeDeinit(JNIEnv * /* env */,
         g_inited = false;
         g_loaded = false;
     }
+    g_ra_num_descs = 0;
     free(g_frame);
     g_frame = NULL;
     free(g_system_dir);
@@ -867,6 +1046,307 @@ Java_app_poing_Bridge_nativeClearCheats(JNIEnv * /* env */,
     if (!g_inited || !g_loaded)
         return;
     retro_cheat_reset();
+}
+
+// ---------------------------------------------------------------------------
+// RetroAchievements (Phase 6, item 8)
+// ---------------------------------------------------------------------------
+//
+// The nativeRa* entry points Kotlin calls (Bridge.kt). The client
+// is created once and lives for the app's lifetime; login persists,
+// so it is NOT shut down in nativeDeinit. Only the loaded game is
+// unloaded (in nativeRaUnloadGame, and the maps are dropped in
+// nativeUnloadGame above). The memory maps come from the
+// SET_MEMORY_MAPS capture; HTTP responses and the achievements
+// JSON cross as byte[] (UTF-8, encoding-safe).
+
+JNIEXPORT jboolean JNICALL
+Java_app_poing_Bridge_nativeRaInit(JNIEnv *env, jobject thiz) {
+    jclass bridge_class;
+    if (ra_is_ready())
+        return JNI_TRUE;
+    if (env->GetJavaVM(&g_ra_vm) != JNI_OK)
+        return JNI_FALSE;
+    if (!g_ra_bridge) {
+        g_ra_bridge = env->NewGlobalRef(thiz);
+        if (!g_ra_bridge)
+            return JNI_FALSE;
+        bridge_class = env->GetObjectClass(thiz);
+        g_ra_http_request_method = env->GetMethodID(bridge_class, "raHttpRequest", "(ILjava/lang/String;Ljava/lang/String;)V");
+        g_ra_event_unlocked_method = env->GetMethodID(bridge_class, "raEventUnlocked", "(ILjava/lang/String;Ljava/lang/String;I)V");
+        g_ra_leaderboard_event_method = env->GetMethodID(bridge_class, "raLeaderboardEvent", "(IILjava/lang/String;)V");
+        g_ra_leaderboard_entries_result_method = env->GetMethodID(bridge_class, "raLeaderboardEntriesResult", "(ZLjava/lang/String;Ljava/lang/String;)V");
+        g_ra_login_result_method = env->GetMethodID(bridge_class, "raLoginResult", "(ZLjava/lang/String;)V");
+        g_ra_load_game_result_method = env->GetMethodID(bridge_class, "raLoadGameResult", "(ZLjava/lang/String;)V");
+        env->DeleteLocalRef(bridge_class);
+        if (!g_ra_http_request_method || !g_ra_event_unlocked_method ||
+            !g_ra_leaderboard_event_method || !g_ra_leaderboard_entries_result_method ||
+            !g_ra_login_result_method || !g_ra_load_game_result_method) {
+            LOGE("nativeRaInit: a Kotlin RA callback is missing");
+            return JNI_FALSE;
+        }
+    }
+    if (ra_init(bridge_ra_map_provider, NULL, bridge_ra_server_call, NULL, bridge_ra_event, NULL) != 0)
+        return JNI_FALSE;
+    ra_set_leaderboard_event_handler(bridge_ra_leaderboard_event, NULL);
+    return JNI_TRUE;
+}
+
+JNIEXPORT jboolean JNICALL
+Java_app_poing_Bridge_nativeRaLogin(JNIEnv *env, jobject /* thiz */, jstring username, jstring password) {
+    const char *user;
+    const char *pass;
+    int rc;
+    if (!ra_is_ready() || !username || !password)
+        return JNI_FALSE;
+    user = env->GetStringUTFChars(username, NULL);
+    pass = env->GetStringUTFChars(password, NULL);
+    if (!user || !pass) {
+        if (user)
+            env->ReleaseStringUTFChars(username, user);
+        if (pass)
+            env->ReleaseStringUTFChars(password, pass);
+        return JNI_FALSE;
+    }
+    // The username and password are copied into the request by
+    // rcheevos before this returns, so releasing them here is
+    // safe. The password is used once, for this login only — it
+    // is never stored anywhere (the session token the server
+    // returns is what the app keeps; see nativeRaToken).
+    rc = ra_login_with_password(user, pass, bridge_ra_login_result, NULL);
+    env->ReleaseStringUTFChars(username, user);
+    env->ReleaseStringUTFChars(password, pass);
+    return rc == 0 ? JNI_TRUE : JNI_FALSE;
+}
+
+// Re-log in with a stored session token (the token a password
+// login returned on an earlier launch). No password involved.
+JNIEXPORT jboolean JNICALL
+Java_app_poing_Bridge_nativeRaLoginWithToken(JNIEnv *env, jobject /* thiz */, jstring username, jstring token) {
+    const char *user;
+    const char *tok;
+    int rc;
+    if (!ra_is_ready() || !username || !token)
+        return JNI_FALSE;
+    user = env->GetStringUTFChars(username, NULL);
+    tok = env->GetStringUTFChars(token, NULL);
+    if (!user || !tok) {
+        if (user)
+            env->ReleaseStringUTFChars(username, user);
+        if (tok)
+            env->ReleaseStringUTFChars(token, tok);
+        return JNI_FALSE;
+    }
+    // As above: rcheevos copies the credentials into the request
+    // before this returns.
+    rc = ra_login_with_token(user, tok, bridge_ra_login_result, NULL);
+    env->ReleaseStringUTFChars(username, user);
+    env->ReleaseStringUTFChars(token, tok);
+    return rc == 0 ? JNI_TRUE : JNI_FALSE;
+}
+
+// The session token of the logged-in user (NULL when logged
+// out) — what the app stores after a password login, so the
+// next launch can re-log in without the password.
+JNIEXPORT jstring JNICALL
+Java_app_poing_Bridge_nativeRaToken(JNIEnv *env, jobject /* thiz */) {
+    const char *token = ra_logged_in_token();
+    return token ? env->NewStringUTF(token) : NULL;
+}
+
+JNIEXPORT void JNICALL
+Java_app_poing_Bridge_nativeRaLogout(JNIEnv * /* env */, jobject /* thiz */) {
+    ra_logout();
+}
+
+JNIEXPORT jboolean JNICALL
+Java_app_poing_Bridge_nativeRaIsLoggedIn(JNIEnv * /* env */, jobject /* thiz */) {
+    return ra_is_logged_in() ? JNI_TRUE : JNI_FALSE;
+}
+
+JNIEXPORT jstring JNICALL
+Java_app_poing_Bridge_nativeRaLoggedInUsername(JNIEnv *env, jobject /* thiz */) {
+    const char *user = ra_logged_in_username();
+    return user ? env->NewStringUTF(user) : NULL;
+}
+
+JNIEXPORT jboolean JNICALL
+Java_app_poing_Bridge_nativeRaLoadGame(JNIEnv *env, jobject /* thiz */, jstring path) {
+    const char *cpath;
+    uint32_t console_id;
+    int rc;
+    if (!ra_is_ready() || !path)
+        return JNI_FALSE;
+    cpath = env->GetStringUTFChars(path, NULL);
+    if (!cpath)
+        return JNI_FALSE;
+    console_id = ra_console_id_for_path(cpath);
+    if (console_id == 0) {
+        // Not a RetroAchievements game for this frontend
+        // (or an unsupported extension) — RA stays inactive.
+        env->ReleaseStringUTFChars(path, cpath);
+        return JNI_FALSE;
+    }
+    // The path is only used synchronously (to hash the file),
+    // so releasing it here is safe.
+    rc = ra_load_game(console_id, cpath, bridge_ra_load_game_result, NULL);
+    env->ReleaseStringUTFChars(path, cpath);
+    return rc == 0 ? JNI_TRUE : JNI_FALSE;
+}
+
+JNIEXPORT void JNICALL
+Java_app_poing_Bridge_nativeRaUnloadGame(JNIEnv * /* env */, jobject /* thiz */) {
+    ra_unload_game();
+}
+
+JNIEXPORT jboolean JNICALL
+Java_app_poing_Bridge_nativeRaIsGameLoaded(JNIEnv * /* env */, jobject /* thiz */) {
+    return ra_is_game_loaded() ? JNI_TRUE : JNI_FALSE;
+}
+
+JNIEXPORT jstring JNICALL
+Java_app_poing_Bridge_nativeRaGameTitle(JNIEnv *env, jobject /* thiz */) {
+    const char *title = ra_game_title();
+    return title ? env->NewStringUTF(title) : NULL;
+}
+
+JNIEXPORT void JNICALL
+Java_app_poing_Bridge_nativeRaDoFrame(JNIEnv * /* env */, jobject /* thiz */) {
+    ra_do_frame();
+}
+
+JNIEXPORT void JNICALL
+Java_app_poing_Bridge_nativeRaReset(JNIEnv * /* env */, jobject /* thiz */) {
+    ra_reset();
+}
+
+JNIEXPORT jbyteArray JNICALL
+Java_app_poing_Bridge_nativeRaSerializeProgress(JNIEnv *env, jobject /* thiz */) {
+    size_t size = ra_progress_size();
+    uint8_t *buf;
+    jbyteArray out;
+    if (size == 0)
+        return NULL;
+    buf = (uint8_t *)malloc(size);
+    if (!buf)
+        return NULL;
+    if (ra_serialize_progress(buf, size) != 0) {
+        free(buf);
+        return NULL;
+    }
+    out = env->NewByteArray((jsize)size);
+    if (out)
+        env->SetByteArrayRegion(out, 0, (jsize)size, (const jbyte *)buf);
+    free(buf);
+    return out;
+}
+
+JNIEXPORT jboolean JNICALL
+Java_app_poing_Bridge_nativeRaDeserializeProgress(JNIEnv *env, jobject /* thiz */, jbyteArray data) {
+    jsize len;
+    uint8_t *buf;
+    int rc;
+    if (!data)
+        return JNI_FALSE;
+    len = env->GetArrayLength(data);
+    if (len <= 0)
+        return JNI_FALSE;
+    buf = (uint8_t *)malloc((size_t)len);
+    if (!buf)
+        return JNI_FALSE;
+    env->GetByteArrayRegion(data, 0, len, (jbyte *)buf);
+    rc = ra_deserialize_progress(buf, (size_t)len);
+    free(buf);
+    return rc == 0 ? JNI_TRUE : JNI_FALSE;
+}
+
+// The achievements list as UTF-8 JSON (a byte array, not a
+// string, so non-ASCII titles survive the JNI crossing intact).
+JNIEXPORT jbyteArray JNICALL
+Java_app_poing_Bridge_nativeRaGetAchievements(JNIEnv *env, jobject /* thiz */) {
+    char *json = ra_get_achievements_json();
+    size_t len;
+    jbyteArray out;
+    if (!json)
+        return NULL;
+    len = strlen(json);
+    out = env->NewByteArray((jsize)len);
+    if (out)
+        env->SetByteArrayRegion(out, 0, (jsize)len, (const jbyte *)json);
+    free(json);
+    return out;
+}
+
+JNIEXPORT jboolean JNICALL
+Java_app_poing_Bridge_nativeRaHasLeaderboards(JNIEnv * /* env */, jobject /* thiz */) {
+    return ra_has_leaderboards() ? JNI_TRUE : JNI_FALSE;
+}
+
+JNIEXPORT jbyteArray JNICALL
+Java_app_poing_Bridge_nativeRaGetLeaderboards(JNIEnv *env, jobject /* thiz */) {
+    char *json = ra_get_leaderboards_json();
+    size_t len;
+    jbyteArray out;
+    if (!json)
+        return NULL;
+    len = strlen(json);
+    out = env->NewByteArray((jsize)len);
+    if (out)
+        env->SetByteArrayRegion(out, 0, (jsize)len, (const jbyte *)json);
+    free(json);
+    return out;
+}
+
+// The result arrives asynchronously through
+// raLeaderboardEntriesResult. Returns false when no game is
+// loaded (the callback is not called then).
+JNIEXPORT jboolean JNICALL
+Java_app_poing_Bridge_nativeRaFetchLeaderboardEntries(JNIEnv * /* env */, jobject /* thiz */, jint leaderboard_id, jboolean around_user) {
+    return ra_fetch_leaderboard_entries((uint32_t)leaderboard_id, around_user == JNI_TRUE ? 1 : 0, bridge_ra_leaderboard_entries_result, NULL) == 0 ? JNI_TRUE : JNI_FALSE;
+}
+
+JNIEXPORT jboolean JNICALL
+Java_app_poing_Bridge_nativeRaHasRichPresence(JNIEnv * /* env */, jobject /* thiz */) {
+    return ra_has_rich_presence() ? JNI_TRUE : JNI_FALSE;
+}
+
+// The current rich presence message ("" when the game has
+// none). The presence itself is sent to the server
+// automatically by rc_client's periodic ping, so this only
+// reads it for display.
+JNIEXPORT jstring JNICALL
+Java_app_poing_Bridge_nativeRaGetRichPresence(JNIEnv *env, jobject /* thiz */) {
+    char buffer[512];
+    if (ra_get_rich_presence(buffer, sizeof(buffer)) == 0)
+        return env->NewStringUTF("");
+    return env->NewStringUTF(buffer);
+}
+
+// The HTTP response body arrives as UTF-8 bytes (a byte array,
+// not a string, so the JSON parses exactly as the server sent
+// it). A null body is an empty response.
+JNIEXPORT void JNICALL
+Java_app_poing_Bridge_nativeRaHttpResponse(JNIEnv *env, jobject /* thiz */, jint request_id, jbyteArray body, jint http_status) {
+    jsize len;
+    uint8_t *buf;
+    if (!body) {
+        ra_http_response((int)request_id, "", 0, (int)http_status);
+        return;
+    }
+    len = env->GetArrayLength(body);
+    if (len <= 0) {
+        ra_http_response((int)request_id, "", 0, (int)http_status);
+        return;
+    }
+    buf = (uint8_t *)malloc((size_t)len + 1);
+    if (!buf) {
+        ra_http_response((int)request_id, "", 0, 500);
+        return;
+    }
+    env->GetByteArrayRegion(body, 0, len, (jbyte *)buf);
+    buf[len] = '\0';
+    ra_http_response((int)request_id, (const char *)buf, (size_t)len, (int)http_status);
+    free(buf);
 }
 
 } // extern "C"
