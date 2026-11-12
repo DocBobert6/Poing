@@ -24,6 +24,7 @@ class AppSettingsStore(private val root: File) {
         const val KEY_INPUT_DISPLAY = "input_display_visible"
         const val KEY_HAPTICS = "haptics_enabled"
         const val KEY_REWIND_CONTROL = "rewind_control_visible"
+        const val KEY_JADE_CHAIN = "display_jade"
         const val DEFAULT_FF_SPEED = 2
         val FF_SPEEDS = setOf(2, 3, 4)
     }
@@ -45,6 +46,27 @@ class AppSettingsStore(private val root: File) {
     /** The rewind control (hold to step back through the last 30 seconds): off by default (the standing overlay rule). */
     fun rewindControlVisible(): Boolean = readBoolean(KEY_REWIND_CONTROL, false)
     fun setRewindControlVisible(visible: Boolean) = write(KEY_REWIND_CONTROL, visible.toString())
+
+    /**
+     * Phase 8 — the Jade display chain (GB): on by default,
+     * because each chain is the default look for its system.
+     * Off runs the game clean, exactly as the core rendered
+     * it. Prism / Dusk gain their own keys in their commits.
+     */
+    fun jadeEnabled(): Boolean = readBoolean(KEY_JADE_CHAIN, true)
+    fun setJadeEnabled(enabled: Boolean) = write(KEY_JADE_CHAIN, enabled.toString())
+
+    /**
+     * Phase 8 — whether a chain is on. A chain this build
+     * does not know yet (Prism / Dusk before their commits)
+     * reads as on: the mapping in DisplayChain.forSystem
+     * runs it clean until its commit lands, and this is the
+     * backstop.
+     */
+    fun chainEnabled(chain: DisplayChain): Boolean = when (chain) {
+        DisplayChain.JADE -> jadeEnabled()
+        DisplayChain.PRISM, DisplayChain.DUSK, DisplayChain.CLEAN -> true
+    }
 
     /** The fast-forward multiplier (2, 3 or 4); 2 by default. */
     fun ffSpeed(): Int {

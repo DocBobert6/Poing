@@ -119,7 +119,7 @@ class AppSettingsScreenTest {
         val s = store()
         composeRule.setContent {
             PoingTheme {
-                AppSettingsScreen(store = s, onCoreOptions = {}, onBack = {})
+                AppSettingsScreen(store = s, onCoreOptions = {}, onBack = { })
             }
         }
         composeRule.onNodeWithText("Haptics").assertIsDisplayed()
@@ -130,5 +130,35 @@ class AppSettingsScreenTest {
         // switch that is only just inside the viewport.
         composeRule.onNodeWithTag("haptics-switch").performScrollTo().performClick()
         assertFalse(AppSettingsStore(temp.root).hapticsEnabled())
+    }
+
+    @Test
+    fun jadeOnByDefaultAndTogglingPersists() {
+        val s = store()
+        composeRule.setContent {
+            PoingTheme {
+                AppSettingsScreen(store = s, onCoreOptions = {}, onBack = { })
+            }
+        }
+        composeRule.onNodeWithText("Jade").assertIsDisplayed()
+        assertTrue(AppSettingsStore(temp.root).jadeEnabled())
+        composeRule.onNodeWithTag("jade-chain-switch").performScrollTo().performClick()
+        assertFalse(AppSettingsStore(temp.root).jadeEnabled())
+        // Off hides the palette picker (it lives inside Jade).
+        composeRule.onAllNodesWithText("Game Boy palette").assertCountEquals(0)
+    }
+
+    @Test
+    fun pickingAPalettePersistsItInCoreOptions() {
+        val s = store()
+        val options = CoreOptionsStore(temp.root)
+        composeRule.setContent {
+            PoingTheme {
+                AppSettingsScreen(store = s, optionsStore = options, onCoreOptions = {}, onBack = { })
+            }
+        }
+        composeRule.onNodeWithText("Game Boy palette").performScrollTo().performClick()
+        composeRule.onNodeWithText("DMG Green").performScrollTo().performClick()
+        assertEquals("DMG Green", options.get("mgba_gb_colors"))
     }
 }

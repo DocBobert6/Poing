@@ -103,6 +103,9 @@ fun PoingHome() {
             gamePath = store.gameFile(s.game).absolutePath,
             gameName = s.game.title,
             isGba = s.game.system == GameSystem.GBA,
+            // Phase 8 — the header-detected system (GB vs GBC
+            // matters for the display chain).
+            system = s.game.system,
             optionsStore = optionsStore,
             appSettings = settingsStore,
             loadStateOnStart = s.loadState,
@@ -128,6 +131,11 @@ fun PoingHome() {
         is Screen.Licences -> LicencesScreen(onBack = { screen = Screen.Library })
         is Screen.Settings -> AppSettingsScreen(
             store = settingsStore,
+            // Phase 8 — the Jade palette picker lives in the
+            // Display section and writes the core's palette
+            // option, so the screen needs the core options
+            // store too.
+            optionsStore = optionsStore,
             onCoreOptions = { screen = Screen.CoreOptions },
             onRaLogin = { screen = Screen.RaLogin },
             onBack = { screen = Screen.Library },

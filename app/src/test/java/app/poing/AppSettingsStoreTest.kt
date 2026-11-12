@@ -97,4 +97,26 @@ class AppSettingsStoreTest {
         s.setRewindControlVisible(false)
         assertFalse(s.rewindControlVisible())
     }
+
+    @Test
+    fun jadeDefaultsOnAndRoundTrips() {
+        // Each chain is the default look for its system.
+        val s = store()
+        assertTrue(s.jadeEnabled())
+        s.setJadeEnabled(false)
+        assertFalse(s.jadeEnabled())
+        assertFalse(AppSettingsStore(temp.root).jadeEnabled())
+        s.setJadeEnabled(true)
+        assertTrue(s.jadeEnabled())
+    }
+
+    @Test
+    fun chainEnabledFollowsTheJadeToggle() {
+        val s = store()
+        assertTrue(s.chainEnabled(DisplayChain.JADE))
+        s.setJadeEnabled(false)
+        assertFalse(s.chainEnabled(DisplayChain.JADE))
+        // Clean is never gated by a toggle.
+        assertTrue(s.chainEnabled(DisplayChain.CLEAN))
+    }
 }

@@ -1,6 +1,7 @@
 package app.poing
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -9,9 +10,12 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.selection.selectable
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -41,6 +45,9 @@ import androidx.compose.ui.unit.dp
 @Composable
 fun AppSettingsScreen(
     store: AppSettingsStore,
+    // Phase 8 — the Jade palette picker writes the core's
+    // palette option. Null (tests) hides the picker row.
+    optionsStore: CoreOptionsStore? = null,
     onCoreOptions: () -> Unit,
     onRaLogin: () -> Unit = {},
     onBack: () -> Unit,
@@ -50,6 +57,14 @@ fun AppSettingsScreen(
     var inputDisplay by remember { mutableStateOf(store.inputDisplayVisible()) }
     var haptics by remember { mutableStateOf(store.hapticsEnabled()) }
     var rewindControl by remember { mutableStateOf(store.rewindControlVisible()) }
+    // Phase 8 — Jade, the Game Boy display chain (on by
+    // default: each chain is the default look for its
+    // system), and the palette it shows the game in.
+    var jade by remember { mutableStateOf(store.jadeEnabled()) }
+    var palette by remember {
+        mutableStateOf(optionsStore?.get("mgba_gb_colors") ?: CoreOptions.GB_PALETTES.first())
+    }
+    var pickingPalette by remember { mutableStateOf(false) }
 
     LazyColumn(
         modifier = Modifier
@@ -246,6 +261,64 @@ fun AppSettingsScreen(
             }
         }
         item {
+            Text(
+                "Display",
+                style = displayTextStyle(DisplaySizeMedium),
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+            )
+        }
+        item {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        "Jade",
+                        style = MaterialTheme.typography.titleMedium,
+                    )
+                    Text(
+                        "The Game Boy display chain. On by default; off shows the game exactly as the core renders it.",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
+                Switch(
+                    checked = jade,
+                    onCheckedChange = {
+                        store.setJadeEnabled(it)
+                        jade = it
+                    },
+                    modifier = Modifier.testTag("jade-chain-switch"),
+                )
+            }
+        }
+        if (jade && optionsStore != null) {
+            item {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { pickingPalette = true }
+                        .padding(horizontal = 16.dp, vertical = 12.dp),
+                ) {
+                    Text(
+                        "Game Boy palette",
+                        style = MaterialTheme.typography.titleMedium,
+                    )
+                    Text(
+                        "The palette Jade shows the game in. The DMG green and the Super Game Boy palettes live here.",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        "Current: $palette",
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                }
+            }
+        }
+        item {
             Row(modifier = Modifier.padding(16.dp)) {
                 TextButton(onClick = {
                     store.reset()
@@ -254,6 +327,9 @@ fun AppSettingsScreen(
                     inputDisplay = store.inputDisplayVisible()
                     haptics = store.hapticsEnabled()
                     rewindControl = store.rewindControlVisible()
+                    jade = store.jadeEnabled()
+                    palette = optionsStore?.get("mgba_gb_colors")
+                        ?: CoreOptions.GB_PALETTES.first()
                 }) {
                     Text("Reset player settings")
                 }
@@ -263,5 +339,50 @@ fun AppSettingsScreen(
             }
             Spacer(Modifier.height(16.dp))
         }
+    }
+
+    // Phase 8 — the palette picker: the core's own 48
+    // palettes, same dialog shape as Core Options. A pick
+    // saves immediately and takes effect on the next game
+    // start (and on resume, when the chain re-reads it).
+    if (pickingPalette && optionsStore != null) {
+        AlertDialog(
+            onDismissRequest = { pickingPalette = false },
+            containerColor = PoingPurpleDeep.copy(alpha = 0.92f),
+            title = { Text("Game Boy palette") },
+            text = {
+                LazyColumn {
+                    items(CoreOptions.GB_PALETTES, key = { it }) { value ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .selectable(
+                                    selected = value == palette,
+                                    onClick = {
+                                        if (optionsStore.set("mgba_gb_colors", value)) {
+                                            palette = value
+                                        }
+                                        pickingPalette = false
+                                    },
+                                    role = Role.RadioButton,
+                                )
+                                .padding(vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            RadioButton(
+                                selected = value == palette,
+                                onClick = null,
+                            )
+                            Text(value)
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { pickingPalette = false }) {
+                    Text("Close")
+                }
+            },
+        )
     }
 }

@@ -8,22 +8,18 @@ import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -38,8 +34,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.asImageBitmap
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
@@ -76,6 +70,10 @@ fun GameScreen(
     gamePath: String,
     gameName: String,
     isGba: Boolean,
+    // Phase 8 — the header-detected system (GB vs GBC matters:
+    // a GBC game in a .gb file still plays as GBC). MainActivity
+    // passes it; the default keeps the old call sites compiling.
+    system: GameSystem = if (isGba) GameSystem.GBA else GameSystem.GB,
     optionsStore: CoreOptionsStore,
     appSettings: AppSettingsStore,
     // Phase 6 (item 5) — a pending load from the Save Manager,
@@ -168,6 +166,37 @@ fun GameScreen(
         )
     }
 
+    // Phase 8 — the display chain: the default look for this
+    // system, or clean when its toggle is off. Snapshotted
+    // here like the other player settings: settings can only
+    // change on the Settings screen, never while the player
+    // is open. The GB palette is read live (it can change in
+    // Core Options while paused — doResume re-reads it).
+    val displayChain = remember {
+        val wanted = DisplayChain.forSystem(system)
+        if (appSettings.chainEnabled(wanted)) wanted else DisplayChain.CLEAN
+    }
+    var palette by remember { mutableStateOf(optionsStore.get("mgba_gb_colors")) }
+
+    // Phase 8 — the GL view the chain draws through. Built
+    // once per game; a device that cannot build one (no
+    // GLES 2.0) falls back to the plain Compose Image in
+    // GameDisplayView, so the game stays visible either way.
+    val glView = remember {
+        try {
+            GameGlView(context)
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    // Phase 8 — apply the chain whenever it or the palette
+    // changes: at game start, and on resume after the palette
+    // was changed in Core Options.
+    LaunchedEffect(displayChain, palette) {
+        glView?.setChain(displayChain, DisplayChain.jadeModeForPalette(palette))
+    }
+
     val session = remember(gamePath) {
         PlayerSession(
             systemDir = context.filesDir.resolve("system").apply { mkdirs() }.absolutePath,
@@ -185,9 +214,11 @@ fun GameScreen(
             loadStateOnStart = loadStateOnStart,
             loadAutoOnStart = loadAutoOnStart,
             // Core options as stored: pushed to the bridge after the
-            // libraries load and before the game loads.
-            options = optionsStore.all(),
-            onFrame = { bitmap = it },
+            // libraries load and before the game loads. While a
+            // chain is on, the chain owns the colour (see
+            // DisplayChain.effectiveCoreOptions).
+            options = DisplayChain.effectiveCoreOptions(optionsStore.all(), displayChain),
+            onFrame = { bitmap = it; glView?.setFrame(it) },
             onStats = { stats = it },
             onError = onError,
         )
@@ -291,6 +322,9 @@ fun GameScreen(
 
     fun doResume() {
         if (!paused) return
+        // Phase 8 — the GB palette may have changed in Core
+        // Options while paused; re-read it so the chain follows.
+        palette = optionsStore.get("mgba_gb_colors")
         session.resume()
         paused = false
         applySpeed()
@@ -347,6 +381,9 @@ fun GameScreen(
 
     DisposableEffect(gamePath) {
         session.start()
+        // Phase 8 — the GL thread lives only while a game is
+        // playing, with the session.
+        glView?.onResume()
         // Phase 6 (item 10a) — the cartridge sensors: the phone's
         // motion/light sensors feed the core while a game is
         // playing (started and stopped with the session).
@@ -372,6 +409,7 @@ fun GameScreen(
             Bridge.onRumbleHandler = null
             cartridgeRumble.stop()
             cartridgeSensors.stop()
+            glView?.onPause()
             session.stop()
             // Phase 6 (item 11): a recording left running at quit
             // was finalized by session.stop(); the FileDescriptor
@@ -465,51 +503,15 @@ fun GameScreen(
             // Game view, letterboxed at the native aspect, in the
             // icon's screen: a thin silver bezel + dark surround.
             // The game IS the screen — no whole handheld drawn
-            // around it.
-            Box(
-                modifier = Modifier
-                    .weight(1f)
-                    .fillMaxWidth(),
-                contentAlignment = Alignment.Center,
-            ) {
-                val frame = bitmap
-                val s = stats
-                if (frame != null && s != null) {
-                    Box(
-                        modifier = Modifier
-                            .aspectRatio(s.width.toFloat() / s.height.toFloat())
-                            .fillMaxSize()
-                            .padding(8.dp)
-                            .background(Color(0xFF111111))
-                            .border(2.dp, PoingSilver, RoundedCornerShape(4.dp))
-                            .padding(4.dp),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Image(
-                            bitmap = frame.asImageBitmap(),
-                            contentDescription = "Game: $gameName",
-                            modifier = Modifier.fillMaxSize(),
-                            contentScale = ContentScale.Fit,
-                        )
-                        // RetroAchievements (Phase 6, item 8c):
-                        // the unlock popup and the scoreboard
-                        // note, gold chips over the game area,
-                        // hidden while paused, each cleared
-                        // four seconds after it arrives.
-                        Box(
-                            modifier = Modifier.fillMaxSize(),
-                            contentAlignment = Alignment.TopCenter,
-                        ) {
-                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                RaUnlockPopup(paused = paused)
-                                RaScoreboardNote(paused = paused)
-                            }
-                        }
-                    }
-                } else {
-                    Text("Loading $gameName…", color = Color.White)
-                }
-            }
+            // around it. The frame runs through the display chain
+            // (Phase 8); see GameDisplayView.
+            GameDisplayView(
+                glView = glView,
+                bitmap = bitmap,
+                stats = stats,
+                gameName = gameName,
+                paused = paused,
+            )
             // Fast-forward / slow motion (Phase 6, item 1) and
             // rewind (Phase 6, item 9): shown only when their
             // Settings toggle is on — both off by default, per the
@@ -772,7 +774,11 @@ fun GameScreen(
             ) {
                 CoreOptionsScreen(
                     store = optionsStore,
-                    onValueChanged = { session.applyOptions(optionsStore.all()) },
+                    onValueChanged = {
+                        session.applyOptions(
+                            DisplayChain.effectiveCoreOptions(optionsStore.all(), displayChain),
+                        )
+                    },
                     onBack = { showSettings = false },
                 )
             }
@@ -819,7 +825,9 @@ fun GameScreen(
                     onSolarLevel = { value ->
                         if (optionsStore.set("mgba_solar_sensor_level", value)) {
                             solarLevel = value
-                            session.applyOptions(optionsStore.all())
+                            session.applyOptions(
+                                DisplayChain.effectiveCoreOptions(optionsStore.all(), displayChain),
+                            )
                         }
                     },
                     rumbleEnabled = rumbleEnabled,
