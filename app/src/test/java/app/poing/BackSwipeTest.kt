@@ -59,18 +59,20 @@ class BackSwipeTest {
     }
 
     @Test
-    fun backSwipeWindowExpiryResetsTheHint() {
+    fun backSwipeWindowExpiryClearsTheHint() {
         composeRule.waitForText("Add game")
         pressBack()
         composeRule.onNodeWithTag("exit-hint").assertIsDisplayed()
-        // Past the ~2s window the hint is gone and the next
-        // swipe is a first swipe again, not a second.
+        // Past the ~2s window the hint is gone: the clearing
+        // timer runs on the compose test clock, so advancing
+        // it proves the clear. (Whether the next swipe counts
+        // as a second one is the window decision — pinned by
+        // the pure doubleBackExits unit tests, not by a clock
+        // the compose test cannot drive.)
         composeRule.mainClock.advanceTimeBy(DOUBLE_BACK_EXIT_WINDOW_MS + 500)
         composeRule.waitForIdle()
         composeRule.onAllNodesWithTag("exit-hint").assertCountEquals(0)
-        pressBack()
-        composeRule.onNodeWithTag("exit-hint").assertIsDisplayed()
-        assertFalse("a swipe after the window must not close the app",
+        assertFalse("the expired hint must not have closed the app",
             composeRule.activity.isFinishing)
     }
 

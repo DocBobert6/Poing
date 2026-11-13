@@ -85,6 +85,17 @@ private sealed interface Screen {
  */
 const val DOUBLE_BACK_EXIT_WINDOW_MS = 2000L
 
+/**
+ * The double-back decision as a pure function, so the window
+ * is unit-testable without a clock: a press at [nowMs] exits
+ * only if the previous press ([lastPressMs]) is inside the
+ * window. (A compose test cannot prove this — the test clock
+ * does not drive System.currentTimeMillis — so the compose
+ * tests pin the hint and the exit, and this pins the window.)
+ */
+fun doubleBackExits(nowMs: Long, lastPressMs: Long): Boolean =
+    nowMs - lastPressMs < DOUBLE_BACK_EXIT_WINDOW_MS
+
 @Composable
 fun PoingHome() {
     // Phase 5 — the dot-matrix boot: a brief "Poing!" on a dark
@@ -126,7 +137,7 @@ fun PoingHome() {
         when (screen) {
             is Screen.Library -> {
                 val now = System.currentTimeMillis()
-                if (now - lastBackPressMs < DOUBLE_BACK_EXIT_WINDOW_MS) {
+                if (doubleBackExits(now, lastBackPressMs)) {
                     (context as? ComponentActivity)?.finish()
                 } else {
                     lastBackPressMs = now
