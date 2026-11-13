@@ -83,8 +83,8 @@ fun WormLightOverlay(
             drawCircle(Color(0xFFFFE0A0), radius = 26f, center = Offset(cx, cy))
             drawArc(
                 color = Color.White.copy(alpha = 0.5f),
-                startAngleDegrees = 180f,
-                sweepAngleDegrees = 90f,
+                startAngle = 180f,
+                sweepAngle = 90f,
                 useCenter = false,
                 topLeft = Offset(cx - 26f, cy - 26f),
                 size = Size(52f, 52f),
