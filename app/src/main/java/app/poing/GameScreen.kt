@@ -6,6 +6,7 @@ import android.graphics.Bitmap
 import android.os.Vibrator
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
@@ -202,9 +203,10 @@ fun GameScreen(
     var peekNonce by remember { mutableStateOf(0) }
     // The bar shows while paused (the Resume button), while
     // editing the layout (the Done button lives in it), while
-    // dev stats are on, or for a few seconds after a tap on
-    // the game area. The power light never hides — it is
-    // detached from the bar (FloatingPlayerStatus, below).
+    // dev stats are on, or for a few seconds after a back
+    // swipe (see the BackHandler below). The power light never
+    // hides — it is detached from the bar (FloatingPlayerStatus,
+    // below).
     val barVisible = paused || editingLayout || devStats || barPeeked
     fun peekBar() {
         // Already showing (paused, editing, dev stats):
@@ -216,11 +218,33 @@ fun GameScreen(
 
     // The peek lasts TOP_BAR_PEEK_MS: long enough to find and
     // tap Pause, short enough that the bar is gone again
-    // quickly. Each tap restarts the clock.
+    // quickly. Each back swipe restarts the clock.
     LaunchedEffect(peekNonce) {
         if (peekNonce == 0) return@LaunchedEffect
         delay(TOP_BAR_PEEK_MS)
         barPeeked = false
+    }
+
+    // Top bar / back swipe (Robert, 2026-11-12): the bar is
+    // ONLY reachable by a back swipe — the system back gesture
+    // (the game-area tap peek is gone). A back swipe shows the
+    // bar and NEVER exits the player: the only way out is the
+    // bar / pause menu's own exit control. While a sub-screen
+    // is open (Core Options, Cheats, Cartridge Surgery,
+    // Achievements, Leaderboards), back closes it, like any
+    // other screen; while the bar is already visible (paused,
+    // editing, dev stats) it does nothing — no exit, no
+    // resume; the bar's controls are the way out.
+    BackHandler {
+        when {
+            showSettings -> showSettings = false
+            showCheats -> showCheats = false
+            showCartridge -> showCartridge = false
+            showAchievements -> showAchievements = false
+            showLeaderboards -> showLeaderboards = false
+            paused || editingLayout || devStats -> Unit
+            else -> peekBar()
+        }
     }
 
     // Phase 8 — the GL view the chain draws through. Built
@@ -571,10 +595,10 @@ fun GameScreen(
                     paused = paused,
                     wormLight = wormLight,
                     wormLightColor = wormLightColor,
-                    // Player chrome (Robert, 2026-11-12): a tap
-                    // on the game area brings the hidden bar
-                    // back for a few seconds (see peekBar).
-                    onGameAreaTap = ::peekBar,
+                    // Top bar / back swipe (Robert, 2026-11-12):
+                    // no tap hook — a tap on the game area
+                    // does nothing to the bar; only a back
+                    // swipe brings it back (see peekBar).
                     modifier = Modifier.fillMaxSize(),
                 )
                 // The four movable groups, overlaid (see

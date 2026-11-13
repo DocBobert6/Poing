@@ -197,41 +197,12 @@ class GameDisplayViewTest {
     }
 
     /**
-     * Player chrome (Robert, 2026-11-12): a tap on the game
-     * area calls onGameAreaTap — the hook GameScreen wires to
-     * the bar peek. The detector sits on the view's outer Box,
-     * so the whole player area is the tap target, including
-     * the black bars beside the picture.
+     * Top bar / back swipe (Robert, 2026-11-12): the tap
+     * hook is gone — a tap on the game area does nothing to
+     * the bar, which is only reachable by a back swipe (see
+     * GameScreenLayoutTest.backSwipeShowsTheBar). This view
+     * takes no tap callback at all, so there is nothing to
+     * pin here; the no-peek behaviour is pinned there, at
+     * the player level.
      */
-    @Test
-    fun tapOnGameAreaCallsOnGameAreaTap() {
-        val bitmap = Bitmap.createBitmap(240, 160, Bitmap.Config.ARGB_8888)
-        val stats = PlayerStats(
-            width = 240,
-            height = 160,
-            coreFps = 59.7,
-            measuredFps = 59.0,
-            framesDrawn = 165,
-            sampleRate = 48000,
-        )
-        var taps = 0
-        composeRule.setContent {
-            PoingTheme {
-                Box(Modifier.size(300.dp, 200.dp).testTag("slot")) {
-                    GameDisplayView(
-                        glView = null,
-                        bitmap = bitmap,
-                        stats = stats,
-                        gameName = "TEST",
-                        paused = false,
-                        onGameAreaTap = { taps++ },
-                        modifier = Modifier.fillMaxSize(),
-                    )
-                }
-            }
-        }
-        composeRule.onNodeWithTag("game-area").performClick()
-        composeRule.waitForIdle()
-        assertTrue("a tap on the game area should call onGameAreaTap", taps == 1)
-    }
 }

@@ -62,6 +62,10 @@ fun LibraryScreen(
     onSettings: () -> Unit,
     // Phase 6 (item 5) — open the Save Manager for a game.
     onSaveManager: (LibraryGame) -> Unit = {},
+    // Top bar / back swipe (Robert, 2026-11-12): the first
+    // back swipe on the home page shows this hint instead of
+    // closing the app — a second swipe within ~2s exits.
+    showExitHint: Boolean = false,
 ) {
     val context = LocalContext.current
     val store = remember { LibraryStore(context.filesDir) }
@@ -156,7 +160,10 @@ fun LibraryScreen(
         }
     }
 
-    LazyColumn(modifier = Modifier.fillMaxSize()) {
+    // The exit hint overlays the bottom of the list, so it is
+    // visible without scrolling — the list itself is untouched.
+    Box(modifier = Modifier.fillMaxSize()) {
+        LazyColumn(modifier = Modifier.fillMaxSize()) {
         item {
             // Top bar: the power light. No game is loaded on the
             // library, so the light is off — it turns green in the
@@ -278,6 +285,17 @@ fun LibraryScreen(
                 },
             )
             Spacer(Modifier.height(16.dp))
+        }
+    }
+        if (showExitHint) {
+            Text(
+                "Press back again to exit",
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(bottom = 16.dp)
+                    .testTag("exit-hint"),
+                color = Color.White,
+            )
         }
     }
 

@@ -243,22 +243,79 @@ class GameScreenLayoutTest {
     }
 
     /**
-     * Player chrome (Robert, 2026-11-12): tapping the game
-     * area brings the hidden bar back for a few seconds
-     * (TOP_BAR_PEEK_MS = 5s), then it hides again. Each tap
-     * restarts the clock.
+     * Top bar / back swipe (Robert, 2026-11-12): tapping the
+     * game area does NOTHING to the bar any more — the tap
+     * peek is gone. The bar is only reachable by a back
+     * swipe (see backSwipeShowsTheBar below).
      */
     @Test
-    fun tapOnGameAreaPeeksTheBar() {
+    fun tapOnGameAreaDoesNotShowTheBar() {
         val game = File(temp.root, "game.gb")
         setContent(game.absolutePath)
         composeRule.onAllNodesWithText("Pause").assertCountEquals(0)
         composeRule.onNodeWithTag("game-area").performClick()
         composeRule.waitForIdle()
+        composeRule.onAllNodesWithText("Pause").assertCountEquals(0)
+        composeRule.mainClock.advanceTimeBy(5000)
+        composeRule.waitForIdle()
+        composeRule.onAllNodesWithText("Pause").assertCountEquals(0)
+    }
+
+    /**
+     * Top bar / back swipe (Robert, 2026-11-12): a back
+     * swipe is the ONLY way to bring the hidden bar back —
+     * it shows for a few seconds (TOP_BAR_PEEK_MS = 5s),
+     * then hides again. Each swipe restarts the clock.
+     */
+    @Test
+    fun backSwipeShowsTheBar() {
+        val game = File(temp.root, "game.gb")
+        setContent(game.absolutePath)
+        composeRule.onAllNodesWithText("Pause").assertCountEquals(0)
+        composeRule.activity.onBackPressedDispatcher.onBackPressed()
+        composeRule.waitForIdle()
         composeRule.onNodeWithText("Pause").assertIsDisplayed()
         composeRule.mainClock.advanceTimeBy(5000)
         composeRule.waitForIdle()
         composeRule.onAllNodesWithText("Pause").assertCountEquals(0)
+    }
+
+    /**
+     * Top bar / back swipe (Robert, 2026-11-12): while the
+     * bar is already visible (paused here), a back swipe
+     * does nothing — no exit, no resume; the bar's controls
+     * are the way out. The game stays paused (both Resume
+     * nodes, bar + menu, still there).
+     */
+    @Test
+    fun backSwipeWhilePausedDoesNothing() {
+        val game = File(temp.root, "game.gb")
+        setContent(game.absolutePath, devStats = true)
+        composeRule.onNodeWithText("Pause").performClick()
+        composeRule.onNodeWithTag("top-bar-button").assertIsDisplayed()
+        composeRule.activity.onBackPressedDispatcher.onBackPressed()
+        composeRule.waitForIdle()
+        composeRule.onNodeWithTag("top-bar-button").assertIsDisplayed()
+        composeRule.onAllNodesWithText("Resume").assertCountEquals(2)
+    }
+
+    /**
+     * Top bar / back swipe (Robert, 2026-11-12): while a
+     * sub-screen is open — Core Options here — back closes
+     * it, like any other screen, and lands back on the pause
+     * menu (its "Move controls" row is there again).
+     */
+    @Test
+    fun backSwipeClosesCoreOptionsOverlay() {
+        val game = File(temp.root, "game.gb")
+        setContent(game.absolutePath, devStats = true)
+        composeRule.onNodeWithText("Pause").performClick()
+        composeRule.onNodeWithText("Core options").performScrollTo().performClick()
+        composeRule.onNodeWithText("Reset to defaults").assertIsDisplayed()
+        composeRule.activity.onBackPressedDispatcher.onBackPressed()
+        composeRule.waitForIdle()
+        composeRule.onNodeWithText("Move controls").assertIsDisplayed()
+        composeRule.onAllNodesWithText("Reset to defaults").assertCountEquals(0)
     }
 
     /**

@@ -4,6 +4,7 @@ import android.os.Bundle
 import android.view.KeyEvent
 import android.view.MotionEvent
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -76,6 +77,14 @@ private sealed interface Screen {
     data class SaveManager(val game: LibraryGame) : Screen
 }
 
+/**
+ * Top bar / back swipe (Robert, 2026-11-12): on the home page
+ * (the library) a back swipe exits only if it is the second one
+ * within this window — the first shows a "press back again to
+ * exit" hint instead.
+ */
+const val DOUBLE_BACK_EXIT_WINDOW_MS = 2000L
+
 @Composable
 fun PoingHome() {
     // Phase 5 — the dot-matrix boot: a brief "Poing!" on a dark
@@ -85,6 +94,11 @@ fun PoingHome() {
     var booted by remember { mutableStateOf(false) }
     var screen by remember { mutableStateOf<Screen>(Screen.Library) }
     var error by remember { mutableStateOf<String?>(null) }
+    // Top bar / back swipe (Robert, 2026-11-12): the double
+    // back to exit on the library — the first swipe shows the
+    // hint, the second within the window closes the app.
+    var exitHintVisible by remember { mutableStateOf(false) }
+    var lastBackPressMs by remember { mutableStateOf(0L) }
     val context = LocalContext.current
     val store = remember { LibraryStore(context.filesDir) }
     val optionsStore = remember { CoreOptionsStore(context.filesDir) }
@@ -92,6 +106,40 @@ fun PoingHome() {
     LaunchedEffect(Unit) {
         delay(BOOT_SPLASH_MS)
         booted = true
+    }
+    // The hint clears when the window passes, so a swipe after
+    // it is gone is a first swipe again, not a second.
+    LaunchedEffect(exitHintVisible) {
+        if (exitHintVisible) {
+            delay(DOUBLE_BACK_EXIT_WINDOW_MS)
+            exitHintVisible = false
+        }
+    }
+    // Top bar / back swipe (Robert, 2026-11-12): a back swipe
+    // NEVER closes the app except on the home page, and there
+    // only as a double swipe. On every other screen it
+    // navigates normally to the previous screen. Disabled in
+    // the player — GameScreen owns back there (a back swipe
+    // shows the bar, never exits), and its handler registers
+    // after this one, so it wins while the player is showing.
+    BackHandler(enabled = screen !is Screen.Player) {
+        when (screen) {
+            is Screen.Library -> {
+                val now = System.currentTimeMillis()
+                if (now - lastBackPressMs < DOUBLE_BACK_EXIT_WINDOW_MS) {
+                    (context as? ComponentActivity)?.finish()
+                } else {
+                    lastBackPressMs = now
+                    exitHintVisible = true
+                }
+            }
+            is Screen.Licences -> screen = Screen.Library
+            is Screen.Settings -> screen = Screen.Library
+            is Screen.CoreOptions -> screen = Screen.Settings
+            is Screen.RaLogin -> screen = Screen.Settings
+            is Screen.SaveManager -> screen = Screen.Library
+            is Screen.Player -> Unit // unreachable: disabled above
+        }
     }
     if (!booted) {
         BootSplash()
@@ -150,6 +198,7 @@ fun PoingHome() {
         )
         is Screen.Library -> LibraryScreen(
             notice = error,
+            showExitHint = exitHintVisible,
             onPlay = { game ->
                 error = null
                 screen = Screen.Player(game)
