@@ -19,11 +19,12 @@ import org.robolectric.annotation.Config
 /**
  * Screen-size fix (2026-11-12): the game view must fill its slot
  * at the native aspect. The aspect box is the largest 3:2 box in
- * the slot; the game surface inside it is the box minus the bezel
- * chrome only (2dp silver border + 4dp gap per side = 12dp) — the
- * 8dp transparent margin that used to sit outside the bezel was
- * invisible dead space over the slot's black, and it shrank the
- * surface by 16dp in each dimension for nothing.
+ * the slot; the game surface inside it is the box minus the bezel's
+ * 4dp inner padding per side (the 2dp silver border is drawn inside
+ * the box edge and takes no layout space) — the 8dp transparent
+ * margin that used to sit outside the bezel was invisible dead
+ * space over the slot's black, and it shrank the surface by 16dp
+ * in each dimension for nothing.
  *
  * The session is never started (no native code under Robolectric),
  * so the GL view is null and the plain Compose Image draws the
@@ -68,9 +69,11 @@ class GameDisplayViewTest {
         val bounds = node.fetchSemanticsNode().boundsInRoot
         val d = composeRule.density.density
         // Slot 300x200dp: the 3:2 box is height-limited at 300x200dp,
-        // and the game surface is the box minus the 12dp of bezel
-        // chrome per side: 288x188dp.
-        assertEquals(288f * d, bounds.width, 1f * d)
-        assertEquals(188f * d, bounds.height, 1f * d)
+        // and the game surface is the box minus the 4dp inner padding
+        // per side: 292x192dp. (The 2dp silver border is drawn
+        // inside the box edge and takes no layout space, so it is
+        // not part of the 8dp — only the padding is.)
+        assertEquals(292f * d, bounds.width, 1f * d)
+        assertEquals(192f * d, bounds.height, 1f * d)
     }
 }
