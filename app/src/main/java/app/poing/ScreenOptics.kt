@@ -33,27 +33,53 @@ data class OpticsParams(
 
 object ScreenOptics {
 
-    /** The lux below which a room counts as dark for the dimming toggle. */
-    private const val DARK_FACTOR = 0.3f
+    /**
+     * The factor below which a room counts as dark for the
+     * dimming toggle: factor 0.5 is log10(lux + 1) = 2, i.e.
+     * ~99 lux — a room a person would call dark. The old
+     * 0.3 (~15 lux, nearly pitch black) meant a normal dark
+     * room never dimmed at all (Robert, 2026-11-12).
+     */
+    private const val DARK_FACTOR = 0.5f
 
-    /** The dim the toggle applies in a dark room. */
-    private const val DIM_BRIGHTNESS = 0.85f
-    private const val DIM_GAMMA = 1.12f
+    /**
+     * The dim's depth at pitch black: brightness falls to
+     * 1 - DIM_DEPTH of its bright-room base (0.60 at 0 lux),
+     * so the dim is clearly visible instead of the old flat
+     * 0.85 that read as no difference.
+     */
+    private const val DIM_DEPTH = 0.40f
+
+    /** The gamma rise at pitch black, on top of the bright-room gamma. */
+    private const val DIM_GAMMA_RISE = 0.15f
 
     /**
      * The chain's brightness / contrast / gamma for a lux
      * reading. A sensor that reads nothing usable (no sensor,
      * or a non-finite value) leaves the chain neutral.
+     *
+     * With the dimming toggle on, the dim scales with the
+     * darkness instead of switching on at one lux value:
+     * depth is 0 at the ~99 lux threshold and 1 at pitch
+     * black, eased (squared) so a dimly-lit room dims a
+     * little and a near-black room dims clearly. The
+     * bright-room contrast boost fades out with the depth,
+     * to neutral at pitch black — never boosted while
+     * dimming, never flattened below 1. At and above the
+     * threshold the mapping is exactly the bright-room one,
+     * so there is no step where the dim starts.
      */
     fun paramsFor(lux: Float, dimmingEnabled: Boolean): OpticsParams {
         if (!lux.isFinite()) return OpticsParams.NEUTRAL
         val factor = (log10(lux.coerceAtLeast(0f) + 1f) / 4f).coerceIn(0f, 1f)
         var brightness = 1f + 0.12f * factor
-        val contrast = 1f + 0.20f * factor
+        var contrast = 1f + 0.20f * factor
         var gamma = 1f - 0.08f * factor
         if (dimmingEnabled && factor < DARK_FACTOR) {
-            brightness = DIM_BRIGHTNESS
-            gamma = DIM_GAMMA
+            val depth = 1f - (factor / DARK_FACTOR).let { it * it }
+            brightness *= 1f - DIM_DEPTH * depth
+            contrast = 1f + 0.20f * factor * (1f - depth)
+            gamma += DIM_GAMMA_RISE * depth
         }
         return OpticsParams(brightness, contrast, gamma)
     }
