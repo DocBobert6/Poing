@@ -1,5 +1,6 @@
 package app.poing
 
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -74,6 +75,37 @@ class DisplayShadersTest {
         assertTrue(src.contains("min(cell, 1.0 - cell)"))
         // And the dot-matrix mode is still there for Jade.
         assertTrue(src.contains("distance(cell, vec2(0.5))"))
+    }
+
+    @Test
+    fun gridProfilesAreSubtleAtFullHeightSize() {
+        // The 2026-11-12 rework (Robert's screenshots): at the
+        // new full-height size (4.5-5x) the old grid measured a
+        // 22% luminance dip at every texel boundary. The dot is
+        // wider now (bright to r<=0.40, dark only toward the
+        // corners, was 0.35) and the TFT lines narrower (0.04
+        // of a cell each side, was 0.08).
+        val src = DisplayShaders.GRID_FRAGMENT
+        assertTrue(src.contains("smoothstep(0.52, 0.40, distance(cell, vec2(0.5)))"))
+        assertTrue(src.contains("smoothstep(0.0, 0.04, min(d.x, d.y))"))
+        assertFalse(src.contains("smoothstep(0.5, 0.35,"))
+        assertFalse(src.contains("smoothstep(0.0, 0.08,"))
+    }
+
+    @Test
+    fun gridStrengthScalesDownWithDisplayScale() {
+        // Base strength 0.10 (was a fixed 0.22), full at 2x
+        // and below, tapering to half at 8x and above — so the
+        // grid stays subtle as the game grows. At Robert's
+        // sizes the effective strength is ~0.063 (5x) and
+        // ~0.067 (4.5x), for a max dip near 6%, not 22%.
+        assertEquals(0.10f, DisplayShaders.GRID_BASE_STRENGTH, 0.001f)
+        assertEquals(0.10f, DisplayShaders.gridStrengthForScale(1.0f), 0.001f)
+        assertEquals(0.10f, DisplayShaders.gridStrengthForScale(2.0f), 0.001f)
+        assertEquals(0.0667f, DisplayShaders.gridStrengthForScale(4.5f), 0.001f)
+        assertEquals(0.0632f, DisplayShaders.gridStrengthForScale(5.0f), 0.001f)
+        assertEquals(0.05f, DisplayShaders.gridStrengthForScale(8.0f), 0.001f)
+        assertEquals(0.05f, DisplayShaders.gridStrengthForScale(20.0f), 0.001f)
     }
 
     @Test

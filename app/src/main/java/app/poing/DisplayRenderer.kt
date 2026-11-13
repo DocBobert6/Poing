@@ -222,7 +222,19 @@ class DisplayRenderer : GLSurfaceView.Renderer {
             uniform(gridProgram, "uGridMode"),
             if (chain == DisplayChain.PRISM || chain == DisplayChain.DUSK) 1 else 0,
         )
-        GLES20.glUniform1f(uniform(gridProgram, "uGridStrength"), GRID_STRENGTH)
+        // The grid strength for this display scale: the game
+        // fills the view height, so the scale is the view over
+        // the frame on the tighter axis. At the new full-height
+        // size (4.5-5x) the old fixed 0.22 measured a 22%
+        // dip at every texel boundary — a mesh over the
+        // picture (Robert's screenshots, 2026-11-12); the
+        // scale-aware strength keeps the max dip near 6%.
+        val displayScale = minOf(
+            viewW.toFloat() / frameW,
+            viewH.toFloat() / frameH,
+        )
+        val gridStrength = DisplayShaders.gridStrengthForScale(displayScale)
+        GLES20.glUniform1f(uniform(gridProgram, "uGridStrength"), gridStrength)
         GLES20.glUniform1f(uniform(gridProgram, "uBrightness"), optics.brightness)
         GLES20.glUniform1f(uniform(gridProgram, "uContrast"), optics.contrast)
         GLES20.glUniform1f(uniform(gridProgram, "uGamma"), optics.gamma)
@@ -390,9 +402,6 @@ class DisplayRenderer : GLSurfaceView.Renderer {
 
     companion object {
         private const val TAG = "PoingDisplay"
-
-        /** The grid's strength: the dots and the lines read, never shout. */
-        private const val GRID_STRENGTH = 0.22f
 
         /** Screen Optics: a smaller move than this is sensor chatter, not a new picture. */
         private const val OPTICS_EPSILON = 0.01f

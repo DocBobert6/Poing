@@ -111,6 +111,23 @@ object DisplayShaders {
      * where one native texel meets the next, never dots. The
      * lines are one per native texel, so at the Advance's
      * 240x160 they stay fine by construction, never chunky.
+     *
+     * The grid is subtle by design, and it stays subtle at
+     * any size. At the old size (~1.5-2x) a per-texel grid
+     * blurred into a slight tint and was effectively
+     * invisible; at the new full-height size (4.5-5x) every
+     * texel resolves, and the old grid — strength 0.22, a
+     * bright dot of only r<=0.35 of the cell, lines 0.08 of
+     * a cell each side — measured a 22% luminance dip at
+     * every texel boundary, a mesh over the whole picture
+     * (Robert's screenshots, 2026-11-12). The rework
+     * (2026-11-12): base strength 0.10, scaled down with
+     * the display scale (see [gridStrengthForScale]), a
+     * wider bright dot (r<=0.40, dark only toward the
+     * corners) and narrower TFT lines (0.04 of a cell).
+     * Measured on a flat field at the real sizes (799x716
+     * for 160x144, 1075x716 for 240x160): max dip 22% ->
+     * ~6.5%, mean factor 0.91 / 0.97 -> 0.98 / 0.995.
      * The strength is the only dial, and it stays subtle —
      * the grid must read, never shout. uGridMode picks which:
      * 0 = dot-matrix, 1 = TFT lines.
@@ -138,9 +155,9 @@ object DisplayShaders {
           float g;
           if (uGridMode == 1) {
             vec2 d = min(cell, 1.0 - cell);
-            g = smoothstep(0.0, 0.08, min(d.x, d.y));
+            g = smoothstep(0.0, 0.04, min(d.x, d.y));
           } else {
-            g = smoothstep(0.5, 0.35, distance(cell, vec2(0.5)));
+            g = smoothstep(0.52, 0.40, distance(cell, vec2(0.5)));
           }
           col *= 1.0 - uGridStrength * (1.0 - g);
           col *= uBrightness;
@@ -149,6 +166,26 @@ object DisplayShaders {
           gl_FragColor = vec4(col, 1.0);
         }
     """
+
+    /**
+     * The grid's base strength (see the grid pass above).
+     * The renderer scales it down with the display scale,
+     * so the grid stays subtle as the game grows.
+     */
+    const val GRID_BASE_STRENGTH = 0.10f
+
+    /**
+     * The grid strength for a display scale (display pixels
+     * per native texel). Full strength at 2x and below —
+     * there the grid barely resolves — tapering as the
+     * texels grow, down to half strength at 8x and above:
+     * a grid that shouts at 5x is a mesh over the picture.
+     * Pure math, so it runs under plain JVM unit tests.
+     */
+    fun gridStrengthForScale(scale: Float): Float {
+        val factor = kotlin.math.sqrt(2.0f / scale).coerceIn(0.5f, 1.0f)
+        return GRID_BASE_STRENGTH * factor
+    }
 
     /** Fallback if a chain program fails to compile: a plain texture sample, so the game stays visible. */
     const val PLAIN_FRAGMENT = """
