@@ -268,7 +268,15 @@ class PlayerSession(
 
     fun setInput(mask: Int) {
         inputMask = mask
-        if (running) Bridge.nativeSetInput(mask)
+        // Guard on loaded, not running: running is true from
+        // start() until the emu thread's failed ensureLoaded
+        // clears it, so a UI-thread input in that window would
+        // call a native method whose library never loaded
+        // (UnsatisfiedLinkError — seen once in CI run
+        // 43509040676, topBarVisibleWithDevStatsOn). The mask
+        // is stored first and the emu loop pushes it after a
+        // successful load, so nothing is lost by waiting.
+        if (loaded) Bridge.nativeSetInput(mask)
     }
 
     /**
