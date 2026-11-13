@@ -65,6 +65,7 @@ class DisplayRenderer : GLSurfaceView.Renderer {
     private var plainProgram = 0
     private var frameTextureId = 0
     private var fboTextureId = 0
+    private var gammaLutTextureId = 0
     private var fboId = 0
     private var quadVbo = 0
     private var viewW = 0
@@ -135,6 +136,16 @@ class DisplayRenderer : GLSurfaceView.Renderer {
         GLES20.glGenTextures(1, fboTex, 0)
         fboTextureId = fboTex[0]
         setupTexture(fboTextureId)
+        // The gamma LUT for Prism and Dusk (DisplayShaders):
+        // a 32x2 RGBA texture, row 0 = GBC ramp, row 1 = GBA
+        // ramp, GL_NEAREST so the shader reads the exact
+        // entry. Created here (and re-created if the EGL
+        // context is ever lost) so the data is never stale.
+        val lutTex = IntArray(1)
+        GLES20.glGenTextures(1, lutTex, 0)
+        gammaLutTextureId = lutTex[0]
+        setupTexture(gammaLutTextureId)
+        uploadGammaLut(gammaLutTextureId)
         val fbo = IntArray(1)
         GLES20.glGenFramebuffers(1, fbo, 0)
         fboId = fbo[0]
@@ -205,6 +216,24 @@ class DisplayRenderer : GLSurfaceView.Renderer {
         )
         GLES20.glActiveTexture(GLES20.GL_TEXTURE0)
         GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, frameTextureId)
+        // The gamma LUT, on texture unit 1: row 0 is the GBC
+        // ramp (Prism), row 1 the GBA ramp (Dusk); Jade never
+        // samples it. The uniform lookups are cached and a
+        // missing uniform is a silent no-op, so this is safe
+        // even if a program fails to link.
+        if (gammaLutTextureId != 0) {
+            GLES20.glActiveTexture(GLES20.GL_TEXTURE1)
+            GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, gammaLutTextureId)
+            GLES20.glUniform1i(uniform(colourProgram, "uGammaLut"), 1)
+            GLES20.glUniform1f(
+                uniform(colourProgram, "uGammaRow"),
+                when (chain) {
+                    DisplayChain.PRISM -> 0f
+                    DisplayChain.DUSK -> 1f
+                    else -> 0f
+                },
+            )
+        }
         drawQuad(colourProgram)
         // Pass 2 — grid, to the screen. The source is the
         // pass-1 framebuffer, so V flips (uFlipV 1).
@@ -285,6 +314,32 @@ class DisplayRenderer : GLSurfaceView.Renderer {
         fboW = w
         fboH = h
         return true
+    }
+
+    /**
+     * Upload the gamma LUT (DisplayShaders.gammaLutPixels)
+     * as a 32x2 RGBA texture: row 0 is the GBC ramp, row 1
+     * the GBA ramp, each entry a grey value. The bytes are
+     * written R, G, B, A in order, so the upload is exact
+     * regardless of the device's byte order.
+     */
+    private fun uploadGammaLut(id: Int) {
+        val pixels = DisplayShaders.gammaLutPixels()
+        val buf = ByteBuffer
+            .allocateDirect(pixels.size * 4)
+            .order(ByteOrder.nativeOrder())
+        for (v in pixels) {
+            buf.put(v.toByte())
+            buf.put(v.toByte())
+            buf.put(v.toByte())
+            buf.put(0xFF.toByte())
+        }
+        buf.position(0)
+        GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, id)
+        GLES20.glTexImage2D(
+            GLES20.GL_TEXTURE_2D, 0, GLES20.GL_RGBA, 32, 2, 0,
+            GLES20.GL_RGBA, GLES20.GL_UNSIGNED_BYTE, buf,
+        )
     }
 
     private fun setupTexture(id: Int) {

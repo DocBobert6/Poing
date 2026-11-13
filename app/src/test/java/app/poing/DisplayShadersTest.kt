@@ -53,13 +53,64 @@ class DisplayShadersTest {
     @Test
     fun colourPassHasThePrismMode() {
         val src = DisplayShaders.COLOUR_FRAGMENT
-        // Prism is mode 2: gamma-expand, colour-correct,
-        // gamma-compress, then a lift for a reflective
-        // screen in daylight.
+        // Prism is mode 2: the measured 32-entry gamma LUT,
+        // then the colour matrix in linear light (Pokefan531,
+        // Nov 2025). No power-law gamma, no extra lift — the
+        // LUT IS the lift, and the current reference pipeline
+        // has no saturation matrix and no extra gamma lift.
         assertTrue(src.contains("uMode == 2"))
-        assertTrue(src.contains("pow(col, vec3(1.7))"))
+        assertTrue(src.contains("uGammaLut"))
+        assertTrue(src.contains("uGammaRow"))
+        assertTrue(src.contains("min(floor(col.r * 32.0), 31.0)"))
+        assertTrue(src.contains("texture2D(uGammaLut, vec2((ri + 0.5) / 32.0, vr)).r"))
+        assertTrue(src.contains("clamp(pow(g, vec3(2.2)) * 0.8989, vec3(0.0), vec3(1.0))"))
+        // The current GBC matrix, effective rows — never the
+        // old transposed rows (which did not preserve greys
+        // and turned blue violet).
+        assertTrue(src.contains("0.8944 * lin.r + 0.2179 * lin.g - 0.1125 * lin.b"))
+        assertTrue(src.contains("0.1091 * lin.r + 0.6312 * lin.g + 0.2597 * lin.b"))
+        assertTrue(src.contains("0.1447 * lin.r + 0.2837 * lin.g + 0.5716 * lin.b"))
         assertTrue(src.contains("pow(max(m, vec3(0.0)), vec3(1.0 / 2.2))"))
-        assertTrue(src.contains("col * 1.08"))
+        assertFalse(src.contains("pow(col, vec3(1.7))"))
+        assertFalse(src.contains("col * 1.08"))
+        // The old transposed matrix is gone from Prism's own
+        // block (Dusk still uses it until its own commit —
+        // the Dusk test pins it there, so scope this check).
+        val prism = src.substringAfter("uMode == 2").substringBefore("uMode == 3")
+        assertFalse(prism.contains("0.82 * c.r + 0.125 * c.g + 0.195 * c.b"))
+    }
+
+    @Test
+    fun gammaLutDataIsTheMeasuredRamps() {
+        // The LUTs are Pokefan531's Nov 2025 measured ramps:
+        // 32 entries each, one per 5-bit game value, 0 to 255,
+        // strictly increasing.
+        val gbc = DisplayShaders.GAMMA_LUT_GBC
+        val gba = DisplayShaders.GAMMA_LUT_GBA
+        assertEquals(32, gbc.size)
+        assertEquals(32, gba.size)
+        assertEquals(0, gbc.first())
+        assertEquals(255, gbc.last())
+        assertEquals(0, gba.first())
+        assertEquals(255, gba.last())
+        assertTrue(gbc.zipWithNext().all { (a, b) -> b > a })
+        assertTrue(gba.zipWithNext().all { (a, b) -> b > a })
+        // Spot values, pinned so a typo in the table fails
+        // loudly: GBC index 9 is 110 (SameBoy says 76 — the
+        // known reference disagreement, light angle), GBA
+        // index 12 is 102.
+        assertEquals(110, gbc[9])
+        assertEquals(170, gbc[16])
+        assertEquals(102, gba[12])
+        assertEquals(160, gba[20])
+        // The texture pixels: row 0 is the GBC ramp, row 1
+        // the GBA ramp, 64 values in all.
+        val pixels = DisplayShaders.gammaLutPixels()
+        assertEquals(64, pixels.size)
+        assertEquals(110, pixels[9])
+        assertEquals(102, pixels[32 + 12])
+        assertEquals(255, pixels[31])
+        assertEquals(255, pixels[63])
     }
 
     @Test

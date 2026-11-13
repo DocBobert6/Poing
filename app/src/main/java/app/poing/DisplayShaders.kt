@@ -79,14 +79,11 @@ object DisplayShaders {
      * model: the measured 32-entry gamma LUT, then the
      * colour matrix in linear light (see the LUT and matrix
      * notes below). Dusk: the Game Boy Advance's reflective
-     * TFT, 2001 — the same, with the Advance's own LUT and
-     * matrix; the AGB-001 is dark and unlit, and the LUT
-     * already lifts the shadows, so there is no extra gamma
-     * or saturation lift (the old pow(0.85) + 1.15 were
-     * compensating for the pow(3.2) crush — see the
-     * perfection record). Any mode this build does not know
-     * yet falls through to pass-through, never to a wrong
-     * look.
+     * TFT, 2001 — the same correction with the Advance's own
+     * gamma, plus a gamma lift and a saturation lift, because
+     * the AGB-001 is dark and unlit. Any mode this build does
+     * not know yet falls through to pass-through, never to a
+     * wrong look.
      *
      * The matrix finding (2026-11-12, shader perfection):
      * the old matrix was the TRANSPOSE of the reference.
@@ -107,7 +104,9 @@ object DisplayShaders {
         precision mediump float;
         varying vec2 vTex;
         uniform sampler2D uTex;
+        uniform sampler2D uGammaLut;
         uniform int uMode;
+        uniform float uGammaRow;
         void main() {
           vec3 col = texture2D(uTex, vTex).rgb;
           if (uMode == 0) {
@@ -127,13 +126,37 @@ object DisplayShaders {
             vec3 c23 = mix(s2, s3, clamp((luma - 0.678) / 0.322, 0.0, 1.0));
             col = mix(mix(c01, c12, step(0.322, luma)), c23, step(0.678, luma));
           } else if (uMode == 2) {
-            vec3 c = pow(col, vec3(1.7));
+            // The CGB-001's reflective TFT, 1998 — Pokefan531's
+            // current (Nov 2025) hardware-scanned model: the
+            // measured 32-entry gamma LUT, then the colour
+            // matrix in linear light. The LUT is a 32x2 texture
+            // (row 0 = GBC, row 1 = GBA); the frame's 8-bit
+            // values are the core's 5-bit expansion, so
+            // floor(c * 32) recovers the exact 5-bit index.
+            // No extra lift: the LUT IS the lift, and the
+            // current reference pipeline has no saturation
+            // matrix and no extra gamma lift. The matrix is
+            // the current Pokefan531 sRGB matrix, effective
+            // rows (the GLSL mat4 as written is column-major,
+            // so its comment-rows are the transpose — the old
+            // shader applied the comment-rows, which do not
+            // preserve greys and turn blue violet; see the
+            // matrix finding in the colour-pass comment).
+            float ri = min(floor(col.r * 32.0), 31.0);
+            float gi = min(floor(col.g * 32.0), 31.0);
+            float bi = min(floor(col.b * 32.0), 31.0);
+            float vr = (uGammaRow + 0.5) / 2.0;
+            vec3 g = vec3(
+              texture2D(uGammaLut, vec2((ri + 0.5) / 32.0, vr)).r,
+              texture2D(uGammaLut, vec2((gi + 0.5) / 32.0, vr)).r,
+              texture2D(uGammaLut, vec2((bi + 0.5) / 32.0, vr)).r);
+            vec3 lin = clamp(pow(g, vec3(2.2)) * 0.8989, vec3(0.0), vec3(1.0));
             vec3 m;
-            m.r = (0.82 * c.r + 0.125 * c.g + 0.195 * c.b) * 0.94;
-            m.g = (0.24 * c.r + 0.665 * c.g + 0.075 * c.b) * 0.94;
-            m.b = (-0.06 * c.r + 0.21 * c.g + 0.73 * c.b) * 0.94;
+            m.r = 0.8944 * lin.r + 0.2179 * lin.g - 0.1125 * lin.b;
+            m.g = 0.1091 * lin.r + 0.6312 * lin.g + 0.2597 * lin.b;
+            m.b = 0.1447 * lin.r + 0.2837 * lin.g + 0.5716 * lin.b;
             col = pow(max(m, vec3(0.0)), vec3(1.0 / 2.2));
-            col = min(col * 1.08, vec3(1.0));
+            col = clamp(col, vec3(0.0), vec3(1.0));
           } else if (uMode == 3) {
             vec3 c = pow(col, vec3(3.2));
             vec3 m;
@@ -251,6 +274,44 @@ object DisplayShaders {
     fun gridStrengthForScale(scale: Float): Float {
         val factor = kotlin.math.sqrt(2.0f / scale).coerceIn(0.5f, 1.0f)
         return GRID_BASE_STRENGTH * factor
+    }
+
+    /**
+     * The measured gamma ramps (Pokefan531,
+     * Handheld-Colorspace-Shaders, Nov 2025 — the GBC/GBA
+     * screens scanned directly with a ColorMunki Photo, no
+     * case/glass; the defaults are the average light angle).
+     * 32 entries, one per 5-bit game value; the frame's
+     * 8-bit values are the core's 5-bit expansion, so
+     * floor(c * 32) recovers the exact index in the shader.
+     * SameBoy's curves disagree by up to 0.13 (GBC index 9:
+     * 110 here vs 76 there) — gamma varies with light angle,
+     * so neither reference is exact; this one is the latest
+     * direct scan, and it is the source of the matrix lineage
+     * already in the code. See the perfection record.
+     */
+    val GAMMA_LUT_GBC = listOf(
+        0, 8, 15, 26, 37, 49, 67, 85, 97, 110, 121, 134, 140, 148, 154, 160,
+        170, 180, 188, 196, 202, 207, 212, 217, 222, 228, 232, 237, 246, 252, 254, 255,
+    )
+    val GAMMA_LUT_GBA = listOf(
+        0, 3, 6, 10, 15, 25, 36, 50, 62, 71, 82, 92, 102, 109, 116, 124,
+        131, 138, 145, 152, 160, 168, 176, 184, 193, 202, 211, 218, 229, 240, 249, 255,
+    )
+
+    /**
+     * The LUT as 64 grey values for the 32x2 texture the
+     * renderer uploads: row 0 is the GBC ramp, row 1 the
+     * GBA ramp. Pure data, so it runs under plain JVM unit
+     * tests; the renderer turns it into RGBA bytes.
+     */
+    fun gammaLutPixels(): IntArray {
+        val out = IntArray(64)
+        for (i in 0 until 32) {
+            out[i] = GAMMA_LUT_GBC[i]
+            out[32 + i] = GAMMA_LUT_GBA[i]
+        }
+        return out
     }
 
     /** Fallback if a chain program fails to compile: a plain texture sample, so the game stays visible. */
