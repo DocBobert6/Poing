@@ -27,9 +27,9 @@ import javax.microedition.khronos.opengles.GL10
  * texels; the grid pass needs hard texels, and nothing here
  * blurs the picture.
  *
- * Flat only: a fullscreen quad, no mesh, no curve. The
- * bezel's light corner rounding is a Compose clip on the
- * view, not a shader.
+ * Flat only: a fullscreen quad, no mesh, no curve, no
+ * corner rounding — a Game Boy screen is a rectangle
+ * (Robert, 2026-11-12).
  *
  * The view renders on demand (RENDERMODE_WHEN_DIRTY): a new
  * frame or a chain change requests a redraw, and the last

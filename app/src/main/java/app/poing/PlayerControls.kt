@@ -33,10 +33,12 @@ import androidx.compose.ui.unit.dp
 /**
  * Phase 5 — the touch controls drawn like the icon's hardware:
  * silver cross D-pad bottom-left, round silver A/B bottom-right,
- * small silver L/R shoulder tabs in the top bar, small Start/Select
- * pills side by side below the game view (the moves Robert ordered
- * 2026-11-12: L/R out of the middle of the screen, Start/Select
- * out of the stacked centre of the bottom row).
+ * small silver L/R shoulder tabs at the top corners, small
+ * Start/Select pills side by side at the bottom centre — all
+ * overlaid on the player area beside the full-height game, the
+ * HowlingDog landscape model (Robert, 2026-11-12: the game
+ * basically the phone's height, controls in the black bars
+ * left and right of it).
  *
  * Unpressed is silver with black lettering; pressed is the icon
  * purple with white lettering — the hardware look, not the old
@@ -59,6 +61,9 @@ import androidx.compose.ui.unit.dp
  * lift. [position] is read through rememberUpdatedState so the
  * gesture block (keyed once per edit session) always sees the
  * latest offset instead of the one from the first composition.
+ * [modifier] is the group's placement in its parent — the
+ * overlay passes an align() there, so the offset is a delta from
+ * the aligned default spot.
  */
 @Composable
 fun MovableControl(
@@ -67,12 +72,13 @@ fun MovableControl(
     testTag: String,
     onMove: (ControlPosition) -> Unit,
     onMoveEnd: () -> Unit,
+    modifier: Modifier = Modifier,
     content: @Composable () -> Unit,
 ) {
     val density = LocalDensity.current
     val latestPosition by rememberUpdatedState(position)
     Box(
-        modifier = Modifier
+        modifier = modifier
             .offset {
                 with(density) {
                     IntOffset(position.xDp.dp.roundToPx(), position.yDp.dp.roundToPx())
@@ -109,7 +115,8 @@ fun MovableControl(
  *
  * [sizeDp] is the circle's diameter; [shoulder] makes it a wide
  * pill instead (the L/R shoulder tabs); [pill] makes it a small
- * pill (the Start/Select pair below the game view).
+ * pill (the Start/Select pair at the bottom centre of the
+ * player area).
  */
 @Composable
 fun HoldButton(

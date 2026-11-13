@@ -470,10 +470,8 @@ fun GameScreen(
             // without this the light sits in the status-bar band
             // (and, in landscape, by the punch-hole camera). The
             // light's top edge is now status-bar height + 8dp.
-            // L/R shoulder tabs (GBA only) sit in this bar at the
-            // far corners (Robert, 2026-11-12: "Both need moved")
-            // — out of their own row mid-screen, which frees the
-            // row's height for the game slot.
+            // The L/R tabs live in the player area below, not
+            // in this bar (layout rework, Robert, 2026-11-12).
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -482,23 +480,6 @@ fun GameScreen(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                // One saved group: both pills share layout.lr, so
-                // dragging either moves both together, exactly as
-                // the old full-width row did. The saved offsets are
-                // deltas from the default spots (see ControlLayout),
-                // so moving the defaults needs no migration — a
-                // saved offset still applies as the same delta.
-                if (isGba) {
-                    MovableControl(
-                        position = layout.lr,
-                        editing = editingLayout,
-                        testTag = "controls-l",
-                        onMove = { layout = layout.with(ControlGroup.LR, it) },
-                        onMoveEnd = { layoutStore.save(saveBase, latestLayout) },
-                    ) {
-                        HoldButton("L", InputMask.JOY_L, held, paused, ::pushInput, shoulder = true)
-                    }
-                }
                 PowerLight(if (paused) PowerState.Paused else PowerState.Playing)
                 Spacer(Modifier.width(8.dp))
                 // Phase 6 (item 11) — the REC indicator while a
@@ -526,17 +507,6 @@ fun GameScreen(
                 }) {
                     Text(if (editingLayout) "Done" else if (paused) "Resume" else "Pause")
                 }
-                if (isGba) {
-                    MovableControl(
-                        position = layout.lr,
-                        editing = editingLayout,
-                        testTag = "controls-r",
-                        onMove = { layout = layout.with(ControlGroup.LR, it) },
-                        onMoveEnd = { layoutStore.save(saveBase, latestLayout) },
-                    ) {
-                        HoldButton("R", InputMask.JOY_R, held, paused, ::pushInput, shoulder = true)
-                    }
-                }
             }
             // Input display (Phase 6, item 6): shown only when the
             // Settings toggle is on — off by default, per the
@@ -549,105 +519,118 @@ fun GameScreen(
             // attempt tracker, under the top bar while an attempt
             // runs. Hidden while paused.
             RaTrackerLine(paused = paused)
-            // Game view, letterboxed at the native aspect, filling
-            // its slot edge-to-edge with no bezel (Robert,
-            // 2026-11-12). The game IS the screen — no whole
-            // handheld drawn around it. The frame runs through the
-            // display chain (Phase 8); see GameDisplayView.
-            GameDisplayView(
-                glView = glView,
-                bitmap = bitmap,
-                stats = stats,
-                gameName = gameName,
-                paused = paused,
-                wormLight = wormLight,
+            // Player area (Robert, 2026-11-12: the game basically
+            // the phone's height in landscape, controls overlaid):
+            // one Box below the top bar. The game view fills it at
+            // its native aspect — the largest ratio box in the area,
+            // so it takes the full height and centres, with the
+            // black bars left and right of it holding the controls.
+            // Square corners, no bezel, no surround. The frame runs
+            // through the display chain (Phase 8); see
+            // GameDisplayView.
+            Box(
                 modifier = Modifier
                     .weight(1f)
                     .fillMaxWidth(),
-            )
-            // Start/Select as small pills, side by side, centred
-            // just below the game view (Robert, 2026-11-12: "Both
-            // need moved") — out of the stacked centre of the
-            // bottom row. The bottom row then holds D-pad left and
-            // A/B right. The group stays movable with its saved
-            // offset (a delta from the new default spot).
-            MovableControl(
-                position = layout.startSelect,
-                editing = editingLayout,
-                testTag = "controls-startselect",
-                onMove = { layout = layout.with(ControlGroup.START_SELECT, it) },
-                onMoveEnd = { layoutStore.save(saveBase, latestLayout) },
             ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = 6.dp),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterHorizontally),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    HoldButton("Start", InputMask.JOY_START, held, paused, ::pushInput, pill = true)
-                    HoldButton("Select", InputMask.JOY_SELECT, held, paused, ::pushInput, pill = true)
-                }
-            }
-            // Fast-forward / slow motion (Phase 6, item 1) and
-            // rewind (Phase 6, item 9): shown only when their
-            // Settings toggle is on — both off by default, per the
-            // standing overlay rule. FF is hold-to-run at the
-            // chosen speed; 0.5x is a toggle; RW is hold-to-step
-            // back through the last 30 seconds.
-            if (ffControlVisible || rewindControlVisible) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp, Alignment.End),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    if (rewindControlVisible) {
-                        HoldActionButton(
-                            label = "RW",
-                            paused = paused,
-                            onDown = {
-                                if (session.startRewind()) {
-                                    rewinding = true
-                                    session.stepRewind()
-                                }
-                            },
-                            onUp = {
-                                if (rewinding) {
-                                    rewinding = false
-                                    session.endRewind()
-                                }
-                            },
-                        )
-                    }
-                    if (ffControlVisible) {
-                        ToggleActionButton(
-                            label = "0.5x",
-                            checked = slowOn,
-                            onToggle = {
-                                slowOn = !slowOn
-                                applySpeed()
-                            },
-                        )
-                        HoldActionButton(
-                            label = "FF",
-                            paused = paused,
-                            onDown = {
-                                ffHeld = true
-                                applySpeed()
-                            },
-                            onUp = {
-                                ffHeld = false
-                                applySpeed()
-                            },
-                        )
+                GameDisplayView(
+                    glView = glView,
+                    bitmap = bitmap,
+                    stats = stats,
+                    gameName = gameName,
+                    paused = paused,
+                    wormLight = wormLight,
+                    modifier = Modifier.fillMaxSize(),
+                )
+                // The four movable groups, overlaid (see
+                // PlayerOverlay): D-pad left flank, A/B right
+                // flank, L/R top corners (GBA only), Start/Select
+                // bottom centre.
+                ControlOverlay(
+                    isGba = isGba,
+                    layout = layout,
+                    editingLayout = editingLayout,
+                    held = held,
+                    paused = paused,
+                    onInputChanged = ::pushInput,
+                    onControlDown = {
+                        // Phase 6 (item 10b): a click is a fresh
+                        // vibrate, which would kill a running
+                        // rumble waveform — the game's rumble wins
+                        // while it is active, so the click is
+                        // skipped then (the motor is already
+                        // vibrating).
+                        if (cartridgeRumble.currentStrength == 0) hapticsImpl.click()
+                    },
+                    onMove = { group, position ->
+                        layout = layout.with(group, position)
+                    },
+                    onMoveEnd = { layoutStore.save(saveBase, latestLayout) },
+                )
+                // Fast-forward / slow motion (Phase 6, item 1) and
+                // rewind (Phase 6, item 9): shown only when their
+                // Settings toggle is on — both off by default, per
+                // the standing overlay rule. FF is hold-to-run at
+                // the chosen speed; 0.5x is a toggle; RW is
+                // hold-to-step back through the last 30 seconds.
+                // Overlaid at the bottom-right corner of the
+                // player area, below the A/B cluster.
+                if (ffControlVisible || rewindControlVisible) {
+                    Row(
+                        modifier = Modifier
+                            .align(Alignment.BottomEnd)
+                            .padding(end = 16.dp, bottom = 16.dp),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        if (rewindControlVisible) {
+                            HoldActionButton(
+                                label = "RW",
+                                paused = paused,
+                                onDown = {
+                                    if (session.startRewind()) {
+                                        rewinding = true
+                                        session.stepRewind()
+                                    }
+                                },
+                                onUp = {
+                                    if (rewinding) {
+                                        rewinding = false
+                                        session.endRewind()
+                                    }
+                                },
+                            )
+                        }
+                        if (ffControlVisible) {
+                            ToggleActionButton(
+                                label = "0.5x",
+                                checked = slowOn,
+                                onToggle = {
+                                    slowOn = !slowOn
+                                    applySpeed()
+                                },
+                            )
+                            HoldActionButton(
+                                label = "FF",
+                                paused = paused,
+                                onDown = {
+                                    ffHeld = true
+                                    applySpeed()
+                                },
+                                onUp = {
+                                    ffHeld = false
+                                    applySpeed()
+                                },
+                            )
+                        }
                     }
                 }
             }
             // Layout editing (Phase 6, item 4): drag any group to
             // move it; Reset puts every group back at its default
-            // spot and saves. Done lives in the top bar.
+            // spot and saves. Done lives in the top bar. The hint
+            // sits below the player area while editing — the game
+            // is paused then, so the lost height costs nothing.
             if (editingLayout) {
                 Row(
                     modifier = Modifier
@@ -666,51 +649,6 @@ fun GameScreen(
                         layoutStore.save(saveBase, layout)
                     }) {
                         Text("Reset")
-                    }
-                }
-            }
-            // Controls row: D-pad left, A/B right. (Start/Select
-            // moved to their own row below the game view; L/R to
-            // the top bar — Robert, 2026-11-12.)
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 12.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                MovableControl(
-                    position = layout.dpad,
-                    editing = editingLayout,
-                    testTag = "controls-dpad",
-                    onMove = { layout = layout.with(ControlGroup.DPAD, it) },
-                    onMoveEnd = { layoutStore.save(saveBase, latestLayout) },
-                ) {
-                    DpadControl(held, paused, ::pushInput, onDirectionChange = {
-                        // Phase 6 (item 10b): a click is a fresh
-                        // vibrate, which would kill a running
-                        // rumble waveform — the game's rumble wins
-                        // while it is active, so the click is
-                        // skipped then (the motor is already
-                        // vibrating).
-                        if (cartridgeRumble.currentStrength == 0) hapticsImpl.click()
-                    })
-                }
-                MovableControl(
-                    position = layout.ab,
-                    editing = editingLayout,
-                    testTag = "controls-ab",
-                    onMove = { layout = layout.with(ControlGroup.AB, it) },
-                    onMoveEnd = { layoutStore.save(saveBase, latestLayout) },
-                ) {
-                    Row {
-                        HoldButton("B", InputMask.JOY_B, held, paused, ::pushInput, onDown = {
-                            if (cartridgeRumble.currentStrength == 0) hapticsImpl.click()
-                        })
-                        Spacer(Modifier.width(12.dp))
-                        HoldButton("A", InputMask.JOY_A, held, paused, ::pushInput, onDown = {
-                            if (cartridgeRumble.currentStrength == 0) hapticsImpl.click()
-                        })
                     }
                 }
             }

@@ -103,16 +103,16 @@ class GameScreenLayoutTest {
     }
 
     /**
-     * Control moves (Robert, 2026-11-12: "Both need moved"): the
-     * L/R tabs live in the top bar at the far corners for GBA
-     * games — and nowhere for GB/GBC games, which have no L/R.
-     * assertExists, not assertIsDisplayed: the Robolectric window
-     * is narrower than the full top bar, so a corner tab can sit
-     * outside it — what this pins is that the tabs are in the
-     * bar, not in their old row mid-screen.
+     * Layout rework (Robert, 2026-11-12): the L/R tabs live at
+     * the top corners of the player area for GBA games — and
+     * nowhere for GB/GBC games, which have no L/R. assertExists,
+     * not assertIsDisplayed: the Robolectric window is narrower
+     * than the full player area, so a corner tab can sit outside
+     * it — what this pins is that the tabs are in the overlay,
+     * not in the top bar or a row mid-screen.
      */
     @Test
-    fun lrTabsSitInTheTopBarForGba() {
+    fun lrTabsSitAtTheTopCornersForGba() {
         val game = File(temp.root, "game.gba")
         setContent(game.absolutePath, isGba = true)
         composeRule.onNodeWithTag("controls-l").assertExists()
@@ -130,13 +130,14 @@ class GameScreenLayoutTest {
     }
 
     /**
-     * Control moves (Robert, 2026-11-12): Start/Select are small
-     * pills side by side in their own row below the game view, not
-     * stacked in the middle of the bottom row. Pinned by their
-     * bounds: same top edge, Start entirely left of Select.
+     * Layout rework (Robert, 2026-11-12): Start/Select are small
+     * pills side by side, overlaid at the bottom centre of the
+     * player area, not stacked in the middle of a bottom row.
+     * Pinned by their bounds: same top edge, Start entirely left
+     * of Select.
      */
     @Test
-    fun startSelectSitSideBySideBelowTheGameView() {
+    fun startSelectSitSideBySideAtBottomCentre() {
         val game = File(temp.root, "game.gb")
         setContent(game.absolutePath)
         composeRule.onNodeWithTag("controls-startselect").assertIsDisplayed()
@@ -147,5 +148,25 @@ class GameScreenLayoutTest {
         val select = composeRule.onNodeWithTag("hold-Select").fetchSemanticsNode().boundsInRoot
         assertEquals(start.top, select.top, 2f * d)
         assertTrue("Start should sit left of Select", start.right <= select.left)
+    }
+
+    /**
+     * Layout rework (Robert, 2026-11-12): the D-pad lives in
+     * the left flank bar and A/B in the right flank bar — the
+     * black bars left and right of the aspect-correct game.
+     * Pinned by their centres, not their edges: in the narrow
+     * Robolectric window the game is width-limited, so the
+     * flanks shrink to a sliver, but the D-pad's centre is still
+     * left of the A/B cluster's centre.
+     */
+    @Test
+    fun dpadSitsInTheLeftFlankAndAbInTheRight() {
+        val game = File(temp.root, "game.gb")
+        setContent(game.absolutePath)
+        composeRule.onNodeWithTag("controls-dpad").assertIsDisplayed()
+        composeRule.onNodeWithTag("controls-ab").assertIsDisplayed()
+        val dpad = composeRule.onNodeWithTag("controls-dpad").fetchSemanticsNode().boundsInRoot
+        val ab = composeRule.onNodeWithTag("controls-ab").fetchSemanticsNode().boundsInRoot
+        assertTrue("D-pad centre should sit left of the A/B centre", dpad.center.x < ab.center.x)
     }
 }

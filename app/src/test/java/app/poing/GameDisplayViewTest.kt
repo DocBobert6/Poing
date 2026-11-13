@@ -21,14 +21,17 @@ import org.robolectric.annotation.Config
 
 /**
  * Screen-size fix (2026-11-12) + no-bezel follow-up (Robert,
- * 2026-11-12): the game view must fill its slot at the native
- * aspect, edge-to-edge. The aspect box is the largest 3:2 box in
- * the slot, and the game surface IS the box — the silver border,
- * dark surround and 4dp inner padding are gone, so nothing sits
- * between the frame and the box edge (the 2dp border used to be
- * drawn inside the edge and the 4dp gap shrank the surface by
- * 8dp; the 8dp transparent margin outside the box was dropped
- * by the screen-size fix for the same reason).
+ * 2026-11-12) + layout rework (Robert, 2026-11-12): the game
+ * view must fill its slot at the native aspect, edge-to-edge,
+ * with square corners (a Game Boy screen is a rectangle — the
+ * light 4dp rounding is gone too). The aspect box is the
+ * largest 3:2 box in the slot, and the game surface IS the box
+ * — the silver border, dark surround and 4dp inner padding are
+ * gone, so nothing sits between the frame and the box edge
+ * (the 2dp border used to be drawn inside the edge and the 4dp
+ * gap shrank the surface by 8dp; the 8dp transparent margin
+ * outside the box was dropped by the screen-size fix for the
+ * same reason).
  *
  * The assertions are relative to the measured slot, not to assumed
  * numbers: the slot is tagged and measured first, then the box is

@@ -19,11 +19,22 @@ data class ControlPosition(val xDp: Float, val yDp: Float) {
 
     /**
      * Keep the group on screen. Sideways a generous 160dp either
-     * way; down only 12dp (the controls row's bottom padding —
-     * further and the group leaves the screen); up 140dp (about
-     * the height of the controls band — further and it would sit
-     * over the game view instead of below it). A group can always
-     * be dragged back: it is never lost off screen.
+     * way; down only 12dp (the Start/Select pills sit 16dp above
+     * the bottom of the player area — further down and they leave
+     * the screen); up 140dp (about the height of a flank — further
+     * and a group would sit over the game view instead of beside
+     * it). The defaults are the overlay spots (D-pad left flank,
+     * A/B right flank, L/R top corners, Start/Select bottom
+     * centre), so a saved offset is a delta from the overlay
+     * default, not from the old stacked rows.
+     *
+     * Honest limit: the clamp is one shared box for all four
+     * groups, so it cannot be exact for every spot — a saved
+     * extreme offset can still push a corner group (an L/R pill
+     * dragged hard outward, the D-pad dragged hard up) partly
+     * off-screen. A group is never lost: dragging it back always
+     * works, and Reset in the layout editor returns every group
+     * to its default instantly.
      */
     fun clamped(): ControlPosition = copy(
         xDp = xDp.coerceIn(-160f, 160f),
