@@ -1,10 +1,11 @@
 package app.poing
 
 import android.content.Context
+import androidx.activity.ComponentActivity
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
-import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
@@ -42,8 +43,13 @@ import org.robolectric.annotation.Config
 @Config(sdk = [35])
 class GameScreenLayoutTest {
 
+    // Top bar / back swipe (Robert, 2026-11-12): the back
+    // tests press the system back gesture through the
+    // activity's dispatcher, so this file uses the Android
+    // rule (which exposes .activity) instead of the plain
+    // compose rule — the setContent / clock API is the same.
     @get:Rule
-    val composeRule = createComposeRule()
+    val composeRule = createAndroidComposeRule<ComponentActivity>()
 
     @get:Rule
     val temp = TemporaryFolder()
