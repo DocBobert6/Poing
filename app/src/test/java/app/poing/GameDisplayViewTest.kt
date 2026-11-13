@@ -76,11 +76,12 @@ class GameDisplayViewTest {
         val game = composeRule.onNodeWithContentDescription("Game: TEST").fetchSemanticsNode().boundsInRoot
         println("DISPLAY slot=${slot.width}x${slot.height} game=${game.width}x${game.height} root=${root.width}x${root.height} density=$d")
         composeRule.onNodeWithContentDescription("Game: TEST").assertIsDisplayed()
-        // The slot is the 300x200dp box this test sets.
-        assertEquals(300f * d, slot.width, 1f * d)
-        assertEquals(200f * d, slot.height, 1f * d)
-        // The box is the largest 3:2 box in the slot; the surface is
-        // the box minus the 4dp inner padding per side (8dp).
+        // The box is the largest 3:2 box in the measured slot; the
+        // surface is the box minus the 4dp inner padding per side
+        // (8dp). Asserted against the measured slot, not assumed
+        // numbers: the test window is smaller than the 300x200dp
+        // box this test requests (the slot assert below used to
+        // assume it), so the slot's own size is the reference.
         val boxW = minOf(slot.width, slot.height * 1.5f)
         val boxH = boxW / 1.5f
         assertEquals(boxW - 8f * d, game.width, 1f * d)
