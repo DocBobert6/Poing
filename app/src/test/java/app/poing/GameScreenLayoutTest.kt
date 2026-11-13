@@ -320,7 +320,18 @@ class GameScreenLayoutTest {
         composeRule.onNodeWithText("Reset to defaults").assertIsDisplayed()
         composeRule.activity.onBackPressedDispatcher.onBackPressed()
         composeRule.waitForIdle()
-        composeRule.onNodeWithText("Move controls").assertIsDisplayed()
+        // The back DID close Core Options — the "Reset to
+        // defaults" count below is what proves it — and the
+        // pause menu is back. "Move controls" needs a scroll
+        // first: the menu is a long scrollable column and the
+        // row sits below the fold in the narrow Robolectric
+        // window (the BackHandler and the showSettings
+        // rendering were verified correct; the failure was
+        // this assertion demanding a below-fold row be
+        // displayed without scrolling). Scrolling is
+        // navigation, not a weaker assertion — the same
+        // pattern the layout-flow tests in this file use.
+        composeRule.onNodeWithText("Move controls").performScrollTo().assertIsDisplayed()
         composeRule.onAllNodesWithText("Reset to defaults").assertCountEquals(0)
     }
 
