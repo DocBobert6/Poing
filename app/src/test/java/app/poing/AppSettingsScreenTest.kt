@@ -252,6 +252,33 @@ class AppSettingsScreenTest {
     }
 
     @Test
+    fun wormLightColorSwatchesPickAndPersist() {
+        // The hardware colour is a row of swatches under the
+        // Worm Light switch (Robert, 2026-11-12): dark medium
+        // gray by default, Atomic Purple / Clear / Green /
+        // Black to pick from. The light itself is never a
+        // choice — it stays warm white.
+        val s = store()
+        composeRule.setContent {
+            PoingTheme {
+                AppSettingsScreen(store = s, onCoreOptions = {}, onBack = { })
+            }
+        }
+        // The colour row is index 14 here (the Worm Light
+        // row's index 13, plus the colour row itself).
+        composeRule.onNodeWithTag("settings-list").performScrollToIndex(14)
+        composeRule.onNodeWithText("Worm Light colour").assertIsDisplayed()
+        assertEquals(WormLightColor.DEFAULT, AppSettingsStore(temp.root).wormLightColor())
+        composeRule.onNodeWithTag("worm-light-color-ATOMIC_PURPLE").performClick()
+        assertEquals(
+            WormLightColor.ATOMIC_PURPLE,
+            AppSettingsStore(temp.root).wormLightColor(),
+        )
+        composeRule.onNodeWithTag("worm-light-color-GREEN").performClick()
+        assertEquals(WormLightColor.GREEN, AppSettingsStore(temp.root).wormLightColor())
+    }
+
+    @Test
     fun opticsDimmingOffByDefaultAndTogglingPersists() {
         val s = store()
         composeRule.setContent {
@@ -259,9 +286,10 @@ class AppSettingsScreenTest {
                 AppSettingsScreen(store = s, onCoreOptions = {}, onBack = { })
             }
         }
-        // The dimming row is index 14 here (the Worm Light
-        // row's index 13, plus the dimming row itself).
-        composeRule.onNodeWithTag("settings-list").performScrollToIndex(14)
+        // The dimming row is index 15 here (the Worm Light
+        // row's index 13, the colour row's 14, plus the
+        // dimming row itself).
+        composeRule.onNodeWithTag("settings-list").performScrollToIndex(15)
         composeRule.onNodeWithText("Dim in dark rooms").assertIsDisplayed()
         assertFalse(AppSettingsStore(temp.root).opticsDimmingEnabled())
         composeRule.onNodeWithTag("optics-dimming-switch").performClick()

@@ -186,6 +186,10 @@ fun GameScreen(
     // whether a dark room may dim the screen (off by
     // default — dimming can hide the game).
     val wormLight = remember { appSettings.wormLightEnabled() }
+    // Worm Light realism (Robert, 2026-11-12): the colour of
+    // the lamp's hardware — dark medium gray by default. The
+    // light itself is always warm white.
+    val wormLightColor = remember { appSettings.wormLightColor() }
     val opticsDimming = remember { appSettings.opticsDimmingEnabled() }
 
     // Player chrome (Robert, 2026-11-12) — the top bar hides
@@ -566,6 +570,7 @@ fun GameScreen(
                     gameName = gameName,
                     paused = paused,
                     wormLight = wormLight,
+                    wormLightColor = wormLightColor,
                     // Player chrome (Robert, 2026-11-12): a tap
                     // on the game area brings the hidden bar
                     // back for a few seconds (see peekBar).

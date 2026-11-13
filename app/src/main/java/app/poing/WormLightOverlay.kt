@@ -116,6 +116,11 @@ fun wormLightGeometry(
 @Composable
 fun WormLightOverlay(
     enabled: Boolean,
+    // Worm Light realism (Robert, 2026-11-12): the colour of
+    // the lamp's hardware — cord, head plastic, plug. Dark
+    // medium gray by default; the light itself stays warm
+    // white and is never a setting.
+    hardwareColor: WormLightColor = WormLightColor.DEFAULT,
     modifier: Modifier = Modifier,
 ) {
     if (!enabled) return
@@ -178,12 +183,20 @@ fun WormLightOverlay(
                     end = g.coneBaseCenter,
                 ),
             )
-            // The flexible neck, from the top edge to the head.
+            // The flexible neck, from the top edge to the head —
+            // in the hardware colour the player picked (dark
+            // medium gray by default; clear renders faded).
             val neck = Path().apply {
                 moveTo(size.width * 0.5f, 0f)
                 quadraticTo(size.width * 0.5f, g.headPx.y * 0.5f, g.headPx.x, g.headPx.y)
             }
-            drawPath(neck, Color(0xFF8A8A8A), style = Stroke(width = g.neckWidthPx))
+            drawPath(
+                neck,
+                Color(hardwareColor.argb).copy(
+                    alpha = if (hardwareColor.translucent) 0.6f else 1f,
+                ),
+                style = Stroke(width = g.neckWidthPx),
+            )
             // A soft glow around the head itself — the lens
             // spilling a little light where it sits.
             val glowRadius = g.lensRadiusPx * 1.6f

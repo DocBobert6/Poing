@@ -28,6 +28,7 @@ class AppSettingsStore(private val root: File) {
         const val KEY_PRISM_CHAIN = "display_prism"
         const val KEY_DUSK_CHAIN = "display_dusk"
         const val KEY_WORM_LIGHT = "display_worm_light"
+        const val KEY_WORM_LIGHT_COLOR = "display_worm_light_color"
         const val KEY_OPTICS_DIMMING = "display_optics_dimming"
         const val KEY_DEV_STATS = "dev_stats_visible"
         const val DEFAULT_FF_SPEED = 2
@@ -76,6 +77,18 @@ class AppSettingsStore(private val root: File) {
      */
     fun wormLightEnabled(): Boolean = readBoolean(KEY_WORM_LIGHT, false)
     fun setWormLightEnabled(enabled: Boolean) = write(KEY_WORM_LIGHT, enabled.toString())
+
+    /**
+     * Worm Light realism (Robert, 2026-11-12) — the colour
+     * of the lamp's hardware (cord, head plastic, plug).
+     * Dark medium gray by default. The light itself is
+     * always warm white and is never a setting.
+     */
+    fun wormLightColor(): WormLightColor =
+        WormLightColor.fromName(readAll()[KEY_WORM_LIGHT_COLOR])
+
+    fun setWormLightColor(color: WormLightColor) =
+        write(KEY_WORM_LIGHT_COLOR, color.name)
 
     /**
      * Phase 8 — Screen Optics: whether a dark room may dim

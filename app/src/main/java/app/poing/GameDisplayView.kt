@@ -52,6 +52,11 @@ fun GameDisplayView(
     // over the game area only (never over the flank controls
     // beside it).
     wormLight: Boolean = false,
+    // Worm Light realism (Robert, 2026-11-12): the colour of
+    // the lamp's hardware — cord, head plastic, plug. Dark
+    // medium gray by default; the light itself stays warm
+    // white and is never a setting.
+    wormLightColor: WormLightColor = WormLightColor.DEFAULT,
     // Player chrome (Robert, 2026-11-12): a tap on the game
     // area brings the hidden top bar back for a few seconds.
     // The detector sits on this outer Box — the whole player
@@ -124,6 +129,7 @@ fun GameDisplayView(
                 }
                 WormLightOverlay(
                     enabled = wormLight,
+                    hardwareColor = wormLightColor,
                     modifier = Modifier.fillMaxSize(),
                 )
             }

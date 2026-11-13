@@ -199,4 +199,38 @@ class AppSettingsStoreTest {
         s.setDevStatsEnabled(false)
         assertFalse(s.devStatsEnabled())
     }
+
+    @Test
+    fun wormLightColorDefaultsToDarkMediumGrayAndRoundTrips() {
+        // The lamp's hardware is dark medium gray by default
+        // (Robert, 2026-11-12); the light itself is always
+        // warm white and is never a setting.
+        val s = store()
+        assertEquals(WormLightColor.DEFAULT, s.wormLightColor())
+        assertEquals(WormLightColor.DARK_GRAY, s.wormLightColor())
+        s.setWormLightColor(WormLightColor.ATOMIC_PURPLE)
+        assertEquals(WormLightColor.ATOMIC_PURPLE, s.wormLightColor())
+        assertEquals(
+            WormLightColor.ATOMIC_PURPLE,
+            AppSettingsStore(temp.root).wormLightColor(),
+        )
+        s.setWormLightColor(WormLightColor.CLEAR)
+        assertEquals(WormLightColor.CLEAR, s.wormLightColor())
+    }
+
+    @Test
+    fun wormLightColorUnknownStoredNameFallsBackToDefault() {
+        // A hand-edited file can never leave the lamp without
+        // a colour: anything the app does not know reads as
+        // the default.
+        val s = store()
+        s.setWormLightColor(WormLightColor.GREEN)
+        assertEquals(WormLightColor.GREEN, s.wormLightColor())
+        // Rewrite the stored value by hand, the way a corrupt
+        // or foreign file would.
+        val file = File(temp.root, "app-settings.properties")
+        val text = file.readText().replace("GREEN", "NotAColour")
+        file.writeText(text)
+        assertEquals(WormLightColor.DEFAULT, AppSettingsStore(temp.root).wormLightColor())
+    }
 }
