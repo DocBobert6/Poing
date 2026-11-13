@@ -2,10 +2,13 @@ package app.poing
 
 import android.content.Context
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performTouchInput
@@ -45,8 +48,20 @@ class GameScreenLayoutTest {
     @get:Rule
     val temp = TemporaryFolder()
 
-    private fun setContent(gamePath: String, isGba: Boolean = false, system: GameSystem? = null) {
+    private fun setContent(
+        gamePath: String,
+        isGba: Boolean = false,
+        system: GameSystem? = null,
+        // Player chrome (Robert, 2026-11-12): the top bar
+        // hides during gameplay unless dev stats are on.
+        // The two layout-flow tests below seed it on, so the
+        // Pause button is there to open the pause menu with;
+        // the bar tests below leave it off (the default) and
+        // pin the hiding instead.
+        devStats: Boolean = false,
+    ) {
         val root = File(temp.root, "stores").apply { mkdirs() }
+        if (devStats) AppSettingsStore(root).setDevStatsEnabled(true)
         composeRule.setContent {
             PoingTheme {
                 GameScreen(
@@ -71,7 +86,7 @@ class GameScreenLayoutTest {
     @Test
     fun moveControlsDragSavesPerGameLayout() {
         val game = File(temp.root, "game.gb")
-        setContent(game.absolutePath)
+        setContent(game.absolutePath, devStats = true)
         composeRule.onNodeWithText("Pause").performClick()
         composeRule.onNodeWithText("Move controls").performScrollTo().performClick()
         composeRule.onNodeWithText("Drag the controls to move them").assertIsDisplayed()
@@ -90,7 +105,7 @@ class GameScreenLayoutTest {
     @Test
     fun resetRestoresTheDefaults() {
         val game = File(temp.root, "game.gb")
-        setContent(game.absolutePath)
+        setContent(game.absolutePath, devStats = true)
         composeRule.onNodeWithText("Pause").performClick()
         composeRule.onNodeWithText("Move controls").performScrollTo().performClick()
         composeRule.onNodeWithTag("controls-dpad").performTouchInput {
@@ -189,5 +204,110 @@ class GameScreenLayoutTest {
         val dpad = composeRule.onNodeWithTag("controls-dpad").fetchSemanticsNode().boundsInRoot
         val ab = composeRule.onNodeWithTag("controls-ab").fetchSemanticsNode().boundsInRoot
         assertTrue("D-pad centre should sit left of the A/B centre", dpad.center.x < ab.center.x)
+    }
+
+    /**
+     * Player chrome (Robert, 2026-11-12): with dev stats off
+     * (the default), the top bar hides during active gameplay
+     * — no Pause button, no diagnostic line — and the game
+     * takes the bar's height: the player area fills the whole
+     * root. The power light detaches from the bar and stays
+     * visible, pinned to the top-left corner.
+     */
+    @Test
+    fun topBarHiddenDuringGameplayWithDevStatsOff() {
+        val game = File(temp.root, "game.gb")
+        setContent(game.absolutePath)
+        composeRule.onAllNodesWithText("Pause").assertCountEquals(0)
+        composeRule.onNodeWithTag("power-light").assertIsDisplayed()
+        val root = composeRule.onRoot().fetchSemanticsNode().boundsInRoot
+        val area = composeRule.onNodeWithTag("player-area").fetchSemanticsNode().boundsInRoot
+        assertEquals(root.height, area.height, 2f)
+    }
+
+    /**
+     * Player chrome (Robert, 2026-11-12): with dev stats on,
+     * the bar stays visible during gameplay — the stats are
+     * the point — so the Pause button is there and the player
+     * area is shorter than the root by the bar's height.
+     */
+    @Test
+    fun topBarVisibleWithDevStatsOn() {
+        val game = File(temp.root, "game.gb")
+        setContent(game.absolutePath, devStats = true)
+        composeRule.onNodeWithText("Pause").assertIsDisplayed()
+        val d = composeRule.density.density
+        val root = composeRule.onRoot().fetchSemanticsNode().boundsInRoot
+        val area = composeRule.onNodeWithTag("player-area").fetchSemanticsNode().boundsInRoot
+        assertTrue("player area should be shorter than the root by the bar", area.height < root.height - 10f * d)
+    }
+
+    /**
+     * Player chrome (Robert, 2026-11-12): tapping the game
+     * area brings the hidden bar back for a few seconds
+     * (TOP_BAR_PEEK_MS = 5s), then it hides again. Each tap
+     * restarts the clock.
+     */
+    @Test
+    fun tapOnGameAreaPeeksTheBar() {
+        val game = File(temp.root, "game.gb")
+        setContent(game.absolutePath)
+        composeRule.onAllNodesWithText("Pause").assertCountEquals(0)
+        composeRule.onNodeWithTag("game-area").performClick()
+        composeRule.waitForIdle()
+        composeRule.onNodeWithText("Pause").assertIsDisplayed()
+        composeRule.mainClock.advanceTimeBy(5000)
+        composeRule.waitForIdle()
+        composeRule.onAllNodesWithText("Pause").assertCountEquals(0)
+    }
+
+    /**
+     * Player chrome (Robert, 2026-11-12): tapping a control
+     * does NOT peek the bar — the controls are siblings
+     * overlaid on top of the game area, not children of it,
+     * so a tap on one is not in the game area's hit path.
+     * This pins that separation: a D-pad tap leaves the bar
+     * hidden.
+     */
+    @Test
+    fun tapOnControlDoesNotPeekTheBar() {
+        val game = File(temp.root, "game.gb")
+        setContent(game.absolutePath)
+        composeRule.onNodeWithTag("controls-dpad").performClick()
+        composeRule.waitForIdle()
+        composeRule.onAllNodesWithText("Pause").assertCountEquals(0)
+    }
+
+    /**
+     * Player chrome (Robert, 2026-11-12): while paused the
+     * bar stays visible — the Resume button must be there —
+     * and it does not hide on the peek timer.
+     */
+    @Test
+    fun topBarStaysVisibleWhilePaused() {
+        val game = File(temp.root, "game.gb")
+        setContent(game.absolutePath, devStats = true)
+        composeRule.onNodeWithText("Pause").performClick()
+        composeRule.onNodeWithText("Resume").assertIsDisplayed()
+        composeRule.mainClock.advanceTimeBy(5000)
+        composeRule.waitForIdle()
+        composeRule.onNodeWithText("Resume").assertIsDisplayed()
+    }
+
+    /**
+     * Player chrome (Robert, 2026-11-12): while editing the
+     * layout the bar stays visible — the Done button lives
+     * in it — and it does not hide on the peek timer.
+     */
+    @Test
+    fun topBarStaysVisibleWhileEditingLayout() {
+        val game = File(temp.root, "game.gb")
+        setContent(game.absolutePath, devStats = true)
+        composeRule.onNodeWithText("Pause").performClick()
+        composeRule.onNodeWithText("Move controls").performScrollTo().performClick()
+        composeRule.onNodeWithText("Done").assertIsDisplayed()
+        composeRule.mainClock.advanceTimeBy(5000)
+        composeRule.waitForIdle()
+        composeRule.onNodeWithText("Done").assertIsDisplayed()
     }
 }

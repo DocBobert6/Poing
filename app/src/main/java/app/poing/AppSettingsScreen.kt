@@ -57,6 +57,10 @@ fun AppSettingsScreen(
     var inputDisplay by remember { mutableStateOf(store.inputDisplayVisible()) }
     var haptics by remember { mutableStateOf(store.hapticsEnabled()) }
     var rewindControl by remember { mutableStateOf(store.rewindControlVisible()) }
+    // Player chrome (Robert, 2026-11-12) — the dev stats:
+    // when on, the top bar stays visible during gameplay;
+    // when off, the bar hides while playing. Off by default.
+    var devStats by remember { mutableStateOf(store.devStatsEnabled()) }
     // Phase 8 — Jade, the Game Boy display chain (on by
     // default: each chain is the default look for its
     // system), and the palette it shows the game in.
@@ -273,6 +277,33 @@ fun AppSettingsScreen(
             }
         }
         item {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        "Dev stats",
+                        style = MaterialTheme.typography.titleMedium,
+                    )
+                    Text(
+                        "Keeps the top bar — frame size, core and measured frame rate, frames drawn — visible during gameplay. Off by default: the bar hides while playing and the power light stays on.",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
+                Switch(
+                    checked = devStats,
+                    onCheckedChange = {
+                        store.setDevStatsEnabled(it)
+                        devStats = it
+                    },
+                    modifier = Modifier.testTag("dev-stats-switch"),
+                )
+            }
+        }
+        item {
             Text(
                 "Display",
                 style = displayTextStyle(DisplaySizeMedium),
@@ -448,6 +479,7 @@ fun AppSettingsScreen(
                     inputDisplay = store.inputDisplayVisible()
                     haptics = store.hapticsEnabled()
                     rewindControl = store.rewindControlVisible()
+                    devStats = store.devStatsEnabled()
                     jade = store.jadeEnabled()
                     prism = store.prismEnabled()
                     dusk = store.duskEnabled()

@@ -2,6 +2,7 @@ package app.poing
 
 import android.graphics.Bitmap
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.aspectRatio
@@ -12,7 +13,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.viewinterop.AndroidView
 
 /**
@@ -49,13 +52,24 @@ fun GameDisplayView(
     // over the game area only (never over the flank controls
     // beside it).
     wormLight: Boolean = false,
+    // Player chrome (Robert, 2026-11-12): a tap on the game
+    // area brings the hidden top bar back for a few seconds.
+    // The detector sits on this outer Box — the whole player
+    // area — so a tap on a control (a sibling overlay, not a
+    // child of this Box) can never reach it, and the bar only
+    // peeks for a tap on the game itself.
+    onGameAreaTap: () -> Unit = {},
     // The layout weight lives in the caller's Column (a
     // ColumnScope modifier cannot be built inside this
     // composable, so it arrives as a plain modifier).
     modifier: Modifier = Modifier,
 ) {
     Box(
-        modifier = modifier,
+        modifier = modifier
+            .testTag("game-area")
+            .pointerInput(Unit) {
+                detectTapGestures(onTap = { onGameAreaTap() })
+            },
         contentAlignment = Alignment.Center,
     ) {
         val frame = bitmap
@@ -70,6 +84,16 @@ fun GameDisplayView(
             // corners are square. (The screen-size fix already
             // dropped the 8dp transparent margin outside the box,
             // the same class of dead space.)
+            //
+            // Player chrome (Robert, 2026-11-12): a tap on the
+            // game area brings the hidden top bar back for a few
+            // seconds. The detector sits on this outer Box — the
+            // whole player area. A tap on a control can never
+            // reach it: the controls are siblings overlaid on
+            // top of this Box, not children of it, so a tap on
+            // one is not in this Box's hit path. Only a tap on
+            // the bare game area (or the black bars beside it)
+            // peeks the bar.
             Box(
                 modifier = Modifier
                     .aspectRatio(s.width.toFloat() / s.height.toFloat())

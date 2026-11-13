@@ -29,6 +29,7 @@ class AppSettingsStore(private val root: File) {
         const val KEY_DUSK_CHAIN = "display_dusk"
         const val KEY_WORM_LIGHT = "display_worm_light"
         const val KEY_OPTICS_DIMMING = "display_optics_dimming"
+        const val KEY_DEV_STATS = "dev_stats_visible"
         const val DEFAULT_FF_SPEED = 2
         val FF_SPEEDS = setOf(2, 3, 4)
     }
@@ -84,6 +85,16 @@ class AppSettingsStore(private val root: File) {
      */
     fun opticsDimmingEnabled(): Boolean = readBoolean(KEY_OPTICS_DIMMING, false)
     fun setOpticsDimmingEnabled(enabled: Boolean) = write(KEY_OPTICS_DIMMING, enabled.toString())
+
+    /**
+     * Player chrome (Robert, 2026-11-12) — the dev stats:
+     * the top bar (frame size, core and measured frame rate,
+     * frames drawn) stays visible during gameplay when this
+     * is on. OFF by default: the bar hides while playing and
+     * only the power light stays on.
+     */
+    fun devStatsEnabled(): Boolean = readBoolean(KEY_DEV_STATS, false)
+    fun setDevStatsEnabled(enabled: Boolean) = write(KEY_DEV_STATS, enabled.toString())
 
     /**
      * Phase 8 — whether a chain is on. Clean is never gated

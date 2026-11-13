@@ -185,4 +185,18 @@ class AppSettingsStoreTest {
         s.setOpticsDimmingEnabled(false)
         assertFalse(s.opticsDimmingEnabled())
     }
+
+    @Test
+    fun devStatsDefaultsOffAndRoundTrips() {
+        // The top bar hides during gameplay unless the player
+        // asked for the dev stats — off by default, so the bar
+        // is gone while playing and only the power light stays.
+        val s = store()
+        assertFalse(s.devStatsEnabled())
+        s.setDevStatsEnabled(true)
+        assertTrue(s.devStatsEnabled())
+        assertTrue(AppSettingsStore(temp.root).devStatsEnabled())
+        s.setDevStatsEnabled(false)
+        assertFalse(s.devStatsEnabled())
+    }
 }

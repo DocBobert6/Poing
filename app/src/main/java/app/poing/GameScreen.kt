@@ -17,7 +17,6 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.material3.Button
 import androidx.compose.material3.Text
@@ -34,10 +33,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.SpanStyle
-import androidx.compose.ui.text.buildAnnotatedString
-import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -184,6 +179,37 @@ fun GameScreen(
     // default — dimming can hide the game).
     val wormLight = remember { appSettings.wormLightEnabled() }
     val opticsDimming = remember { appSettings.opticsDimmingEnabled() }
+
+    // Player chrome (Robert, 2026-11-12) — the top bar hides
+    // during active gameplay unless the dev-stats toggle is
+    // on. Snapshotted like the other player settings:
+    // settings can only change on the Settings screen, never
+    // while the player is open.
+    val devStats = remember { appSettings.devStatsEnabled() }
+    var barPeeked by remember { mutableStateOf(false) }
+    var peekNonce by remember { mutableStateOf(0) }
+    // The bar shows while paused (the Resume button), while
+    // editing the layout (the Done button lives in it), while
+    // dev stats are on, or for a few seconds after a tap on
+    // the game area. The power light never hides — it is
+    // detached from the bar (FloatingPlayerStatus, below).
+    val barVisible = paused || editingLayout || devStats || barPeeked
+    fun peekBar() {
+        // Already showing (paused, editing, dev stats):
+        // nothing to time — the bar stays until that state ends.
+        if (paused || editingLayout || devStats) return
+        barPeeked = true
+        peekNonce++
+    }
+
+    // The peek lasts TOP_BAR_PEEK_MS: long enough to find and
+    // tap Pause, short enough that the bar is gone again
+    // quickly. Each tap restarts the clock.
+    LaunchedEffect(peekNonce) {
+        if (peekNonce == 0) return@LaunchedEffect
+        delay(TOP_BAR_PEEK_MS)
+        barPeeked = false
+    }
 
     // Phase 8 — the GL view the chain draws through. Built
     // once per game; a device that cannot build one (no
@@ -463,50 +489,35 @@ fun GameScreen(
             .background(Color.Black),
     ) {
         Column(modifier = Modifier.fillMaxSize()) {
-            // Top bar: power light + diagnostic text + pause. The
-            // light is green while a game is playing, amber while
-            // paused — the Pocket's power LED. statusBarsPadding:
-            // the player is edge-to-edge like the library, so
-            // without this the light sits in the status-bar band
-            // (and, in landscape, by the punch-hole camera). The
-            // light's top edge is now status-bar height + 8dp.
-            // The L/R tabs live in the player area below, not
-            // in this bar (layout rework, Robert, 2026-11-12).
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .statusBarsPadding()
-                    .padding(horizontal = 12.dp, vertical = 8.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                PowerLight(if (paused) PowerState.Paused else PowerState.Playing)
-                Spacer(Modifier.width(8.dp))
-                // Phase 6 (item 11) — the REC indicator while a
-                // recording runs: a red dot + elapsed m:ss.
-                if (recording) {
-                    Text(
-                        text = "● REC ${recordingElapsed / 60}:${"%02d".format(recordingElapsed % 60)}",
-                        color = Color.Red,
-                    )
-                    Spacer(Modifier.width(8.dp))
-                }
-                DiagnosticLine(stats = stats, modifier = Modifier.weight(1f))
-                // While editing the layout the top-bar button is
-                // Done: it saves the layout and returns to the pause
-                // menu (the game stays paused throughout editing).
-                Button(onClick = {
-                    when {
-                        editingLayout -> {
-                            layoutStore.save(saveBase, latestLayout)
-                            editingLayout = false
+            // Player chrome (Robert, 2026-11-12): the top bar
+            // hides during active gameplay unless dev stats
+            // are on — and its height goes to the game below,
+            // which re-measures at its native aspect, taller.
+            // The power light never hides: it is detached from
+            // the bar (FloatingPlayerStatus, in the root Box
+            // below). The L/R tabs live in the player area
+            // below, not in this bar (layout rework, Robert,
+            // 2026-11-12).
+            if (barVisible) {
+                TopBarRow(
+                    stats = stats,
+                    recording = recording,
+                    recordingElapsed = recordingElapsed,
+                    buttonLabel = if (editingLayout) "Done" else if (paused) "Resume" else "Pause",
+                    // While editing the layout the top-bar button is
+                    // Done: it saves the layout and returns to the pause
+                    // menu (the game stays paused throughout editing).
+                    onButtonClick = {
+                        when {
+                            editingLayout -> {
+                                layoutStore.save(saveBase, latestLayout)
+                                editingLayout = false
+                            }
+                            paused -> doResume()
+                            else -> doPause()
                         }
-                        paused -> doResume()
-                        else -> doPause()
-                    }
-                }) {
-                    Text(if (editingLayout) "Done" else if (paused) "Resume" else "Pause")
-                }
+                    },
+                )
             }
             // Input display (Phase 6, item 6): shown only when the
             // Settings toggle is on — off by default, per the
@@ -531,7 +542,8 @@ fun GameScreen(
             Box(
                 modifier = Modifier
                     .weight(1f)
-                    .fillMaxWidth(),
+                    .fillMaxWidth()
+                    .testTag("player-area"),
             ) {
                 GameDisplayView(
                     glView = glView,
@@ -540,6 +552,10 @@ fun GameScreen(
                     gameName = gameName,
                     paused = paused,
                     wormLight = wormLight,
+                    // Player chrome (Robert, 2026-11-12): a tap
+                    // on the game area brings the hidden bar
+                    // back for a few seconds (see peekBar).
+                    onGameAreaTap = ::peekBar,
                     modifier = Modifier.fillMaxSize(),
                 )
                 // The four movable groups, overlaid (see
@@ -551,6 +567,12 @@ fun GameScreen(
                     system = system,
                     layout = layout,
                     editingLayout = editingLayout,
+                    // Player chrome (Robert, 2026-11-12): when
+                    // the bar hides, the floating light sits at
+                    // the player area's top-left corner, where
+                    // the L/R tabs also sit — the tabs drop to
+                    // clear it (see PlayerOverlay).
+                    barVisible = barVisible,
                     held = held,
                     paused = paused,
                     onInputChanged = ::pushInput,
@@ -750,6 +772,21 @@ fun GameScreen(
                 )
             }
         }
+        // The power light, detached from the bar: always on,
+        // at the top-left corner (see PlayerTopBar). It draws
+        // AFTER the pause overlay, so the amber light stays
+        // visible while paused instead of sitting under the
+        // 70%-black dim — the pause menu panel is centred, so
+        // the corner light never overlaps it. Over the player
+        // area only, never over the game picture itself, which
+        // sits centred with black bars at the sides.
+        FloatingPlayerStatus(
+            paused = paused,
+            recording = recording,
+            recordingElapsed = recordingElapsed,
+            barVisible = barVisible,
+            modifier = Modifier.align(Alignment.TopStart),
+        )
         // Core options over the paused game: a change pushes live to
         // the session (non-restart options apply on the next frame
         // after resume; restart options apply next game).
@@ -871,38 +908,4 @@ fun GameScreen(
             }
         }
     }
-}
-
-/**
- * The diagnostic overlay line: terminal face (VT323) for the
- * labels, segment digits (DSEG7) for the numbers — frame size,
- * core fps, measured fps, frames drawn. The numbers are always
- * segment, never the display face.
- */
-@Composable
-private fun DiagnosticLine(stats: PlayerStats?, modifier: Modifier = Modifier) {
-    if (stats == null) {
-        Text("starting…", style = terminalTextStyle(), color = Color.White, modifier = modifier)
-        return
-    }
-    Text(
-        text = buildAnnotatedString {
-            withStyle(SpanStyle(fontFamily = Dseg7)) { append("${stats.width}x${stats.height}") }
-            withStyle(SpanStyle(fontFamily = Vt323)) { append(" core ") }
-            withStyle(SpanStyle(fontFamily = Dseg7)) { append("%.1f".format(stats.coreFps)) }
-            withStyle(SpanStyle(fontFamily = Vt323)) { append("fps measured ") }
-            withStyle(SpanStyle(fontFamily = Dseg7)) { append("%.1f".format(stats.measuredFps)) }
-            withStyle(SpanStyle(fontFamily = Vt323)) { append("fps ") }
-            withStyle(SpanStyle(fontFamily = Dseg7)) { append("${stats.framesDrawn}") }
-            withStyle(SpanStyle(fontFamily = Vt323)) { append(" frames") }
-        },
-        style = terminalTextStyle(),
-        color = Color.White,
-        // One line, always: with the L/R tabs in this bar the
-        // diagnostic has little width in portrait, and wrapping
-        // would grow the bar and eat game height.
-        maxLines = 1,
-        overflow = TextOverflow.Ellipsis,
-        modifier = modifier,
-    )
 }

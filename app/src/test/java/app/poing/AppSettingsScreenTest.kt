@@ -134,6 +134,25 @@ class AppSettingsScreenTest {
     }
 
     @Test
+    fun devStatsOffByDefaultAndTogglingPersists() {
+        val s = store()
+        composeRule.setContent {
+            PoingTheme {
+                AppSettingsScreen(store = s, onCoreOptions = {}, onBack = { })
+            }
+        }
+        // The Dev stats row is index 8 (header, Player,
+        // fast-forward, input display, haptics, RA title,
+        // RA, rewind, Dev stats) — the last Player row before
+        // the Display title.
+        composeRule.onNodeWithTag("settings-list").performScrollToIndex(8)
+        composeRule.onNodeWithText("Dev stats").assertIsDisplayed()
+        assertFalse(AppSettingsStore(temp.root).devStatsEnabled())
+        composeRule.onNodeWithTag("dev-stats-switch").performClick()
+        assertTrue(AppSettingsStore(temp.root).devStatsEnabled())
+    }
+
+    @Test
     fun jadeOnByDefaultAndTogglingPersists() {
         val s = store()
         composeRule.setContent {
@@ -145,10 +164,10 @@ class AppSettingsScreenTest {
         // rows are never composed in the small test window until
         // the list scrolls there (the item 5b lesson — a bare
         // onNodeWithTag finds nothing below the fold). Scroll
-        // to the Jade row first: index 9 (header, Player,
+        // to the Jade row first: index 10 (header, Player,
         // fast-forward, input display, haptics, RA title, RA,
-        // rewind, Display title, Jade).
-        composeRule.onNodeWithTag("settings-list").performScrollToIndex(9)
+        // rewind, Dev stats, Display title, Jade).
+        composeRule.onNodeWithTag("settings-list").performScrollToIndex(10)
         composeRule.onNodeWithText("Jade").assertIsDisplayed()
         assertTrue(AppSettingsStore(temp.root).jadeEnabled())
         composeRule.onNodeWithTag("jade-chain-switch").performClick()
@@ -166,9 +185,9 @@ class AppSettingsScreenTest {
                 AppSettingsScreen(store = s, optionsStore = options, onCoreOptions = {}, onBack = { })
             }
         }
-        // The palette row is index 10 (the Jade row's index 9,
+        // The palette row is index 11 (the Jade row's index 10,
         // plus the palette row itself — see the Jade test).
-        composeRule.onNodeWithTag("settings-list").performScrollToIndex(10)
+        composeRule.onNodeWithTag("settings-list").performScrollToIndex(11)
         composeRule.onNodeWithTag("jade-palette-row").performClick()
         composeRule.onNodeWithText("DMG Green").performScrollTo().performClick()
         assertEquals("DMG Green", options.get("mgba_gb_colors"))
@@ -182,11 +201,11 @@ class AppSettingsScreenTest {
                 AppSettingsScreen(store = s, onCoreOptions = {}, onBack = { })
             }
         }
-        // The Prism row is index 10 here (no options store,
+        // The Prism row is index 11 here (no options store,
         // so no palette row: header, Player, fast-forward,
         // input display, haptics, RA title, RA, rewind,
-        // Display title, Jade, Prism).
-        composeRule.onNodeWithTag("settings-list").performScrollToIndex(10)
+        // Dev stats, Display title, Jade, Prism).
+        composeRule.onNodeWithTag("settings-list").performScrollToIndex(11)
         composeRule.onNodeWithText("Prism").assertIsDisplayed()
         assertTrue(AppSettingsStore(temp.root).prismEnabled())
         composeRule.onNodeWithTag("prism-chain-switch").performClick()
@@ -201,11 +220,11 @@ class AppSettingsScreenTest {
                 AppSettingsScreen(store = s, onCoreOptions = {}, onBack = { })
             }
         }
-        // The Dusk row is index 11 here (no options store,
+        // The Dusk row is index 12 here (no options store,
         // so no palette row: header, Player, fast-forward,
         // input display, haptics, RA title, RA, rewind,
-        // Display title, Jade, Prism, Dusk).
-        composeRule.onNodeWithTag("settings-list").performScrollToIndex(11)
+        // Dev stats, Display title, Jade, Prism, Dusk).
+        composeRule.onNodeWithTag("settings-list").performScrollToIndex(12)
         composeRule.onNodeWithText("Dusk").assertIsDisplayed()
         assertTrue(AppSettingsStore(temp.root).duskEnabled())
         composeRule.onNodeWithTag("dusk-chain-switch").performClick()
@@ -220,12 +239,12 @@ class AppSettingsScreenTest {
                 AppSettingsScreen(store = s, onCoreOptions = {}, onBack = { })
             }
         }
-        // The Worm Light row is index 12 here (no options
+        // The Worm Light row is index 13 here (no options
         // store, so no palette row: header, Player,
         // fast-forward, input display, haptics, RA title,
-        // RA, rewind, Display title, Jade, Prism, Dusk,
-        // Worm Light).
-        composeRule.onNodeWithTag("settings-list").performScrollToIndex(12)
+        // RA, rewind, Dev stats, Display title, Jade, Prism,
+        // Dusk, Worm Light).
+        composeRule.onNodeWithTag("settings-list").performScrollToIndex(13)
         composeRule.onNodeWithText("Worm Light").assertIsDisplayed()
         assertFalse(AppSettingsStore(temp.root).wormLightEnabled())
         composeRule.onNodeWithTag("worm-light-switch").performClick()
@@ -240,9 +259,9 @@ class AppSettingsScreenTest {
                 AppSettingsScreen(store = s, onCoreOptions = {}, onBack = { })
             }
         }
-        // The dimming row is index 13 here (the Worm Light
-        // row's index 12, plus the dimming row itself).
-        composeRule.onNodeWithTag("settings-list").performScrollToIndex(13)
+        // The dimming row is index 14 here (the Worm Light
+        // row's index 13, plus the dimming row itself).
+        composeRule.onNodeWithTag("settings-list").performScrollToIndex(14)
         composeRule.onNodeWithText("Dim in dark rooms").assertIsDisplayed()
         assertFalse(AppSettingsStore(temp.root).opticsDimmingEnabled())
         composeRule.onNodeWithTag("optics-dimming-switch").performClick()

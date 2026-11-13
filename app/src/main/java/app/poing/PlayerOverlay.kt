@@ -47,6 +47,16 @@ fun BoxScope.ControlOverlay(
     system: GameSystem,
     layout: ControlLayout,
     editingLayout: Boolean,
+    // Player chrome (Robert, 2026-11-12): whether the top bar
+    // is showing. When it hides, the floating power light sits
+    // at the player area's top-left corner — the L/R tabs'
+    // corner too — so the tabs drop to clear it: the light's
+    // bottom edge is the status bar (~24dp) + 8dp padding +
+    // the 20dp light = 52dp, plus an 8dp gap. The offsets are
+    // deltas from the default (see ControlLayout), so a saved
+    // layout needs no migration — it still applies as the same
+    // delta from the new default.
+    barVisible: Boolean,
     held: HeldInput,
     paused: Boolean,
     onInputChanged: () -> Unit,
@@ -69,7 +79,7 @@ fun BoxScope.ControlOverlay(
             testTag = "controls-l",
             onMove = { onMove(ControlGroup.LR, it) },
             onMoveEnd = onMoveEnd,
-            modifier = Modifier.align(Alignment.TopStart).padding(start = 16.dp, top = 12.dp),
+            modifier = Modifier.align(Alignment.TopStart).padding(start = 16.dp, top = if (barVisible) 12.dp else 60.dp),
         ) {
             HoldButton(
                 "L", InputMask.JOY_L, held, paused, onInputChanged, shoulder = true,
@@ -84,7 +94,7 @@ fun BoxScope.ControlOverlay(
             testTag = "controls-r",
             onMove = { onMove(ControlGroup.LR, it) },
             onMoveEnd = onMoveEnd,
-            modifier = Modifier.align(Alignment.TopEnd).padding(end = 16.dp, top = 12.dp),
+            modifier = Modifier.align(Alignment.TopEnd).padding(end = 16.dp, top = if (barVisible) 12.dp else 60.dp),
         ) {
             HoldButton(
                 "R", InputMask.JOY_R, held, paused, onInputChanged, shoulder = true,

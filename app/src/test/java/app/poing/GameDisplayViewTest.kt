@@ -11,8 +11,10 @@ import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onRoot
+import androidx.compose.ui.test.performClick
 import androidx.compose.ui.unit.dp
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -89,5 +91,44 @@ class GameDisplayViewTest {
         val boxH = boxW / 1.5f
         assertEquals(boxW, game.width, 1f * d)
         assertEquals(boxH, game.height, 1f * d)
+    }
+
+    /**
+     * Player chrome (Robert, 2026-11-12): a tap on the game
+     * area calls onGameAreaTap — the hook GameScreen wires to
+     * the bar peek. The detector sits on the view's outer Box,
+     * so the whole player area is the tap target, including
+     * the black bars beside the picture.
+     */
+    @Test
+    fun tapOnGameAreaCallsOnGameAreaTap() {
+        val bitmap = Bitmap.createBitmap(240, 160, Bitmap.Config.ARGB_8888)
+        val stats = PlayerStats(
+            width = 240,
+            height = 160,
+            coreFps = 59.7,
+            measuredFps = 59.0,
+            framesDrawn = 165,
+            sampleRate = 48000,
+        )
+        var taps = 0
+        composeRule.setContent {
+            PoingTheme {
+                Box(Modifier.size(300.dp, 200.dp).testTag("slot")) {
+                    GameDisplayView(
+                        glView = null,
+                        bitmap = bitmap,
+                        stats = stats,
+                        gameName = "TEST",
+                        paused = false,
+                        onGameAreaTap = { taps++ },
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                }
+            }
+        }
+        composeRule.onNodeWithTag("game-area").performClick()
+        composeRule.waitForIdle()
+        assertTrue("a tap on the game area should call onGameAreaTap", taps == 1)
     }
 }
