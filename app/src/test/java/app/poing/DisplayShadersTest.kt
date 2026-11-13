@@ -171,13 +171,16 @@ class DisplayShadersTest {
         // field). The line is now a soft fall over the outer
         // quarter of the cell, and the strength fades with
         // the pixel's own brightness, so there is no grid at
-        // all on a bright field. The dot keeps its old fall
-        // until Jade's own commit.
+        // all on a bright field. Jade's dot got the same
+        // treatment: the same bright disc (r<=0.44) with a
+        // fall twice as wide (0.68, 0.44), so the dots read
+        // softer with less overall dulling.
         val src = DisplayShaders.GRID_FRAGMENT
-        assertTrue(src.contains("smoothstep(0.56, 0.44, distance(cell, vec2(0.5)))"))
+        assertTrue(src.contains("smoothstep(0.68, 0.44, distance(cell, vec2(0.5)))"))
         assertTrue(src.contains("smoothstep(0.0, 0.25, min(d.x, d.y))"))
         assertTrue(src.contains("uGridStrength * (1.0 - luma)"))
         assertTrue(src.contains("dot(col, vec3(0.299, 0.587, 0.114))"))
+        assertFalse(src.contains("smoothstep(0.56, 0.44,"))
         assertFalse(src.contains("smoothstep(0.0, 0.04,"))
         assertFalse(src.contains("smoothstep(0.0, 0.08,"))
     }

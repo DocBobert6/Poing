@@ -248,6 +248,16 @@ object DisplayShaders {
      * sky 0.40%, mid-grey 1.44%, dark 2.32% (was 5.58% /
      * 4.76% everywhere). See the rebuild record.
      *
+     * Jade's dot got the same treatment in its own commit:
+     * smoothstep(0.68, 0.44) instead of (0.56, 0.44) — the
+     * same bright disc (r<=0.44) with a fall twice as wide,
+     * so the dots read softer with less overall dulling
+     * (mid-grey mean factor 0.9949 -> 0.9973 at 6.34x). The
+     * FSTN ramp itself was re-verified, not changed: mGBA's
+     * Pocket palette is the primary source, Wikipedia's
+     * Pocket palette cross-checks it, and the dot-matrix
+     * shader's palette endpoints sit in the same family.
+     *
      * No subpixels: the real GBC panel is RGB and the GBA
      * panel BGR, and the accurate grid shaders render
      * vertical subpixel stripes — but only at integer
@@ -280,7 +290,7 @@ object DisplayShaders {
             vec2 d = min(cell, 1.0 - cell);
             g = smoothstep(0.0, 0.25, min(d.x, d.y));
           } else {
-            g = smoothstep(0.56, 0.44, distance(cell, vec2(0.5)));
+            g = smoothstep(0.68, 0.44, distance(cell, vec2(0.5)));
           }
           // The grid fades with the pixel's own brightness: on a
           // bright field (white title, sky) there is no dark
