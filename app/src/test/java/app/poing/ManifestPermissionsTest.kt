@@ -7,6 +7,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
+import org.robolectric.annotation.Config
 
 /**
  * RA login fix (2026-11-12): the RetroAchievements login failed on
@@ -21,6 +22,7 @@ import org.robolectric.RobolectricTestRunner
  * instead of failing silently on device.
  */
 @RunWith(RobolectricTestRunner::class)
+@Config(sdk = [35])
 class ManifestPermissionsTest {
 
     private fun requestedPermissions(): List<String> {
