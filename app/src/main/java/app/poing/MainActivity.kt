@@ -86,15 +86,30 @@ private sealed interface Screen {
 const val DOUBLE_BACK_EXIT_WINDOW_MS = 2000L
 
 /**
+ * "No back press yet" — the sentinel for [doubleBackExits]'s
+ * [lastPressMs]. It must be a value a real press can never be:
+ * 0 looks like one (it is a valid epoch-millisecond value, and
+ * the tests use it as a small fake time), so a first-press test
+ * and a second-press-at-t=0 test cannot both be written
+ * against 0 — 1_000 ms and 1_999 ms after it are both inside
+ * the window. In production the initial 0 was harmless (the
+ * wall clock is ~1.7e12), but the tests' fake times collide
+ * with it, so the sentinel lives here, not just in the tests.
+ */
+const val NO_PREVIOUS_BACK_PRESS_MS = -1L
+
+/**
  * The double-back decision as a pure function, so the window
  * is unit-testable without a clock: a press at [nowMs] exits
  * only if the previous press ([lastPressMs]) is inside the
- * window. (A compose test cannot prove this — the test clock
+ * window. [NO_PREVIOUS_BACK_PRESS_MS] means no press yet and
+ * never exits. (A compose test cannot prove this — the test clock
  * does not drive System.currentTimeMillis — so the compose
  * tests pin the hint and the exit, and this pins the window.)
  */
 fun doubleBackExits(nowMs: Long, lastPressMs: Long): Boolean =
-    nowMs - lastPressMs < DOUBLE_BACK_EXIT_WINDOW_MS
+    lastPressMs != NO_PREVIOUS_BACK_PRESS_MS &&
+        nowMs - lastPressMs < DOUBLE_BACK_EXIT_WINDOW_MS
 
 @Composable
 fun PoingHome() {
@@ -109,7 +124,7 @@ fun PoingHome() {
     // back to exit on the library — the first swipe shows the
     // hint, the second within the window closes the app.
     var exitHintVisible by remember { mutableStateOf(false) }
-    var lastBackPressMs by remember { mutableStateOf(0L) }
+    var lastBackPressMs by remember { mutableStateOf(NO_PREVIOUS_BACK_PRESS_MS) }
     val context = LocalContext.current
     val store = remember { LibraryStore(context.filesDir) }
     val optionsStore = remember { CoreOptionsStore(context.filesDir) }

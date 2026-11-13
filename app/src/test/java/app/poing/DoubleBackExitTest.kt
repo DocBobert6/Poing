@@ -25,14 +25,19 @@ class DoubleBackExitTest {
 
     @Test
     fun firstPressNeverExits() {
-        // lastPressMs 0 (no press yet) against any now.
-        assertFalse(doubleBackExits(1_000L, 0L))
-        assertFalse(doubleBackExits(100_000L, 0L))
+        // No press yet: the sentinel, never a real timestamp.
+        // (0 is NOT the sentinel — it is a real press at t=0,
+        // see secondPressInsideWindowExits — so 0 cannot pin
+        // the first press: 1_000 ms after it is inside the
+        // window and would exit.)
+        assertFalse(doubleBackExits(1_000L, NO_PREVIOUS_BACK_PRESS_MS))
+        assertFalse(doubleBackExits(100_000L, NO_PREVIOUS_BACK_PRESS_MS))
     }
 
     @Test
     fun secondPressInsideWindowExits() {
         assertTrue(doubleBackExits(1_500L, 1_000L))
+        // 0 here is a real previous press at t=0, not "none".
         assertTrue(doubleBackExits(1_999L, 0L))
     }
 
