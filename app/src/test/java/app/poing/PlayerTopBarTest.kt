@@ -51,12 +51,15 @@ class PlayerTopBarTest {
     @Test
     fun diagnosticLineShowsLiveLux() {
         setContent(lux = 42)
-        composeRule.onNodeWithText("42lx").assertExists()
+        // The diagnostic is one Text built from an annotated
+        // string, so "42lx" is a substring of the line, not a
+        // node of its own — match by substring.
+        composeRule.onNodeWithText("42lx", substring = true).assertExists()
     }
 
     @Test
     fun diagnosticLineHidesLuxWithoutAReading() {
         setContent(lux = null)
-        composeRule.onAllNodesWithText("lx").assertCountEquals(0)
+        composeRule.onAllNodesWithText("lx", substring = true).assertCountEquals(0)
     }
 }
