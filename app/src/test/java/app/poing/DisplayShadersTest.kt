@@ -53,38 +53,47 @@ class DisplayShadersTest {
     @Test
     fun colourPassHasThePrismMode() {
         val src = DisplayShaders.COLOUR_FRAGMENT
-        // Prism is mode 2: the measured 32-entry gamma LUT,
-        // then the colour matrix in linear light (Pokefan531,
-        // Nov 2025). No power-law gamma, no extra lift — the
-        // LUT IS the lift, and the current reference pipeline
-        // has no saturation matrix and no extra gamma lift.
+        // Prism is mode 2, rebuilt 2026-11-13: SameBoy's
+        // measured CGB response ramp (the 32-entry LUT, row 0),
+        // then the mGBA colorspace matrix in linear light
+        // (x0.94). The old Pokefan531 ramp + matrix was the
+        // palest of the three measured models — grey8 92,
+        // white 243 — and that paleness is what Robert
+        // rejected. No green-mix: the matrix already carries
+        // the channel crosstalk.
         assertTrue(src.contains("uMode == 2"))
         assertTrue(src.contains("uGammaLut"))
         assertTrue(src.contains("uGammaRow"))
         assertTrue(src.contains("min(floor(col.r * 32.0), 31.0)"))
         assertTrue(src.contains("texture2D(uGammaLut, vec2((ri + 0.5) / 32.0, vr)).r"))
-        assertTrue(src.contains("clamp(pow(g, vec3(2.2)) * 0.8989, vec3(0.0), vec3(1.0))"))
-        // The current GBC matrix, effective rows — never the
-        // old transposed rows (which did not preserve greys
-        // and turned blue violet).
-        assertTrue(src.contains("0.8944 * lin.r + 0.2179 * lin.g - 0.1125 * lin.b"))
-        assertTrue(src.contains("0.1091 * lin.r + 0.6312 * lin.g + 0.2597 * lin.b"))
-        assertTrue(src.contains("0.1447 * lin.r + 0.2837 * lin.g + 0.5716 * lin.b"))
+        assertTrue(src.contains("pow(ramp, vec3(2.2))"))
+        // The mGBA matrix, executed rows, x0.94 — never the
+        // old Pokefan531 matrix (which did not lift the
+        // shadows enough and washed the mid-tones).
+        assertTrue(src.contains("0.94 * (0.82 * lin.r + 0.24 * lin.g - 0.06 * lin.b)"))
+        assertTrue(src.contains("0.94 * (0.125 * lin.r + 0.665 * lin.g + 0.21 * lin.b)"))
+        assertTrue(src.contains("0.94 * (0.195 * lin.r + 0.075 * lin.g + 0.73 * lin.b)"))
         assertTrue(src.contains("pow(max(m, vec3(0.0)), vec3(1.0 / 2.2))"))
         assertFalse(src.contains("pow(col, vec3(1.7))"))
         assertFalse(src.contains("col * 1.08"))
-        // The old transposed matrix is gone from Prism's own
+        // The old Pokefan531 matrix is gone from Prism's own
         // block (Dusk still uses it until its own commit —
         // the Dusk test pins it there, so scope this check).
         val prism = src.substringAfter("uMode == 2").substringBefore("uMode == 3")
+        assertFalse(prism.contains("0.8944 * lin.r"))
+        assertFalse(prism.contains("0.8989"))
         assertFalse(prism.contains("0.82 * c.r + 0.125 * c.g + 0.195 * c.b"))
     }
 
     @Test
     fun gammaLutDataIsTheMeasuredRamps() {
-        // The LUTs are Pokefan531's Nov 2025 measured ramps:
-        // 32 entries each, one per 5-bit game value, 0 to 255,
-        // strictly increasing.
+        // The LUTs are SameBoy's measured response ramps
+        // (`Core/display.c`): 32 entries each, one per 5-bit
+        // game value, 0 to 255, strictly increasing. The GBC
+        // row changed in the 2026-11-13 rebuild (Pokefan531's
+        // ramp was the palest model and Robert rejected its
+        // look); the GBA row is still Pokefan531's until
+        // Dusk's own commit.
         val gbc = DisplayShaders.GAMMA_LUT_GBC
         val gba = DisplayShaders.GAMMA_LUT_GBA
         assertEquals(32, gbc.size)
@@ -96,18 +105,18 @@ class DisplayShadersTest {
         assertTrue(gbc.zipWithNext().all { (a, b) -> b > a })
         assertTrue(gba.zipWithNext().all { (a, b) -> b > a })
         // Spot values, pinned so a typo in the table fails
-        // loudly: GBC index 9 is 110 (SameBoy says 76 — the
-        // known reference disagreement, light angle), GBA
-        // index 12 is 102.
-        assertEquals(110, gbc[9])
-        assertEquals(170, gbc[16])
+        // loudly: GBC index 9 is 76 (Pokefan531 said 110 —
+        // the known reference disagreement, light angle),
+        // GBC index 16 is 161; GBA index 12 is 102.
+        assertEquals(76, gbc[9])
+        assertEquals(161, gbc[16])
         assertEquals(102, gba[12])
         assertEquals(160, gba[20])
         // The texture pixels: row 0 is the GBC ramp, row 1
         // the GBA ramp, 64 values in all.
         val pixels = DisplayShaders.gammaLutPixels()
         assertEquals(64, pixels.size)
-        assertEquals(110, pixels[9])
+        assertEquals(76, pixels[9])
         assertEquals(102, pixels[32 + 12])
         assertEquals(255, pixels[31])
         assertEquals(255, pixels[63])
@@ -154,37 +163,40 @@ class DisplayShadersTest {
 
     @Test
     fun gridProfilesAreSubtleAtFullHeightSize() {
-        // The 2026-11-12 rework (Robert's screenshots): at the
-        // new full-height size (4.5-5x) the old grid measured a
-        // 22% luminance dip at every texel boundary. The dot is
-        // wider now (bright to r<=0.44, dark only toward the
-        // corners — 0.40 after the rework, 0.35 before it) and
-        // the TFT lines narrower (0.04 of a cell each side,
-        // was 0.08). The wider dot keeps the same max dip
-        // (~6.3%) with a higher mean factor, so the dots read
-        // cleaner with less overall dulling.
+        // The 2026-11-13 rebuild (Robert's screenshots): the
+        // old TFT line was a knife-edge — smoothstep(0.0,
+        // 0.04), 0.08 of a cell, ~0.5 display px at 6.34x —
+        // and it beat against the display pixels into a
+        // lattice (5% of pixels ~5% dark on a flat white
+        // field). The line is now a soft fall over the outer
+        // quarter of the cell, and the strength fades with
+        // the pixel's own brightness, so there is no grid at
+        // all on a bright field. The dot keeps its old fall
+        // until Jade's own commit.
         val src = DisplayShaders.GRID_FRAGMENT
         assertTrue(src.contains("smoothstep(0.56, 0.44, distance(cell, vec2(0.5)))"))
-        assertTrue(src.contains("smoothstep(0.0, 0.04, min(d.x, d.y))"))
-        assertFalse(src.contains("smoothstep(0.52, 0.40,"))
-        assertFalse(src.contains("smoothstep(0.5, 0.35,"))
+        assertTrue(src.contains("smoothstep(0.0, 0.25, min(d.x, d.y))"))
+        assertTrue(src.contains("uGridStrength * (1.0 - luma)"))
+        assertTrue(src.contains("dot(col, vec3(0.299, 0.587, 0.114))"))
+        assertFalse(src.contains("smoothstep(0.0, 0.04,"))
         assertFalse(src.contains("smoothstep(0.0, 0.08,"))
     }
 
     @Test
     fun gridStrengthScalesDownWithDisplayScale() {
-        // Base strength 0.10 (was a fixed 0.22), full at 2x
-        // and below, tapering to half at 8x and above — so the
-        // grid stays subtle as the game grows. At Robert's
-        // sizes the effective strength is ~0.063 (5x) and
-        // ~0.067 (4.5x), for a max dip near 6%, not 22%.
-        assertEquals(0.10f, DisplayShaders.GRID_BASE_STRENGTH, 0.001f)
-        assertEquals(0.10f, DisplayShaders.gridStrengthForScale(1.0f), 0.001f)
-        assertEquals(0.10f, DisplayShaders.gridStrengthForScale(2.0f), 0.001f)
-        assertEquals(0.0667f, DisplayShaders.gridStrengthForScale(4.5f), 0.001f)
-        assertEquals(0.0632f, DisplayShaders.gridStrengthForScale(5.0f), 0.001f)
-        assertEquals(0.05f, DisplayShaders.gridStrengthForScale(8.0f), 0.001f)
-        assertEquals(0.05f, DisplayShaders.gridStrengthForScale(20.0f), 0.001f)
+        // Base strength 0.08 (was 0.10, was a fixed 0.22),
+        // full at 2x and below, tapering to half at 8x and
+        // above — so the grid stays subtle as the game grows.
+        // At Robert's sizes the effective peak is ~0.045
+        // (6.34x) and ~0.053 (4.5x), and the brightness tie
+        // takes it to zero on a bright field.
+        assertEquals(0.08f, DisplayShaders.GRID_BASE_STRENGTH, 0.001f)
+        assertEquals(0.08f, DisplayShaders.gridStrengthForScale(1.0f), 0.001f)
+        assertEquals(0.08f, DisplayShaders.gridStrengthForScale(2.0f), 0.001f)
+        assertEquals(0.0533f, DisplayShaders.gridStrengthForScale(4.5f), 0.001f)
+        assertEquals(0.0506f, DisplayShaders.gridStrengthForScale(5.0f), 0.001f)
+        assertEquals(0.04f, DisplayShaders.gridStrengthForScale(8.0f), 0.001f)
+        assertEquals(0.04f, DisplayShaders.gridStrengthForScale(20.0f), 0.001f)
     }
 
     @Test

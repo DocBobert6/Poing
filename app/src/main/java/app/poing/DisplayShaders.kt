@@ -75,18 +75,16 @@ object DisplayShaders {
      * frame untouched, for the DMG green and the coloured
      * GBC/SGB palettes.
      * Prism: the Game Boy Color's reflective TFT, 1998 —
-     * Pokefan531's current (Nov 2025) hardware-scanned
-     * model: the measured 32-entry gamma LUT, then the
-     * colour matrix in linear light (see the LUT and matrix
-     * notes below). Dusk: the Game Boy Advance's reflective
-     * TFT, 2001 — the same, with the Advance's own LUT and
-     * matrix; the AGB-001 is dark and unlit, and the LUT
-     * already lifts the shadows, so there is no extra gamma
-     * or saturation lift (the old pow(0.85) + 1.15 were
-     * compensating for the pow(3.2) crush — see the
-     * perfection record). Any mode this build does not know
-     * yet falls through to pass-through, never to a wrong
-     * look.
+     * rebuilt 2026-11-13 from two measured models composed
+     * the way mGBA composes them: SameBoy's CGB response
+     * ramp (the 32-entry LUT, row 0), then the mGBA
+     * colorspace matrix in linear light (x0.94). The old
+     * Pokefan531 ramp + matrix was the palest of the three
+     * measured models — that paleness is what Robert
+     * rejected ("still terrible", washed-out). Dusk: the Game
+     * Boy Advance's reflective TFT, 2001 — still the
+     * Pokefan531 model (its own LUT and matrix) until Dusk's
+     * own commit gives it the same rebuild with the AGB ramp.
      *
      * The matrix finding (2026-11-12, shader perfection):
      * the old matrix was the TRANSPOSE of the reference.
@@ -129,35 +127,33 @@ object DisplayShaders {
             vec3 c23 = mix(s2, s3, clamp((luma - 0.678) / 0.322, 0.0, 1.0));
             col = mix(mix(c01, c12, step(0.322, luma)), c23, step(0.678, luma));
           } else if (uMode == 2) {
-            // The CGB-001's reflective TFT, 1998 — Pokefan531's
-            // current (Nov 2025) hardware-scanned model: the
-            // measured 32-entry gamma LUT, then the colour
-            // matrix in linear light. The LUT is a 32x2 texture
-            // (row 0 = GBC, row 1 = GBA); the frame's 8-bit
-            // values are the core's 5-bit expansion, so
-            // floor(c * 32) recovers the exact 5-bit index.
-            // No extra lift: the LUT IS the lift, and the
-            // current reference pipeline has no saturation
-            // matrix and no extra gamma lift. The matrix is
-            // the current Pokefan531 sRGB matrix, effective
-            // rows (the GLSL mat4 as written is column-major,
-            // so its comment-rows are the transpose — the old
-            // shader applied the comment-rows, which do not
-            // preserve greys and turn blue violet; see the
-            // matrix finding in the colour-pass comment).
+            // Prism, rebuilt 2026-11-13 (Robert: "still terrible" —
+            // washed-out, and the grid a lattice on flat fields):
+            // SameBoy's measured CGB response ramp (the 32-entry
+            // LUT, row 0), then the mGBA colorspace matrix in
+            // linear light (x0.94). The ramp deepens the shadows
+            // and restores full white where the old measured ramp
+            // lifted them (grey8 92 -> 66, white 243 -> 248); the
+            // matrix is the core's own colorspace, the standard
+            // in other mGBA-based emulators. No green-mix: the
+            // matrix already carries the channel crosstalk, and
+            // doing both would count it twice. The old
+            // Pokefan531 ramp + matrix was the palest of the
+            // three measured models — that paleness is what
+            // Robert rejected. See the rebuild record.
             float ri = min(floor(col.r * 32.0), 31.0);
             float gi = min(floor(col.g * 32.0), 31.0);
             float bi = min(floor(col.b * 32.0), 31.0);
             float vr = (uGammaRow + 0.5) / 2.0;
-            vec3 g = vec3(
+            vec3 ramp = vec3(
               texture2D(uGammaLut, vec2((ri + 0.5) / 32.0, vr)).r,
               texture2D(uGammaLut, vec2((gi + 0.5) / 32.0, vr)).r,
               texture2D(uGammaLut, vec2((bi + 0.5) / 32.0, vr)).r);
-            vec3 lin = clamp(pow(g, vec3(2.2)) * 0.8989, vec3(0.0), vec3(1.0));
+            vec3 lin = pow(ramp, vec3(2.2));
             vec3 m;
-            m.r = 0.8944 * lin.r + 0.2179 * lin.g - 0.1125 * lin.b;
-            m.g = 0.1091 * lin.r + 0.6312 * lin.g + 0.2597 * lin.b;
-            m.b = 0.1447 * lin.r + 0.2837 * lin.g + 0.5716 * lin.b;
+            m.r = 0.94 * (0.82 * lin.r + 0.24 * lin.g - 0.06 * lin.b);
+            m.g = 0.94 * (0.125 * lin.r + 0.665 * lin.g + 0.21 * lin.b);
+            m.b = 0.94 * (0.195 * lin.r + 0.075 * lin.g + 0.73 * lin.b);
             col = pow(max(m, vec3(0.0)), vec3(1.0 / 2.2));
             col = clamp(col, vec3(0.0), vec3(1.0));
           } else if (uMode == 3) {
@@ -227,6 +223,31 @@ object DisplayShaders {
      * it stays subtle — the grid must read, never shout.
      * uGridMode picks which: 0 = dot-matrix, 1 = TFT lines.
      *
+     * Rebuild (2026-11-13, Robert: "still terrible" — the grid
+     * a lattice on flat fields): the old TFT line was a
+     * knife-edge — smoothstep(0.0, 0.04), 0.08 of a cell
+     * wide, ~0.5 display px at 6.34x, i.e. sub-pixel. It
+     * landed unevenly as the texel grid drifted against the
+     * display pixels (beating, ~19 px / 3 texels), so some
+     * boundaries made a dark display pixel and others did
+     * not: 5% of display pixels on a flat white field sat
+     * ~5% below the field (darkest 1% 11-12% below) — a
+     * regular lattice, though the phase-averaged dip was
+     * only 2-5%. At integer scales (5x, 8x) the old grid
+     * vanished entirely. The references all use smooth,
+     * wide, flat-centred profiles (lcd3x's sine, zfast's
+     * polynomial border, lcd-grid-v2's integrated aperture)
+     * — never a knife-edge. So the line is now smoothstep
+     * (0.0, 0.25): a soft fall over the outer quarter of the
+     * cell, wide enough (1.1-1.6 display px at 4.5-6.5x) to
+     * always cover at least one display pixel. And the
+     * strength now fades with the pixel's own brightness
+     * (uGridStrength * (1 - luma)): on a bright field there
+     * is no grid at all, and it survives as a faint texture
+     * on mid and dark tones. Measured at 6.34x: white 0.00%,
+     * sky 0.40%, mid-grey 1.44%, dark 2.32% (was 5.58% /
+     * 4.76% everywhere). See the rebuild record.
+     *
      * No subpixels: the real GBC panel is RGB and the GBA
      * panel BGR, and the accurate grid shaders render
      * vertical subpixel stripes — but only at integer
@@ -257,11 +278,19 @@ object DisplayShaders {
           float g;
           if (uGridMode == 1) {
             vec2 d = min(cell, 1.0 - cell);
-            g = smoothstep(0.0, 0.04, min(d.x, d.y));
+            g = smoothstep(0.0, 0.25, min(d.x, d.y));
           } else {
             g = smoothstep(0.56, 0.44, distance(cell, vec2(0.5)));
           }
-          col *= 1.0 - uGridStrength * (1.0 - g);
+          // The grid fades with the pixel's own brightness: on a
+          // bright field (white title, sky) there is no dark
+          // lattice at all, and the grid survives as a faint
+          // texture on mid and dark tones. A sharp dark line on
+          // white is what the eye catches; a reflective TFT's
+          // bright cell dominates its own gap.
+          float luma = dot(col, vec3(0.299, 0.587, 0.114));
+          float gridStrength = uGridStrength * (1.0 - luma);
+          col *= 1.0 - gridStrength * (1.0 - g);
           col *= uBrightness;
           col = (col - 0.5) * uContrast + 0.5;
           col = pow(max(col, vec3(0.0)), vec3(uGamma));
@@ -272,9 +301,11 @@ object DisplayShaders {
     /**
      * The grid's base strength (see the grid pass above).
      * The renderer scales it down with the display scale,
-     * so the grid stays subtle as the game grows.
+     * so the grid stays subtle as the game grows. Rebuilt
+     * 2026-11-13: 0.08, down from 0.10 — the wider line and
+     * the brightness tie do the work now, not the peak.
      */
-    const val GRID_BASE_STRENGTH = 0.10f
+    const val GRID_BASE_STRENGTH = 0.08f
 
     /**
      * The grid strength for a display scale (display pixels
@@ -290,22 +321,24 @@ object DisplayShaders {
     }
 
     /**
-     * The measured gamma ramps (Pokefan531,
-     * Handheld-Colorspace-Shaders, Nov 2025 — the GBC/GBA
-     * screens scanned directly with a ColorMunki Photo, no
-     * case/glass; the defaults are the average light angle).
-     * 32 entries, one per 5-bit game value; the frame's
-     * 8-bit values are the core's 5-bit expansion, so
-     * floor(c * 32) recovers the exact index in the shader.
-     * SameBoy's curves disagree by up to 0.13 (GBC index 9:
-     * 110 here vs 76 there) — gamma varies with light angle,
-     * so neither reference is exact; this one is the latest
-     * direct scan, and it is the source of the matrix lineage
-     * already in the code. See the perfection record.
+     * The measured response ramps (SameBoy's `Core/display.c`,
+     * master ea667ad — the per-channel response of the GBC /
+     * GBA panels, read first-hand for the 2026-11-13 rebuild).
+     * 32 entries, one per 5-bit game value; the frame's 8-bit
+     * values are the core's 5-bit expansion, so floor(c * 32)
+     * recovers the exact index in the shader. SameBoy's ramps
+     * are the deepest of the three measured models (GBC grey8
+     * -> 66, grey24 -> 232, white 255); the Pokefan531 ramps
+     * they replace were the palest (grey8 -> 92, white 243)
+     * and that paleness is what Robert rejected. Gamma varies
+     * with light angle, so neither reference is exact — the
+     * choice is recorded in the rebuild record, not hidden.
+     * The GBA row is still Pokefan531's until Dusk's own
+     * commit replaces it with SameBoy's AGB ramp.
      */
     val GAMMA_LUT_GBC = listOf(
-        0, 8, 15, 26, 37, 49, 67, 85, 97, 110, 121, 134, 140, 148, 154, 160,
-        170, 180, 188, 196, 202, 207, 212, 217, 222, 228, 232, 237, 246, 252, 254, 255,
+        0, 6, 12, 20, 28, 36, 45, 56, 66, 76, 88, 100, 113, 125, 137, 149,
+        161, 172, 182, 192, 202, 210, 218, 225, 232, 238, 243, 247, 250, 252, 254, 255,
     )
     val GAMMA_LUT_GBA = listOf(
         0, 3, 6, 10, 15, 25, 36, 50, 62, 71, 82, 92, 102, 109, 116, 124,
