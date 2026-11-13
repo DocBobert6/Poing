@@ -6,6 +6,19 @@
          request. -->
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
 
+    <!-- RA login fix (2026-11-12): the RetroAchievements login
+         failed on Robert's device with "Could not reach the
+         RetroAchievements server" — the app declared no INTERNET
+         permission at all, so every socket open failed with a
+         permission denial before the request left the phone. The
+         server was up and the phone had Wi-Fi; the app simply was
+         not allowed to open a socket. No network feature in the
+         app had ever worked on device (login, leaderboards,
+         rich-presence pings). Normal permission, no runtime
+         request. ManifestPermissionsTest fails if this is ever
+         removed again. -->
+    <uses-permission android:name="android.permission.INTERNET" />
+
     <!-- Phase 6 (item 7): haptics — the D-pad and A/B clicks.
          Normal permission, no runtime request. -->
     <uses-permission android:name="android.permission.VIBRATE" />
