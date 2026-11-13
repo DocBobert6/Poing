@@ -66,6 +66,27 @@ object DisplayShaders {
      * saturation lift, because the AGB-001 is dark and
      * unlit. Any mode this build does not know yet falls
      * through to pass-through, never to a wrong look.
+     *
+     * The corrections are the core's own numbers, verified
+     * against the pinned tree (src/platform/libretro/
+     * libretro.c: CC_TARGET_GAMMA 2.2, GBC_CC_GAMMA_ADJ -0.5
+     * so Prism expands at 1.7, GBA_CC_GAMMA_ADJ +1.0 so Dusk
+     * expands at 3.2, LUM 0.94, the same matrix) — the chains
+     * cannot drift from the core. The shot-1 investigation
+     * (2026-11-12) found no chain-selection bug: the tan in
+     * Robert's GB screenshot is the GBC game's own background
+     * colour through Prism (FSTN cannot make tan — its ramp
+     * is always B>=G>=R — and the theme in the same shot
+     * proves the game is GBC by header), and the dullness
+     * was the grid, not the colour. The Dusk lift stays at
+     * pow(0.85): lift variants (0.90 / 0.92 / 1.0) buy only
+     * +0.02-0.04 chroma on brights and cost real shadow
+     * readability (mid grey luma 0.417 -> 0.357 at pow 1.0);
+     * the blue crush is the core's own matrix — the
+     * authentic AGB look, not a bug. Screen Optics was
+     * exonerated too (a mild bright-room boost, never a
+     * wash). See ~/workspace/poing/verify/shader-rework/
+     * MEASUREMENTS.md for the numbers.
      */
     const val COLOUR_FRAGMENT = """
         precision mediump float;
@@ -97,7 +118,14 @@ object DisplayShaders {
             col = pow(col, vec3(0.85));
             float luma = dot(col, vec3(0.299, 0.587, 0.114));
             col = mix(vec3(luma), col, 1.15);
-            col = min(col, vec3(1.0));
+            // The saturation mix extrapolates: a colour whose
+            // blue is far below its luma (Nintendo orange,
+            // dark browns) comes out negative on that channel,
+            // and the old min() only clamped the top. The GPU
+            // clamps on write to the 8-bit framebuffer, so it
+            // was invisible — but the shader now states both
+            // sides itself.
+            col = clamp(col, vec3(0.0), vec3(1.0));
           }
           gl_FragColor = vec4(col, 1.0);
         }

@@ -63,6 +63,11 @@ class DisplayShadersTest {
         assertTrue(src.contains("pow(col, vec3(3.2))"))
         assertTrue(src.contains("pow(col, vec3(0.85))"))
         assertTrue(src.contains("mix(vec3(luma), col, 1.15)"))
+        // The saturation mix extrapolates below zero (a
+        // colour whose blue is far below its luma comes out
+        // negative on that channel), so the output is clamped
+        // on both sides — the old min() only clamped the top.
+        assertTrue(src.contains("clamp(col, vec3(0.0), vec3(1.0))"))
     }
 
     @Test
