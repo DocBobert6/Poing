@@ -3,9 +3,9 @@ package app.poing
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.size
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.test.assertDoesNotExist
-import androidx.compose.ui.test.assertExists
+import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.unit.dp
 import org.junit.Rule
@@ -42,12 +42,15 @@ class WormLightOverlayTest {
     @Test
     fun overlayPresentWhenEnabled() {
         setContent(enabled = true)
+        // assertExists is a member of SemanticsNodeInteraction,
+        // not a top-level import (the same trap as the
+        // screen-size fix and the control-moves fix).
         composeRule.onNodeWithTag("worm-light").assertExists()
     }
 
     @Test
     fun overlayAbsentWhenDisabled() {
         setContent(enabled = false)
-        composeRule.onNodeWithTag("worm-light").assertDoesNotExist()
+        composeRule.onAllNodesWithTag("worm-light").assertCountEquals(0)
     }
 }
