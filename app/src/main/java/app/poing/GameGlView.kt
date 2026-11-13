@@ -51,4 +51,9 @@ class GameGlView @JvmOverloads constructor(
     fun setOptics(params: OpticsParams) {
         if (renderer.setOptics(params)) requestRender()
     }
+
+    /** Apply the Worm Light's pool (called when the head moves — see DisplayRenderer). */
+    fun setWormLight(pool: WormLightPool) {
+        if (renderer.setWormLight(pool)) requestRender()
+    }
 }

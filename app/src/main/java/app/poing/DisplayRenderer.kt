@@ -60,6 +60,16 @@ class DisplayRenderer : GLSurfaceView.Renderer {
     @Volatile
     private var optics: OpticsParams = OpticsParams.NEUTRAL
 
+    /**
+     * Worm Light realism (Robert, 2026-11-12): the lamp's
+     * pool, in frame UV. Off (intensity 0) until the lamp
+     * reports its first pool — the shader adds exactly 0.0
+     * at intensity 0, so the chains are pixel-identical
+     * with the lamp off.
+     */
+    @Volatile
+    private var wormLight: WormLightPool = WormLightPool.OFF
+
     private var colourProgram = 0
     private var gridProgram = 0
     private var plainProgram = 0
@@ -113,6 +123,27 @@ class DisplayRenderer : GLSurfaceView.Renderer {
         return kotlin.math.abs(params.brightness - old.brightness) >= OPTICS_EPSILON ||
             kotlin.math.abs(params.contrast - old.contrast) >= OPTICS_EPSILON ||
             kotlin.math.abs(params.gamma - old.gamma) >= OPTICS_EPSILON
+    }
+
+    /**
+     * Apply the Worm Light's pool. True when the picture
+     * would visibly change, so the caller can skip a redraw
+     * for a no-op report: the pool moves continuously while
+     * the head is dragged, and every move redraws the last
+     * frame — including while paused, so the pool follows
+     * the finger even when the game is not drawing frames.
+     * The epsilon is tighter than the optics one (the pool
+     * is a position, not sensor chatter).
+     */
+    fun setWormLight(pool: WormLightPool): Boolean {
+        val old = wormLight
+        wormLight = pool
+        return kotlin.math.abs(pool.intensity - old.intensity) >= WL_EPSILON ||
+            kotlin.math.abs(pool.center.x - old.center.x) >= WL_EPSILON ||
+            kotlin.math.abs(pool.center.y - old.center.y) >= WL_EPSILON ||
+            kotlin.math.abs(pool.radii.x - old.radii.x) >= WL_EPSILON ||
+            kotlin.math.abs(pool.radii.y - old.radii.y) >= WL_EPSILON ||
+            kotlin.math.abs(pool.rotationRad - old.rotationRad) >= WL_EPSILON
     }
 
     override fun onSurfaceCreated(gl: GL10?, config: EGLConfig?) {
@@ -267,9 +298,20 @@ class DisplayRenderer : GLSurfaceView.Renderer {
         GLES20.glUniform1f(uniform(gridProgram, "uBrightness"), optics.brightness)
         GLES20.glUniform1f(uniform(gridProgram, "uContrast"), optics.contrast)
         GLES20.glUniform1f(uniform(gridProgram, "uGamma"), optics.gamma)
+        // Worm Light realism: the lamp's pool, AFTER the
+        // optics — the room dim never cancels the lamp.
+        setWormLightUniforms(gridProgram)
         GLES20.glActiveTexture(GLES20.GL_TEXTURE0)
         GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, fboTextureId)
         drawQuad(gridProgram)
+    }
+
+    /** The Worm Light's pool uniforms, shared by the grid and the plain programs. */
+    private fun setWormLightUniforms(prog: Int) {
+        GLES20.glUniform2f(uniform(prog, "uWlCenter"), wormLight.center.x, wormLight.center.y)
+        GLES20.glUniform2f(uniform(prog, "uWlRadii"), wormLight.radii.x, wormLight.radii.y)
+        GLES20.glUniform1f(uniform(prog, "uWlRot"), wormLight.rotationRad)
+        GLES20.glUniform1f(uniform(prog, "uWlIntensity"), wormLight.intensity)
     }
 
     /** The chain off: the frame exactly as the core rendered it, straight to the screen. */
@@ -280,6 +322,9 @@ class DisplayRenderer : GLSurfaceView.Renderer {
         GLES20.glUseProgram(plainProgram)
         GLES20.glUniform1f(uniform(plainProgram, "uFlipV"), 0f)
         GLES20.glUniform1i(uniform(plainProgram, "uTex"), 0)
+        // Worm Light realism: the pool rides on the plain
+        // program too, so the lamp works with the chain off.
+        setWormLightUniforms(plainProgram)
         GLES20.glActiveTexture(GLES20.GL_TEXTURE0)
         GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, frameTextureId)
         drawQuad(plainProgram)
@@ -460,5 +505,8 @@ class DisplayRenderer : GLSurfaceView.Renderer {
 
         /** Screen Optics: a smaller move than this is sensor chatter, not a new picture. */
         private const val OPTICS_EPSILON = 0.01f
+
+        /** Worm Light: a smaller pool move than this is a no-op report, not a new picture. */
+        private const val WL_EPSILON = 0.005f
     }
 }

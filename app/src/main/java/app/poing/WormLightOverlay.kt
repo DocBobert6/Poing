@@ -1,54 +1,86 @@
 package app.poing
 
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.spring
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.StrokeCap
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.testTag
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.launch
+import kotlin.math.PI
+import kotlin.math.cos
+import kotlin.math.sin
+import kotlin.math.sqrt
 
 /**
- * Phase 8 — Screen Optics: the Virtual Worm Light. A small
- * toggle only, an easter egg about a bad screen, on a phone
- * that already has a backlight — not a headline feature.
+ * Worm Light realism (Robert, 2026-11-12, after three
+ * reference photos of the real accessory): the lamp is a
+ * real Worm Light now, not a spotlight cone on the picture.
+ * The cord plugs in at the LEFT edge of the player (like
+ * the real EXT port), coils up the left side, arches over
+ * the top, and the head hangs ABOVE the screen in the strip
+ * the game gives up while the lamp is on — angled down at
+ * it. The head is a CLEAR OVAL LENS with the bulb visible
+ * inside as a bright point, plus a soft glow around it; the
+ * neck is a TIGHT HELIX COIL (a telephone cord), not a
+ * straight line. The light is ADDITIVE: an ELLIPTICAL
+ * warm-white pool, brightest at the top-centre, smooth
+ * falloff to nothing at the edges, with a hotspot where the
+ * beam lands most directly. When the head is dragged, the
+ * pool moves and skews with it, and the coil flexes
+ * (stretch on one side, bunch on the other — the cord has a
+ * fixed number of coils, so a longer spine spreads them)
+ * with a tiny settle wobble when released.
  *
- * Reworked (Robert, 2026-11-12): the old light was a small
- * lens floating mid-picture with a radial glow circle around
- * it — it read as a spotlight ON the screen. The lamp is now
- * bigger and sits ABOVE the picture, like the real Worm Light
- * accessory clipped to the top of the Game Boy: a large lens
- * on the picture's top edge, a thick flexible neck reaching
- * up to it from the top edge, and a directional cone angled
- * DOWN from the head so the warm light pools on the game
- * from above, brightest where it lands and fading with the
- * angle. The lamp hardware sits outside the picture; the
- * light falls ON it.
+ * The hardware (cord coil, head plastic, plug) wears the
+ * colour the player picked in Settings (dark medium gray
+ * by default); the LIGHT itself stays warm white, always,
+ * and is never a setting.
  *
- * The game fills the player area's full height, so there is
- * no black space above the picture inside the player — the
- * head sits on the picture's top edge, not floating above
- * it in empty space (the only space outside the picture is
- * the side flanks, which hold the controls the light must
- * never cover). Dragging the head moves it and the cone
- * follows: the cone's base stays centred on the picture,
- * so a head dragged sideways angles the light across the
- * game. The position is a fraction of the screen, so a
- * rotation keeps the light where it was put.
+ * The old cone overlay is gone — replaced by the pool,
+ * which is NOT an overlay wash. The game view is a
+ * GLSurfaceView, whose pixels live behind the window: an
+ * overlay drawn with BlendMode.Screen would blend against
+ * the window's black background and composite as a
+ * translucent tint wash — the exact look Robert already
+ * rejected. So the pool is applied in the chain's pass-2
+ * shader (DisplayShaders.GRID_FRAGMENT, and the plain
+ * program too so the lamp works with the chain off), as
+ * uniforms added AFTER the optics lines, so the room dim
+ * never cancels the lamp. Intensity 0 adds exactly 0.0, so
+ * the chains are pixel-identical with the lamp off. This
+ * stretches the brief's "no chain change" (its intent: do
+ * not rework the chains' look) — the pool is a lamp
+ * uniform, not a chain rework; the chains' colour and grid
+ * are untouched. On the fallback path (a plain Compose
+ * Image, no GL), the overlay draws the same pool with
+ * BlendMode.Screen, which works there because the Image
+ * lives in the window canvas.
  *
  * Nothing when off: the overlay is not composed at all, so
- * it cannot swallow a touch.
+ * it cannot swallow a touch, and the GL pool resets to
+ * intensity 0 (see GameDisplayView).
  */
 
 // The lamp's strip above the picture (Worm Light realism,
@@ -59,41 +91,115 @@ import androidx.compose.ui.platform.testTag
 const val WORM_LIGHT_STRIP_DP = 56f
 
 // The default head: top edge, centred — clipped on, like
-// the real accessory. (Was (0.5f, 0.35f), mid-picture.)
-val WORM_LIGHT_DEFAULT_HEAD = Offset(0.5f, 0.12f)
+// the real accessory. 6% down sits mid-strip on a phone in
+// landscape (~25dp of a 56dp strip); the geometry clamps
+// the head into the strip on any height, so the default is
+// safe on a tall or a short player area alike.
+val WORM_LIGHT_DEFAULT_HEAD = Offset(0.5f, 0.06f)
 
-// The lamp hardware, in dp. The lens was ~10dp (a 26f px
-// disc at 2.625 density); it is now 32dp, about three times
-// the size. The neck was ~2.3dp (a 6f px stroke); it is now
-// 10dp, a thick flexible neck, not a thread.
-const val WORM_LIGHT_LENS_RADIUS_DP = 32f
-const val WORM_LIGHT_NECK_WIDTH_DP = 10f
+// The oval lens, in dp: a clear oval, longer than tall,
+// rotated 35 degrees so the head angles down at the game
+// the way the real Worm Light's head does.
+const val WORM_LIGHT_LENS_RX_DP = 22f
+const val WORM_LIGHT_LENS_RY_DP = 14f
+const val WORM_LIGHT_LENS_ROTATION_DEG = 35f
 
-// The cone: its base spans 84% of the picture width at 90%
-// of its height, centred — the light pools on the game from
-// above. A wider, fainter outer cone (98% at 95%) feathers
-// the edges so the pool has no hard rim.
-const val WORM_LIGHT_CONE_BASE_WIDTH = 0.84f
-const val WORM_LIGHT_CONE_BASE_Y = 0.9f
-const val WORM_LIGHT_OUTER_BASE_WIDTH = 0.98f
-const val WORM_LIGHT_OUTER_BASE_Y = 0.95f
+// The bulb inside the lens, in dp: a small bright oval,
+// offset toward the top of the lens (the bulb sits at the
+// back of the head, shining down).
+const val WORM_LIGHT_BULB_RX_DP = 8f
+const val WORM_LIGHT_BULB_RY_DP = 6f
+
+// The plug at the left edge, in dp: the EXT port's plug,
+// where the cord enters the player.
+const val WORM_LIGHT_PLUG_W_DP = 10f
+const val WORM_LIGHT_PLUG_H_DP = 24f
+
+// The coil: a telephone cord has a fixed number of loops,
+// so a longer spine spreads them (stretch) and a shorter
+// one crowds them (bunch). 14 loops over the default spine
+// reads as a tight helix; the amplitude is the loop's
+// half-width, the stroke the cord's thickness.
+const val WORM_LIGHT_COIL_TURNS = 14
+const val WORM_LIGHT_COIL_AMP_DP = 5f
+const val WORM_LIGHT_COIL_STROKE_DP = 3f
+const val WORM_LIGHT_COIL_SAMPLES = 64
+
+// The pool, in frame UV (y = 0 at the top of the game):
+// brightest at the top-centre, an ellipse wider than tall,
+// its long axis tilting toward the head's side as the head
+// is dragged. The centre's x is the head's x projected
+// onto the game, clamped so the pool stays on the picture.
+const val WORM_LIGHT_POOL_CENTER_Y = 0.20f
+const val WORM_LIGHT_POOL_RX = 0.55f
+const val WORM_LIGHT_POOL_RY = 0.42f
+const val WORM_LIGHT_POOL_CENTER_X_MIN = 0.15f
+const val WORM_LIGHT_POOL_CENTER_X_MAX = 0.85f
+const val WORM_LIGHT_POOL_ROTATION_PER_OFFSET = 0.6f
+
+// The settle wobble: while dragging, the coil trails the
+// head by a quarter of the drag (it lags behind the hand);
+// on release a spring carries the trail back to zero, so
+// the lamp settles with a small wobble.
+const val WORM_LIGHT_SWAY_DRAG_FACTOR = 0.25f
+
+// The pool's warm white (0xFFFFD18C): warm, never the
+// hardware colour, never a setting.
+val WORM_LIGHT_WARM = Color(0xFFFFD18C)
 
 /**
- * The lamp's geometry in the picture's px space, pure so the
- * angles and sizes are unit-testable without a Canvas: the
- * head and lens, the neck width, and the cone — apex at the
- * head, base centred on the picture, opening downward.
+ * The lamp's pool of light, in frame UV (y = 0 at the top
+ * of the game) — the same values the shader takes as
+ * uniforms (uWlCenter, uWlRadii, uWlRot, uWlIntensity) and
+ * the overlay draws on the fallback path. Intensity 0 is
+ * the lamp off: the shader adds exactly 0.0.
+ */
+data class WormLightPool(
+    val center: Offset,
+    val radii: Offset,
+    val rotationRad: Float,
+    val intensity: Float,
+) {
+    companion object {
+        val OFF = WormLightPool(
+            center = Offset(0.5f, WORM_LIGHT_POOL_CENTER_Y),
+            radii = Offset(WORM_LIGHT_POOL_RX, WORM_LIGHT_POOL_RY),
+            rotationRad = 0f,
+            intensity = 0f,
+        )
+    }
+}
+
+/**
+ * The lamp's geometry in the player area's px space, pure
+ * so it is unit-testable without a Canvas: the game rect
+ * (the largest aspect box in the row below the strip), the
+ * plug, the coil's cubic spine, the lens and its bulb, and
+ * the pool in frame UV (plus its px form, for the fallback
+ * path). The head is clamped into the strip, so a stored
+ * position from a taller or shorter player area still lands
+ * in the strip.
  */
 data class WormLightGeometry(
-    val headPx: Offset,
-    val lensRadiusPx: Float,
-    val neckWidthPx: Float,
-    val coneApex: Offset,
-    val coneBaseLeft: Offset,
-    val coneBaseRight: Offset,
-    val coneBaseCenter: Offset,
-    val outerBaseLeft: Offset,
-    val outerBaseRight: Offset,
+    val gameRect: Rect,
+    val plugRect: Rect,
+    val coilP0: Offset,
+    val coilP1: Offset,
+    val coilP2: Offset,
+    val coilP3: Offset,
+    val coilAmplitudePx: Float,
+    val coilStrokePx: Float,
+    val lensCenter: Offset,
+    val lensRadii: Offset,
+    val lensRotationDeg: Float,
+    val lensHalfWidthPx: Float,
+    val lensHalfHeightPx: Float,
+    val bulbCenter: Offset,
+    val bulbRadii: Offset,
+    val pool: WormLightPool,
+    val poolCenterPx: Offset,
+    val poolRadiiPx: Offset,
+    val poolRotationDeg: Float,
 )
 
 fun wormLightGeometry(
@@ -101,23 +207,178 @@ fun wormLightGeometry(
     boxHeight: Float,
     head: Offset,
     density: Float,
+    gameAspect: Float,
+    stripDp: Float,
+    swayPx: Float,
 ): WormLightGeometry {
-    val headPx = Offset(head.x * boxWidth, head.y * boxHeight)
-    val baseHalf = boxWidth * WORM_LIGHT_CONE_BASE_WIDTH / 2f
-    val outerHalf = boxWidth * WORM_LIGHT_OUTER_BASE_WIDTH / 2f
-    val baseY = boxHeight * WORM_LIGHT_CONE_BASE_Y
-    val outerY = boxHeight * WORM_LIGHT_OUTER_BASE_Y
-    return WormLightGeometry(
-        headPx = headPx,
-        lensRadiusPx = WORM_LIGHT_LENS_RADIUS_DP * density,
-        neckWidthPx = WORM_LIGHT_NECK_WIDTH_DP * density,
-        coneApex = headPx,
-        coneBaseLeft = Offset(boxWidth / 2f - baseHalf, baseY),
-        coneBaseRight = Offset(boxWidth / 2f + baseHalf, baseY),
-        coneBaseCenter = Offset(boxWidth / 2f, baseY),
-        outerBaseLeft = Offset(boxWidth / 2f - outerHalf, outerY),
-        outerBaseRight = Offset(boxWidth / 2f + outerHalf, outerY),
+    val stripPx = stripDp * density
+    // The game rect: the largest aspect box in the row below
+    // the strip, centred in that row — exactly the frame
+    // GameDisplayView lays out (see its strip tests).
+    val rowH = boxHeight - stripPx
+    val gameW = minOf(boxWidth, rowH * gameAspect)
+    val gameH = gameW / gameAspect
+    val gameLeft = (boxWidth - gameW) / 2f
+    val gameTop = stripPx + (rowH - gameH) / 2f
+    val gameRect = Rect(gameLeft, gameTop, gameLeft + gameW, gameTop + gameH)
+    // The head, clamped into the strip: its centre stays in
+    // the strip, and the lens stays on screen. The sway
+    // trails the head — the coil's apex moves with the full
+    // sway, the head itself with half of it, so the lamp
+    // settles as one piece.
+    val lensRx = WORM_LIGHT_LENS_RX_DP * density
+    val lensRy = WORM_LIGHT_LENS_RY_DP * density
+    val rot = WORM_LIGHT_LENS_ROTATION_DEG * PI.toFloat() / 180f
+    val cosR = cos(rot)
+    val sinR = sin(rot)
+    // The rotated lens's half-extents (its bounding box):
+    // sqrt((rx cos)^2 + (ry sin)^2) across, and the same
+    // with sin/cos swapped down.
+    val halfW = sqrt(lensRx * lensRx * cosR * cosR + lensRy * lensRy * sinR * sinR)
+    val halfH = sqrt(lensRx * lensRx * sinR * sinR + lensRy * lensRy * cosR * cosR)
+    val headX = (head.x * boxWidth + swayPx * 0.5f).coerceIn(halfW, boxWidth - halfW)
+    val headY = (head.y * boxHeight).coerceIn(0f, stripPx)
+    val headPx = Offset(headX, headY)
+    // The plug: at the left edge, centred in the strip.
+    val plugW = WORM_LIGHT_PLUG_W_DP * density
+    val plugH = WORM_LIGHT_PLUG_H_DP * density
+    val plugRect = Rect(0f, stripPx / 2f - plugH / 2f, plugW, stripPx / 2f + plugH / 2f)
+    // The coil's spine: a cubic from the plug's right edge
+    // to the head, both control points near the top of the
+    // strip, so the cord rises from the plug, arches over
+    // the top, and descends to the head. The sway moves the
+    // apex with the head's trail.
+    val p0 = Offset(plugW, stripPx / 2f)
+    val p1 = Offset(
+        p0.x + (headPx.x - p0.x) * 0.25f + swayPx,
+        stripPx * 0.06f,
     )
+    val p2 = Offset(
+        p0.x + (headPx.x - p0.x) * 0.75f + swayPx,
+        stripPx * 0.06f,
+    )
+    // The bulb: inside the lens, toward its top — the bulb
+    // sits at the back of the head, shining down. Its local
+    // offset is rotated with the lens, so the bulb stays
+    // put in the head as the lens angles.
+    val bulbLocal = Offset(-lensRx * 0.15f, -lensRy * 0.35f)
+    val bulbCenter = Offset(
+        headPx.x + bulbLocal.x * cosR - bulbLocal.y * sinR,
+        headPx.y + bulbLocal.x * sinR + bulbLocal.y * cosR,
+    )
+    // The pool: the head's x projected onto the game,
+    // clamped so the pool stays on the picture, brightest
+    // at the top-centre; its long axis tilts toward the
+    // head's side (the beam slants down from the head).
+    val gameCenterX = gameLeft + gameW / 2f
+    val poolCenterX = ((headPx.x - gameLeft) / gameW)
+        .coerceIn(WORM_LIGHT_POOL_CENTER_X_MIN, WORM_LIGHT_POOL_CENTER_X_MAX)
+    val poolRotation = (gameCenterX - headPx.x) / gameW * WORM_LIGHT_POOL_ROTATION_PER_OFFSET
+    val pool = WormLightPool(
+        center = Offset(poolCenterX, WORM_LIGHT_POOL_CENTER_Y),
+        radii = Offset(WORM_LIGHT_POOL_RX, WORM_LIGHT_POOL_RY),
+        rotationRad = poolRotation,
+        intensity = 1f,
+    )
+    return WormLightGeometry(
+        gameRect = gameRect,
+        plugRect = plugRect,
+        coilP0 = p0,
+        coilP1 = p1,
+        coilP2 = p2,
+        coilP3 = headPx,
+        coilAmplitudePx = WORM_LIGHT_COIL_AMP_DP * density,
+        coilStrokePx = WORM_LIGHT_COIL_STROKE_DP * density,
+        lensCenter = headPx,
+        lensRadii = Offset(lensRx, lensRy),
+        lensRotationDeg = WORM_LIGHT_LENS_ROTATION_DEG,
+        lensHalfWidthPx = halfW,
+        lensHalfHeightPx = halfH,
+        bulbCenter = bulbCenter,
+        bulbRadii = Offset(WORM_LIGHT_BULB_RX_DP * density, WORM_LIGHT_BULB_RY_DP * density),
+        pool = pool,
+        poolCenterPx = Offset(
+            gameLeft + pool.center.x * gameW,
+            gameTop + pool.center.y * gameH,
+        ),
+        poolRadiiPx = Offset(pool.radii.x * gameW, pool.radii.y * gameH),
+        poolRotationDeg = poolRotation * 180f / PI.toFloat(),
+    )
+}
+
+/**
+ * The coil as a sine ribbon along a cubic spine: the
+ * telephone cord's helix, drawn as a wave straddling the
+ * spine. The sine is zero at both ends, so the cord
+ * attaches cleanly at the plug and at the head, and the
+ * turn count is fixed — a longer spine spreads the loops
+ * (stretch), a shorter one crowds them (bunch). Pure, so
+ * it runs under plain JVM unit tests.
+ */
+fun coilRibbonPoints(
+    p0: Offset,
+    p1: Offset,
+    p2: Offset,
+    p3: Offset,
+    turns: Int,
+    amplitudePx: Float,
+    samples: Int = WORM_LIGHT_COIL_SAMPLES,
+): List<Offset> {
+    val pts = ArrayList<Offset>(samples + 1)
+    for (i in 0..samples) {
+        val t = i.toFloat() / samples
+        val mt = 1f - t
+        // The cubic point.
+        val bx = mt * mt * mt * p0.x + 3f * mt * mt * t * p1.x +
+            3f * mt * t * t * p2.x + t * t * t * p3.x
+        val by = mt * mt * mt * p0.y + 3f * mt * mt * t * p1.y +
+            3f * mt * t * t * p2.y + t * t * t * p3.y
+        // Its tangent, and the unit normal to it.
+        val tx = 3f * mt * mt * (p1.x - p0.x) + 6f * mt * t * (p2.x - p1.x) +
+            3f * t * t * (p3.x - p2.x)
+        val ty = 3f * mt * mt * (p1.y - p0.y) + 6f * mt * t * (p2.y - p1.y) +
+            3f * t * t * (p3.y - p2.y)
+        val len = sqrt(tx * tx + ty * ty).coerceAtLeast(1e-6f)
+        val nx = -ty / len
+        val ny = tx / len
+        val s = sin(t * turns * 2f * PI.toFloat())
+        pts.add(Offset(bx + nx * amplitudePx * s, by + ny * amplitudePx * s))
+    }
+    return pts
+}
+
+/**
+ * The pool's scalar factor at a frame UV, mirroring
+ * GRID_FRAGMENT's pool lines exactly (same constants), so
+ * the falloff is unit-testable on the JVM: 0.65 at the pool
+ * centre (0.30 fall + 0.35 hotspot), 0.0 at and outside
+ * the ellipse edge. The shader is the authority; this is
+ * its test oracle, not a second implementation — keep the
+ * constants in step with the GLSL.
+ */
+fun wormLightPoolFactor(
+    center: Offset,
+    radii: Offset,
+    rotationRad: Float,
+    uv: Offset,
+): Float {
+    val dx = uv.x - center.x
+    val dy = uv.y - center.y
+    val c = cos(rotationRad)
+    val s = sin(rotationRad)
+    val rx = dx * c - dy * s
+    val ry = dx * s + dy * c
+    val ex = rx / radii.x
+    val ey = ry / radii.y
+    val e = ex * ex + ey * ey
+    val fall = wormLightSmoothstep(1f, 0f, e)
+    val hot = wormLightSmoothstep(0.45f, 0f, e)
+    return fall * 0.30f + hot * 0.35f
+}
+
+private fun wormLightSmoothstep(edge0: Float, edge1: Float, x: Float): Float {
+    val t = ((x - edge0) / (edge1 - edge0)).coerceIn(0f, 1f)
+    return t * t * (3f - 2f * t)
 }
 
 @Composable
@@ -128,109 +389,201 @@ fun WormLightOverlay(
     // medium gray by default; the light itself stays warm
     // white and is never a setting.
     hardwareColor: WormLightColor = WormLightColor.DEFAULT,
+    // The game the lamp hangs over: its aspect sets the game
+    // rect the pool is measured against (the frame is the
+    // largest aspect box in the row below the strip).
+    gameAspect: Float = 1.5f,
+    // The fallback path (no GL view): the overlay draws the
+    // pool itself with BlendMode.Screen. On the GL path the
+    // shader adds the pool, and the overlay must not draw
+    // it too — the pool would double.
+    drawPool: Boolean = false,
+    // The pool, reported up to the GL view (GameDisplayView
+    // hands it to GameGlView.setWormLight) whenever the head
+    // moves, so dragging while paused still moves the pool.
+    onPoolChange: (WormLightPool) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     if (!enabled) return
     var position by remember { mutableStateOf(WORM_LIGHT_DEFAULT_HEAD) }
+    var sway by remember { mutableStateOf(0f) }
+    var dragStartX by remember { mutableStateOf(0f) }
+    var wobbleJob by remember { mutableStateOf<Job?>(null) }
+    val scope = rememberCoroutineScope()
     BoxWithConstraints(modifier = modifier.testTag("worm-light")) {
         val width = constraints.maxWidth.toFloat()
         val height = constraints.maxHeight.toFloat()
+        val g = wormLightGeometry(
+            width, height, position, density, gameAspect,
+            WORM_LIGHT_STRIP_DP, sway,
+        )
+        // The pool reaches the GL view on every move — the
+        // shader is what lights the picture (see the file
+        // header); the overlay only draws the pool itself on
+        // the fallback path.
+        LaunchedEffect(g.pool) { onPoolChange(g.pool) }
         Canvas(
             modifier = Modifier
                 .fillMaxSize()
-                .pointerInput(Unit) {
-                    detectDragGestures { change, dragAmount ->
-                        change.consume()
-                        val x = (position.x * width + dragAmount.x).coerceIn(0f, width)
-                        val y = (position.y * height + dragAmount.y).coerceIn(0f, height)
-                        position = Offset(x / width, y / height)
-                    }
+                .pointerInput(width, height) {
+                    detectDragGestures(
+                        onDragStart = {
+                            // A fresh grab cancels any settle
+                            // wobble still running.
+                            wobbleJob?.cancel()
+                            sway = 0f
+                            dragStartX = position.x * width
+                        },
+                        onDragEnd = {
+                            // The coil trails the head; on
+                            // release a spring carries the
+                            // trail back to zero, so the lamp
+                            // settles with a small wobble.
+                            wobbleJob?.cancel()
+                            wobbleJob = scope.launch {
+                                val anim = Animatable(sway)
+                                anim.animateTo(
+                                    0f,
+                                    spring(dampingRatio = 0.25f, stiffness = 300f),
+                                ) { sway = value }
+                            }
+                        },
+                        onDragCancel = {
+                            wobbleJob?.cancel()
+                            sway = 0f
+                        },
+                        onDrag = { change, dragAmount ->
+                            change.consume()
+                            // The head stays in the strip, and
+                            // the lens stays on screen.
+                            val x = (position.x * width + dragAmount.x)
+                                .coerceIn(g.lensHalfWidthPx, width - g.lensHalfWidthPx)
+                            val y = (position.y * height + dragAmount.y)
+                                .coerceIn(0f, WORM_LIGHT_STRIP_DP * density)
+                            position = Offset(x / width, y / height)
+                            sway = (x - dragStartX) * WORM_LIGHT_SWAY_DRAG_FACTOR
+                        },
+                    )
                 },
         ) {
-            val g = wormLightGeometry(size.width, size.height, position, density)
-            // The outer cone first: wide and faint, feathering
-            // the pool's edges so it has no hard rim.
-            val outerCone = Path().apply {
-                moveTo(g.coneApex.x, g.coneApex.y)
-                lineTo(g.outerBaseLeft.x, g.outerBaseLeft.y)
-                lineTo(g.outerBaseRight.x, g.outerBaseRight.y)
-                close()
-            }
-            drawPath(
-                outerCone,
-                Brush.linearGradient(
-                    colors = listOf(
-                        Color(0xFFFFC978).copy(alpha = 0.12f),
-                        Color.Transparent,
-                    ),
-                    start = g.coneApex,
-                    end = Offset(size.width / 2f, size.height * WORM_LIGHT_OUTER_BASE_Y),
-                ),
+            val hw = Color(hardwareColor.argb).copy(
+                alpha = if (hardwareColor.translucent) 0.6f else 1f,
             )
-            // The main pool: a directional wedge from the head
-            // down onto the picture, warm at the head and fading
-            // toward the base — brightest where the light lands,
-            // fading with the angle. (The old radial glow circle
-            // centred on the head is gone: that was the
-            // spotlight-on-the-picture look.)
-            val cone = Path().apply {
-                moveTo(g.coneApex.x, g.coneApex.y)
-                lineTo(g.coneBaseLeft.x, g.coneBaseLeft.y)
-                lineTo(g.coneBaseRight.x, g.coneBaseRight.y)
-                close()
-            }
-            drawPath(
-                cone,
-                Brush.linearGradient(
-                    colors = listOf(
-                        Color(0xFFFFC978).copy(alpha = 0.32f),
-                        Color.Transparent,
-                    ),
-                    start = g.coneApex,
-                    end = g.coneBaseCenter,
-                ),
+            // The plug at the left edge, in the strip zone —
+            // the EXT port, where the cord enters the player.
+            drawRoundRect(
+                color = hw,
+                topLeft = Offset(g.plugRect.left, g.plugRect.top),
+                size = Size(g.plugRect.width, g.plugRect.height),
+                cornerRadius = CornerRadius(3f * density, 3f * density),
             )
-            // The flexible neck, from the top edge to the head —
-            // in the hardware colour the player picked (dark
-            // medium gray by default; clear renders faded).
-            val neck = Path().apply {
-                moveTo(size.width * 0.5f, 0f)
-                quadraticTo(size.width * 0.5f, g.headPx.y * 0.5f, g.headPx.x, g.headPx.y)
+            // The coil: the sine ribbon along the cubic spine
+            // — a telephone cord, not a straight line.
+            val ribbon = Path().apply {
+                val pts = coilRibbonPoints(
+                    g.coilP0, g.coilP1, g.coilP2, g.coilP3,
+                    WORM_LIGHT_COIL_TURNS, g.coilAmplitudePx,
+                )
+                moveTo(pts.first().x, pts.first().y)
+                for (p in pts.drop(1)) lineTo(p.x, p.y)
             }
             drawPath(
-                neck,
-                Color(hardwareColor.argb).copy(
-                    alpha = if (hardwareColor.translucent) 0.6f else 1f,
-                ),
-                style = Stroke(width = g.neckWidthPx),
+                ribbon,
+                hw,
+                style = Stroke(width = g.coilStrokePx, cap = StrokeCap.Round),
             )
             // A soft glow around the head itself — the lens
             // spilling a little light where it sits.
-            val glowRadius = g.lensRadiusPx * 1.6f
+            val glowRadius = g.lensRadii.x * 1.8f
             drawCircle(
                 brush = Brush.radialGradient(
                     colors = listOf(
-                        Color(0xFFFFC978).copy(alpha = 0.28f),
+                        WORM_LIGHT_WARM.copy(alpha = 0.28f),
                         Color.Transparent,
                     ),
-                    center = g.headPx,
+                    center = g.lensCenter,
                     radius = glowRadius,
                 ),
-                center = g.headPx,
+                center = g.lensCenter,
                 radius = glowRadius,
             )
-            // The lens: a large warm disc, with a faint
-            // plastic-lens reflection arc at its top-left.
-            drawCircle(Color(0xFFFFE0A0), radius = g.lensRadiusPx, center = g.headPx)
-            drawArc(
-                color = Color.White.copy(alpha = 0.5f),
-                startAngle = 180f,
-                sweepAngle = 90f,
-                useCenter = false,
-                topLeft = Offset(g.headPx.x - g.lensRadiusPx, g.headPx.y - g.lensRadiusPx),
-                size = Size(g.lensRadiusPx * 2f, g.lensRadiusPx * 2f),
-                style = Stroke(width = g.lensRadiusPx * 0.12f),
+            // The lens: a clear oval, rotated so the head
+            // angles down at the game — a faint fill (the
+            // plastic) with its rim in the hardware colour.
+            // The power light draws over the player area's
+            // top-left corner after this overlay, so the coil
+            // passing near it sits behind the light, not over
+            // it.
+            rotate(g.lensRotationDeg, pivot = g.lensCenter) {
+                drawOval(
+                    color = Color.White.copy(alpha = 0.14f),
+                    topLeft = Offset(
+                        g.lensCenter.x - g.lensRadii.x,
+                        g.lensCenter.y - g.lensRadii.y,
+                    ),
+                    size = Size(g.lensRadii.x * 2f, g.lensRadii.y * 2f),
+                )
+                drawOval(
+                    color = hw,
+                    topLeft = Offset(
+                        g.lensCenter.x - g.lensRadii.x,
+                        g.lensCenter.y - g.lensRadii.y,
+                    ),
+                    size = Size(g.lensRadii.x * 2f, g.lensRadii.y * 2f),
+                    style = Stroke(width = 2f * density),
+                )
+            }
+            // The bulb: bright white, visible inside the clear
+            // lens, with a hot core (the filament).
+            drawOval(
+                color = Color.White,
+                topLeft = Offset(
+                    g.bulbCenter.x - g.bulbRadii.x,
+                    g.bulbCenter.y - g.bulbRadii.y,
+                ),
+                size = Size(g.bulbRadii.x * 2f, g.bulbRadii.y * 2f),
             )
+            drawCircle(
+                color = Color(0xFFFFF6D8),
+                radius = g.bulbRadii.x * 0.45f,
+                center = g.bulbCenter,
+            )
+            // Fallback path only: the pool, added with Screen
+            // so it lights the picture — the same falloff the
+            // shader adds on the GL path. Clipped to the game
+            // rect, so it never spills onto the black bars or
+            // the flank controls.
+            if (drawPool) {
+                clipRect(
+                    g.gameRect.left, g.gameRect.top,
+                    g.gameRect.right, g.gameRect.bottom,
+                ) {
+                    rotate(g.poolRotationDeg, pivot = g.poolCenterPx) {
+                        val r = maxOf(g.poolRadiiPx.x, g.poolRadiiPx.y)
+                        scale(
+                            g.poolRadiiPx.x / r,
+                            g.poolRadiiPx.y / r,
+                            pivot = g.poolCenterPx,
+                        ) {
+                            drawCircle(
+                                brush = Brush.radialGradient(
+                                    colorStops = arrayOf(
+                                        0f to WORM_LIGHT_WARM.copy(alpha = 0.65f),
+                                        0.4f to WORM_LIGHT_WARM.copy(alpha = 0.45f),
+                                        0.75f to WORM_LIGHT_WARM.copy(alpha = 0.15f),
+                                        1f to Color.Transparent,
+                                    ),
+                                    center = g.poolCenterPx,
+                                    radius = r,
+                                ),
+                                center = g.poolCenterPx,
+                                radius = r,
+                                blendMode = BlendMode.Screen,
+                            )
+                        }
+                    }
+                }
+            }
         }
     }
 }

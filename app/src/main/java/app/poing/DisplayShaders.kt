@@ -278,6 +278,26 @@ object DisplayShaders {
      * included — sits under the room's light. All three
      * default to 1 (no adjustment); the sensor only ever
      * moves them while a chain is on.
+     *
+     * Worm Light realism (Robert, 2026-11-12) rides on this
+     * pass too: the lamp's pool, added AFTER the optics
+     * lines so the room dim never cancels the lamp. An
+     * elliptical warm-white pool (0xFFFFD18C), brightest at
+     * the top-centre, smooth falloff to nothing at the
+     * edges, with a hotspot where the beam lands most
+     * directly. ADDITIVE — it adds warm light to the picture
+     * instead of laying a tint over it. The game view is a
+     * GLSurfaceView, whose pixels live behind the window: an
+     * overlay wash would blend against the window's black
+     * and read as a tint, the look Robert already rejected.
+     * Intensity 0 adds exactly 0.0, so the chains are
+     * pixel-identical with the lamp off. The pool is in
+     * frame UV (y = 0 at the top), so it follows the head
+     * as it is dragged. This stretches the brief's "no chain
+     * change" — the pool is a lamp uniform, not a chain
+     * rework; the chains' colour and grid are untouched.
+     * The same pool lines live in the plain program, so the
+     * lamp works with the chain off too.
      */
     const val GRID_FRAGMENT = """
         precision mediump float;
@@ -289,6 +309,10 @@ object DisplayShaders {
         uniform float uBrightness;
         uniform float uContrast;
         uniform float uGamma;
+        uniform vec2 uWlCenter;
+        uniform vec2 uWlRadii;
+        uniform float uWlRot;
+        uniform float uWlIntensity;
         void main() {
           vec3 col = texture2D(uTex, vTex).rgb;
           vec2 cell = fract(vTex * uTexSize);
@@ -311,6 +335,30 @@ object DisplayShaders {
           col *= uBrightness;
           col = (col - 0.5) * uContrast + 0.5;
           col = pow(max(col, vec3(0.0)), vec3(uGamma));
+          // Worm Light realism (Robert, 2026-11-12): the
+          // lamp's pool, AFTER the optics lines so the room
+          // dim never cancels the lamp. An elliptical
+          // warm-white pool, brightest at the top-centre,
+          // smooth falloff to nothing at the edges, with a
+          // hotspot where the beam lands most directly.
+          // ADDITIVE — it adds warm light to the picture
+          // instead of laying a tint over it. Intensity 0
+          // adds exactly 0.0, so the chains are
+          // pixel-identical with the lamp off. The pool is
+          // in frame UV (y = 0 at the top), so it follows
+          // the head as it is dragged. The falloff is
+          // mirrored by wormLightPoolFactor (WormLightOverlay)
+          // so it is unit-testable on the JVM — keep the
+          // constants in step.
+          vec2 wlD = vTex - uWlCenter;
+          float wlC = cos(uWlRot);
+          float wlS = sin(uWlRot);
+          vec2 wlR = vec2(wlD.x * wlC - wlD.y * wlS, wlD.x * wlS + wlD.y * wlC);
+          float wlE = dot(wlR / uWlRadii, wlR / uWlRadii);
+          float wlFall = smoothstep(1.0, 0.0, wlE);
+          float wlHot = smoothstep(0.45, 0.0, wlE);
+          col += uWlIntensity * (wlFall * 0.30 + wlHot * 0.35) * vec3(1.0, 0.82, 0.55);
+          col = clamp(col, vec3(0.0), vec3(1.0));
           gl_FragColor = vec4(col, 1.0);
         }
     """
@@ -376,13 +424,37 @@ object DisplayShaders {
         return out
     }
 
-    /** Fallback if a chain program fails to compile: a plain texture sample, so the game stays visible. */
+    /**
+     * Fallback if a chain program fails to compile: a plain
+     * texture sample, so the game stays visible. It carries
+     * the Worm Light's pool too (the same add as the grid
+     * pass), so the lamp works with the chain off (clean)
+     * and on a failed chain — the lamp is not a chain.
+     */
     const val PLAIN_FRAGMENT = """
         precision mediump float;
         varying vec2 vTex;
         uniform sampler2D uTex;
+        uniform vec2 uWlCenter;
+        uniform vec2 uWlRadii;
+        uniform float uWlRot;
+        uniform float uWlIntensity;
         void main() {
-          gl_FragColor = texture2D(uTex, vTex);
+          vec3 col = texture2D(uTex, vTex).rgb;
+          // Worm Light realism: the lamp's pool, the same
+          // add as the grid pass (see GRID_FRAGMENT) — the
+          // lamp works with the chain off too. Intensity 0
+          // adds exactly 0.0, so clean stays clean.
+          vec2 wlD = vTex - uWlCenter;
+          float wlC = cos(uWlRot);
+          float wlS = sin(uWlRot);
+          vec2 wlR = vec2(wlD.x * wlC - wlD.y * wlS, wlD.x * wlS + wlD.y * wlC);
+          float wlE = dot(wlR / uWlRadii, wlR / uWlRadii);
+          float wlFall = smoothstep(1.0, 0.0, wlE);
+          float wlHot = smoothstep(0.45, 0.0, wlE);
+          col += uWlIntensity * (wlFall * 0.30 + wlHot * 0.35) * vec3(1.0, 0.82, 0.55);
+          col = clamp(col, vec3(0.0), vec3(1.0));
+          gl_FragColor = vec4(col, 1.0);
         }
     """
 }

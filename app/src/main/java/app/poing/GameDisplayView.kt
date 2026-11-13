@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -83,6 +84,13 @@ fun GameDisplayView(
     ) {
         val frame = bitmap
         val s = stats
+        // Worm Light realism (Robert, 2026-11-12): when the
+        // lamp goes off, the pool resets to intensity 0 so it
+        // never lingers on the picture. (While it is on, the
+        // overlay reports its pool on every move — see below.)
+        LaunchedEffect(wormLight) {
+            if (!wormLight) glView?.setWormLight(WormLightPool.OFF)
+        }
         if (frame != null && s != null) {
             // No bezel (Robert, 2026-11-12): the silver 2dp
             // border, the dark surround and the 4dp inner padding
@@ -157,9 +165,19 @@ fun GameDisplayView(
                     }
                 }
             }
+            // Worm Light realism (Robert, 2026-11-12): the
+            // lamp itself — the coil, the oval lens and the
+            // pool (see WormLightOverlay). The pool reaches
+            // the GL view as uniforms, so dragging the head
+            // while paused still moves the pool; with no GL
+            // view (the fallback Image) the overlay draws
+            // the pool itself.
             WormLightOverlay(
                 enabled = wormLight,
                 hardwareColor = wormLightColor,
+                gameAspect = s.width.toFloat() / s.height.toFloat(),
+                drawPool = glView == null,
+                onPoolChange = { pool -> glView?.setWormLight(pool) },
                 modifier = Modifier.fillMaxSize(),
             )
         } else {

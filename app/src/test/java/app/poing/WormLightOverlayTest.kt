@@ -53,4 +53,35 @@ class WormLightOverlayTest {
         setContent(enabled = false)
         composeRule.onAllNodesWithTag("worm-light").assertCountEquals(0)
     }
+
+    @Test
+    fun overlayReportsItsPoolToTheGlView() {
+        // Worm Light realism: the overlay reports the lamp's
+        // pool up to the GL view whenever the head moves, so
+        // the shader lights the picture (and dragging while
+        // paused still moves the pool). In a 300x200dp box
+        // the default head is centred, so the pool is the
+        // top-centre of the game at full intensity.
+        var reported: WormLightPool? = null
+        composeRule.setContent {
+            PoingTheme {
+                Box(Modifier.size(300.dp, 200.dp)) {
+                    WormLightOverlay(
+                        enabled = true,
+                        onPoolChange = { reported = it },
+                    )
+                }
+            }
+        }
+        composeRule.waitForIdle()
+        val pool = reported
+        assertTrue("the overlay should report its pool", pool != null)
+        pool!!
+        assertEquals(1f, pool.intensity, 0.001f)
+        assertEquals(0.5f, pool.center.x, 0.01f)
+        assertEquals(0.20f, pool.center.y, 0.01f)
+        assertEquals(0.55f, pool.radii.x, 0.01f)
+        assertEquals(0.42f, pool.radii.y, 0.01f)
+        assertEquals(0f, pool.rotationRad, 0.001f)
+    }
 }

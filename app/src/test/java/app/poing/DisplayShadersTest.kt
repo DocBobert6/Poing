@@ -224,6 +224,44 @@ class DisplayShadersTest {
     }
 
     @Test
+    fun gridPassHasTheWormLightPool() {
+        // Worm Light realism: the lamp's pool, added AFTER
+        // the optics lines so the room dim never cancels
+        // the lamp. An elliptical warm-white pool, additive
+        // — intensity 0 adds exactly 0.0, so the chains are
+        // pixel-identical with the lamp off.
+        val src = DisplayShaders.GRID_FRAGMENT
+        assertTrue(src.contains("uWlCenter"))
+        assertTrue(src.contains("uWlRadii"))
+        assertTrue(src.contains("uWlRot"))
+        assertTrue(src.contains("uWlIntensity"))
+        assertTrue(src.contains("smoothstep(1.0, 0.0, wlE)"))
+        assertTrue(src.contains("smoothstep(0.45, 0.0, wlE)"))
+        assertTrue(src.contains("uWlIntensity * (wlFall * 0.30 + wlHot * 0.35)"))
+        assertTrue(src.contains("vec3(1.0, 0.82, 0.55)"))
+        assertTrue(src.contains("col = clamp(col, vec3(0.0), vec3(1.0))"))
+        // The pool comes after the optics: the dim is
+        // applied first, the lamp added on top of it.
+        val optics = src.indexOf("pow(max(col, vec3(0.0)), vec3(uGamma))")
+        val pool = src.indexOf("uWlIntensity * (wlFall")
+        assertTrue("the pool should be added after the optics", optics >= 0 && pool > optics)
+    }
+
+    @Test
+    fun plainPassHasTheWormLightPool() {
+        // The lamp works with the chain off (clean) too:
+        // the plain program carries the same pool add.
+        val src = DisplayShaders.PLAIN_FRAGMENT
+        assertTrue(src.contains("uWlCenter"))
+        assertTrue(src.contains("uWlRadii"))
+        assertTrue(src.contains("uWlRot"))
+        assertTrue(src.contains("uWlIntensity"))
+        assertTrue(src.contains("uWlIntensity * (wlFall * 0.30 + wlHot * 0.35)"))
+        assertTrue(src.contains("vec3(1.0, 0.82, 0.55)"))
+        assertTrue(src.contains("texture2D(uTex, vTex)"))
+    }
+
+    @Test
     fun plainFallbackIsABareSample() {
         val src = DisplayShaders.PLAIN_FRAGMENT
         assertTrue(src.contains("texture2D(uTex, vTex)"))
