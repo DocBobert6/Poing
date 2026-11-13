@@ -90,10 +90,10 @@ class DisplayShadersTest {
         // The LUTs are SameBoy's measured response ramps
         // (`Core/display.c`): 32 entries each, one per 5-bit
         // game value, 0 to 255, strictly increasing. The GBC
-        // row changed in the 2026-11-13 rebuild (Pokefan531's
-        // ramp was the palest model and Robert rejected its
-        // look); the GBA row is still Pokefan531's until
-        // Dusk's own commit.
+        // row changed in the Prism commit and the GBA row in
+        // the Dusk commit of the 2026-11-13 rebuild
+        // (Pokefan531's ramps were the palest model and
+        // Robert rejected their look).
         val gbc = DisplayShaders.GAMMA_LUT_GBC
         val gba = DisplayShaders.GAMMA_LUT_GBA
         assertEquals(32, gbc.size)
@@ -107,17 +107,20 @@ class DisplayShadersTest {
         // Spot values, pinned so a typo in the table fails
         // loudly: GBC index 9 is 76 (Pokefan531 said 110 —
         // the known reference disagreement, light angle),
-        // GBC index 16 is 161; GBA index 12 is 102.
+        // GBC index 16 is 161; GBA index 12 is 78
+        // (Pokefan531 said 102), GBA index 19 is 138,
+        // GBA index 20 is 147.
         assertEquals(76, gbc[9])
         assertEquals(161, gbc[16])
-        assertEquals(102, gba[12])
-        assertEquals(160, gba[20])
+        assertEquals(78, gba[12])
+        assertEquals(138, gba[19])
+        assertEquals(147, gba[20])
         // The texture pixels: row 0 is the GBC ramp, row 1
         // the GBA ramp, 64 values in all.
         val pixels = DisplayShaders.gammaLutPixels()
         assertEquals(64, pixels.size)
         assertEquals(76, pixels[9])
-        assertEquals(102, pixels[32 + 12])
+        assertEquals(78, pixels[32 + 12])
         assertEquals(255, pixels[31])
         assertEquals(255, pixels[63])
     }
@@ -125,24 +128,28 @@ class DisplayShadersTest {
     @Test
     fun colourPassHasTheDuskMode() {
         val src = DisplayShaders.COLOUR_FRAGMENT
-        // Dusk is mode 3: the measured 32-entry gamma LUT
-        // (the GBA row), then the colour matrix in linear
-        // light — the same hardware-scanned model as Prism,
-        // with the Advance's own LUT and matrix. No
+        // Dusk is mode 3, rebuilt 2026-11-13: SameBoy's
+        // measured AGB response ramp (the 32-entry LUT, row 1),
+        // then the mGBA colorspace matrix in linear light
+        // (x0.94) — the same matrix as Prism. The old
+        // Pokefan531 GBA matrix + lum 0.8915 is gone. No
         // power-law gamma, no extra gamma lift, no
-        // saturation mix: the LUT already lifts the shadows,
-        // and the new pipeline is brighter in the shadows
-        // than the old one without them.
+        // saturation mix: the ramp already lifts the shadows.
         assertTrue(src.contains("uMode == 3"))
-        assertTrue(src.contains("clamp(pow(g, vec3(2.2)) * 0.8915, vec3(0.0), vec3(1.0))"))
-        // The current GBA matrix, effective rows — never the
-        // old transposed rows.
-        assertTrue(src.contains("0.8988 * lin.r + 0.2229 * lin.g - 0.1217 * lin.b"))
-        assertTrue(src.contains("0.1163 * lin.r + 0.6217 * lin.g + 0.2620 * lin.b"))
-        assertTrue(src.contains("0.1831 * lin.r + 0.2438 * lin.g + 0.5731 * lin.b"))
+        assertTrue(src.contains("pow(ramp, vec3(2.2))"))
+        // The mGBA matrix, executed rows, x0.94 — the same
+        // matrix Prism uses.
+        assertTrue(src.contains("0.94 * (0.82 * lin.r + 0.24 * lin.g - 0.06 * lin.b)"))
+        assertTrue(src.contains("0.94 * (0.125 * lin.r + 0.665 * lin.g + 0.21 * lin.b)"))
+        assertTrue(src.contains("0.94 * (0.195 * lin.r + 0.075 * lin.g + 0.73 * lin.b)"))
         assertTrue(src.contains("pow(max(m, vec3(0.0)), vec3(1.0 / 2.2))"))
         // The output is clamped on both sides.
         assertTrue(src.contains("clamp(col, vec3(0.0), vec3(1.0))"))
+        // The old Pokefan531 GBA matrix + lum is gone.
+        assertFalse(src.contains("0.8915"))
+        assertFalse(src.contains("0.8988 * lin.r"))
+        assertFalse(src.contains("0.1163 * lin.r"))
+        assertFalse(src.contains("0.1831 * lin.r"))
         assertFalse(src.contains("pow(col, vec3(3.2))"))
         assertFalse(src.contains("pow(col, vec3(0.85))"))
         assertFalse(src.contains("mix(vec3(luma), col, 1.15)"))

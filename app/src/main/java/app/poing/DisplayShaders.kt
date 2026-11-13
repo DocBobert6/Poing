@@ -82,9 +82,12 @@ object DisplayShaders {
      * Pokefan531 ramp + matrix was the palest of the three
      * measured models — that paleness is what Robert
      * rejected ("still terrible", washed-out). Dusk: the Game
-     * Boy Advance's reflective TFT, 2001 — still the
-     * Pokefan531 model (its own LUT and matrix) until Dusk's
-     * own commit gives it the same rebuild with the AGB ramp.
+     * Boy Advance's reflective TFT, 2001 — rebuilt 2026-11-13
+     * the same way, with SameBoy's AGB response ramp (the
+     * 32-entry LUT, row 1) then the same mGBA colorspace
+     * matrix in linear light (x0.94); the matrix constants
+     * are identical for both systems — mGBA's GBC/GBA
+     * constants differ only in gamma, which the ramp replaces.
      *
      * The matrix finding (2026-11-12, shader perfection):
      * the old matrix was the TRANSPOSE of the reference.
@@ -157,31 +160,35 @@ object DisplayShaders {
             col = pow(max(m, vec3(0.0)), vec3(1.0 / 2.2));
             col = clamp(col, vec3(0.0), vec3(1.0));
           } else if (uMode == 3) {
-            // The AGB-001's reflective TFT, 2001 — the same
-            // hardware-scanned model as Prism, with the
-            // Advance's own LUT and matrix. The AGB-001 is
-            // dark and unlit, and the LUT already lifts the
-            // shadows, so there is no extra gamma or
-            // saturation lift: the old pow(0.85) + 1.15 were
-            // compensating for the pow(3.2) crush, and the
-            // new pipeline is brighter in the shadows than
-            // the old one without them (grey8 0.19 -> 0.23,
-            // dark brown blue 0.04 -> 0.21 — see the
-            // perfection record). The blue crush is the
-            // matrix's own doing — the authentic AGB look.
+            // Dusk, rebuilt 2026-11-13 (same rebuild as
+            // Prism): SameBoy's measured AGB response ramp
+            // (the 32-entry LUT, row 1), then the mGBA
+            // colorspace matrix in linear light (x0.94) —
+            // the same matrix as Prism: mGBA's GBC/GBA
+            // constants differ only in gamma, which the
+            // ramp replaces. The ramp deepens the shadows
+            // and restores full white where the old measured
+            // ramp lifted them (grey8 59 -> 46, white 242
+            // -> 248); the old Pokefan531 GBA matrix and its
+            // lum factor are gone. No green-mix: the matrix
+            // already carries the channel crosstalk. The
+            // AGB-001 is dark and unlit, and the ramp
+            // already lifts the shadows, so there is no
+            // extra gamma or saturation lift. See the
+            // rebuild record.
             float ri = min(floor(col.r * 32.0), 31.0);
             float gi = min(floor(col.g * 32.0), 31.0);
             float bi = min(floor(col.b * 32.0), 31.0);
             float vr = (uGammaRow + 0.5) / 2.0;
-            vec3 g = vec3(
+            vec3 ramp = vec3(
               texture2D(uGammaLut, vec2((ri + 0.5) / 32.0, vr)).r,
               texture2D(uGammaLut, vec2((gi + 0.5) / 32.0, vr)).r,
               texture2D(uGammaLut, vec2((bi + 0.5) / 32.0, vr)).r);
-            vec3 lin = clamp(pow(g, vec3(2.2)) * 0.8915, vec3(0.0), vec3(1.0));
+            vec3 lin = pow(ramp, vec3(2.2));
             vec3 m;
-            m.r = 0.8988 * lin.r + 0.2229 * lin.g - 0.1217 * lin.b;
-            m.g = 0.1163 * lin.r + 0.6217 * lin.g + 0.2620 * lin.b;
-            m.b = 0.1831 * lin.r + 0.2438 * lin.g + 0.5731 * lin.b;
+            m.r = 0.94 * (0.82 * lin.r + 0.24 * lin.g - 0.06 * lin.b);
+            m.g = 0.94 * (0.125 * lin.r + 0.665 * lin.g + 0.21 * lin.b);
+            m.b = 0.94 * (0.195 * lin.r + 0.075 * lin.g + 0.73 * lin.b);
             col = pow(max(m, vec3(0.0)), vec3(1.0 / 2.2));
             col = clamp(col, vec3(0.0), vec3(1.0));
           }
@@ -343,16 +350,15 @@ object DisplayShaders {
      * and that paleness is what Robert rejected. Gamma varies
      * with light angle, so neither reference is exact — the
      * choice is recorded in the rebuild record, not hidden.
-     * The GBA row is still Pokefan531's until Dusk's own
-     * commit replaces it with SameBoy's AGB ramp.
+     * Both rows are now SameBoy's ramps (row 0 CGB, row 1 AGB).
      */
     val GAMMA_LUT_GBC = listOf(
         0, 6, 12, 20, 28, 36, 45, 56, 66, 76, 88, 100, 113, 125, 137, 149,
         161, 172, 182, 192, 202, 210, 218, 225, 232, 238, 243, 247, 250, 252, 254, 255,
     )
     val GAMMA_LUT_GBA = listOf(
-        0, 3, 6, 10, 15, 25, 36, 50, 62, 71, 82, 92, 102, 109, 116, 124,
-        131, 138, 145, 152, 160, 168, 176, 184, 193, 202, 211, 218, 229, 240, 249, 255,
+        0, 3, 8, 14, 20, 26, 33, 40, 47, 54, 62, 70, 78, 86, 94, 103,
+        112, 120, 129, 138, 147, 157, 166, 176, 185, 195, 205, 215, 225, 235, 245, 255,
     )
 
     /**
