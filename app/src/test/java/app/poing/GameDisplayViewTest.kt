@@ -20,19 +20,20 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 
 /**
- * Screen-size fix (2026-11-12): the game view must fill its slot
- * at the native aspect. The aspect box is the largest 3:2 box in
- * the slot; the game surface inside it is the box minus the bezel's
- * 4dp inner padding per side (the 2dp silver border is drawn inside
- * the box edge and takes no layout space) — the 8dp transparent
- * margin that used to sit outside the bezel was invisible dead
- * space over the slot's black, and it shrank the surface by 16dp
- * in each dimension for nothing.
+ * Screen-size fix (2026-11-12) + no-bezel follow-up (Robert,
+ * 2026-11-12): the game view must fill its slot at the native
+ * aspect, edge-to-edge. The aspect box is the largest 3:2 box in
+ * the slot, and the game surface IS the box — the silver border,
+ * dark surround and 4dp inner padding are gone, so nothing sits
+ * between the frame and the box edge (the 2dp border used to be
+ * drawn inside the edge and the 4dp gap shrank the surface by
+ * 8dp; the 8dp transparent margin outside the box was dropped
+ * by the screen-size fix for the same reason).
  *
  * The assertions are relative to the measured slot, not to assumed
  * numbers: the slot is tagged and measured first, then the box is
- * the largest 3:2 box in that slot and the surface is the box minus
- * 8dp. The session is never started (no native code under
+ * the largest 3:2 box in that slot and the surface is the box.
+ * The session is never started (no native code under
  * Robolectric), so the GL view is null and the plain Compose Image
  * draws the frame — the same inner box sizes both paths.
  *
@@ -76,15 +77,14 @@ class GameDisplayViewTest {
         val game = composeRule.onNodeWithContentDescription("Game: TEST").fetchSemanticsNode().boundsInRoot
         println("DISPLAY slot=${slot.width}x${slot.height} game=${game.width}x${game.height} root=${root.width}x${root.height} density=$d")
         composeRule.onNodeWithContentDescription("Game: TEST").assertIsDisplayed()
-        // The box is the largest 3:2 box in the measured slot; the
-        // surface is the box minus the 4dp inner padding per side
-        // (8dp). Asserted against the measured slot, not assumed
-        // numbers: the test window is smaller than the 300x200dp
-        // box this test requests (the slot assert below used to
-        // assume it), so the slot's own size is the reference.
+        // The box is the largest 3:2 box in the measured slot, and
+        // the surface is the box — no bezel, no inner padding.
+        // Asserted against the measured slot, not assumed numbers:
+        // the test window is smaller than the 300x200dp box this
+        // test requests, so the slot's own size is the reference.
         val boxW = minOf(slot.width, slot.height * 1.5f)
         val boxH = boxW / 1.5f
-        assertEquals(boxW - 8f * d, game.width, 1f * d)
-        assertEquals(boxH - 8f * d, game.height, 1f * d)
+        assertEquals(boxW, game.width, 1f * d)
+        assertEquals(boxH, game.height, 1f * d)
     }
 }

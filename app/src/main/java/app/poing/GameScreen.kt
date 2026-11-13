@@ -517,11 +517,11 @@ fun GameScreen(
             // attempt tracker, under the top bar while an attempt
             // runs. Hidden while paused.
             RaTrackerLine(paused = paused)
-            // Game view, letterboxed at the native aspect, in the
-            // icon's screen: a thin silver bezel + dark surround.
-            // The game IS the screen — no whole handheld drawn
-            // around it. The frame runs through the display chain
-            // (Phase 8); see GameDisplayView.
+            // Game view, letterboxed at the native aspect, filling
+            // its slot edge-to-edge with no bezel (Robert,
+            // 2026-11-12). The game IS the screen — no whole
+            // handheld drawn around it. The frame runs through the
+            // display chain (Phase 8); see GameDisplayView.
             GameDisplayView(
                 glView = glView,
                 bitmap = bitmap,

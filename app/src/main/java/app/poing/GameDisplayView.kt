@@ -2,14 +2,10 @@ package app.poing
 
 import android.graphics.Bitmap
 import androidx.compose.foundation.Image
-import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -25,18 +21,20 @@ import androidx.compose.ui.viewinterop.AndroidView
 /**
  * Phase 8 — the game display, extracted from GameScreen so
  * the player screen stays under the dex guard (HowlingDog
- * v1.3.0 lesson). The game view, letterboxed at the native
- * aspect, in the icon's screen: a thin silver bezel + dark
- * surround. The game IS the screen — no whole handheld drawn
- * around it.
+ * v1.3.0 lesson). The game view fills its slot edge-to-edge
+ * at the native aspect, the way HowlingDog presents its
+ * game: no bezel chrome around the frame (Robert, 2026-11-12
+ * — the silver border and dark surround are gone). The only
+ * edge treatment left is the very light 4dp corner rounding,
+ * a clip on the view, not a border, and it costs no size.
+ * The game IS the screen — no whole handheld drawn around it.
  *
  * The frame goes through the display chain ([glView]) when
  * one is running; when the GL view could not be built (a
  * device without GLES 2.0, or the Robolectric startup gate),
  * the plain Compose Image draws the frame exactly as the
  * core rendered it — the game stays visible either way.
- * The bezel's light corner rounding is a clip on the view,
- * not a shader: every handheld LCD here is flat.
+ * Every handheld LCD here is flat.
  *
  * The RetroAchievements unlock popup and scoreboard note
  * sit over the game area, hidden while paused, each cleared
@@ -65,20 +63,19 @@ fun GameDisplayView(
         val frame = bitmap
         val s = stats
         if (frame != null && s != null) {
-            // Screen-size fix (2026-11-12): no outer margin here.
-            // The 8dp margin this box used to carry was transparent
-            // dead space over the slot's black — invisible, and it
-            // shrank the game surface by 16dp in each dimension for
-            // nothing. The only thing between the game and the box
-            // edge now is the bezel itself (2dp silver border +
-            // 4dp gap), so the game surface fills the aspect box.
+            // No bezel (Robert, 2026-11-12): the silver 2dp
+            // border, the dark surround and the 4dp inner padding
+            // are gone, so the frame fills the aspect box
+            // edge-to-edge, the way HowlingDog presents its game.
+            // What stays is the very light 4dp corner rounding —
+            // a clip, not a border, costing no size. (The
+            // screen-size fix already dropped the 8dp transparent
+            // margin outside the box, the same class of dead
+            // space.)
             Box(
                 modifier = Modifier
                     .aspectRatio(s.width.toFloat() / s.height.toFloat())
                     .fillMaxSize()
-                    .background(Color(0xFF111111))
-                    .border(2.dp, PoingSilver, RoundedCornerShape(4.dp))
-                    .padding(4.dp)
                     .clip(RoundedCornerShape(4.dp)),
                 contentAlignment = Alignment.Center,
             ) {
