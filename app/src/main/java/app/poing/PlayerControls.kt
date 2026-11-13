@@ -33,8 +33,10 @@ import androidx.compose.ui.unit.dp
 /**
  * Phase 5 — the touch controls drawn like the icon's hardware:
  * silver cross D-pad bottom-left, round silver A/B bottom-right,
- * small silver L/R shoulder tabs at the top of the player, in the
- * icon's exact layout.
+ * small silver L/R shoulder tabs in the top bar, small Start/Select
+ * pills side by side below the game view (the moves Robert ordered
+ * 2026-11-12: L/R out of the middle of the screen, Start/Select
+ * out of the stacked centre of the bottom row).
  *
  * Unpressed is silver with black lettering; pressed is the icon
  * purple with white lettering — the hardware look, not the old
@@ -106,7 +108,8 @@ fun MovableControl(
  * tapping A, hold a D-pad direction while pressing Start).
  *
  * [sizeDp] is the circle's diameter; [shoulder] makes it a wide
- * pill instead (the L/R shoulder tabs).
+ * pill instead (the L/R shoulder tabs); [pill] makes it a small
+ * pill (the Start/Select pair below the game view).
  */
 @Composable
 fun HoldButton(
@@ -117,16 +120,21 @@ fun HoldButton(
     onInputChanged: () -> Unit,
     sizeDp: Dp = 64.dp,
     shoulder: Boolean = false,
+    pill: Boolean = false,
     // Phase 6 (item 7) — haptics: fires once when the finger
     // lands. Only A/B pass one; Start/Select/L/R stay silent.
     onDown: (() -> Unit)? = null,
 ) {
     var pressed by remember { mutableStateOf(false) }
-    val shape = if (shoulder) RoundedCornerShape(12.dp) else CircleShape
-    val buttonModifier = if (shoulder) {
-        Modifier.size(width = 96.dp, height = 48.dp)
-    } else {
-        Modifier.size(sizeDp)
+    val shape = when {
+        shoulder -> RoundedCornerShape(12.dp)
+        pill -> RoundedCornerShape(16.dp)
+        else -> CircleShape
+    }
+    val buttonModifier = when {
+        shoulder -> Modifier.size(width = 96.dp, height = 48.dp)
+        pill -> Modifier.size(width = 64.dp, height = 32.dp)
+        else -> Modifier.size(sizeDp)
     }
     Box(
         modifier = buttonModifier

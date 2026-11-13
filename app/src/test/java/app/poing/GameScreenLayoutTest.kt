@@ -2,6 +2,7 @@ package app.poing
 
 import android.content.Context
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.test.assertDoesNotExist
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
@@ -13,6 +14,7 @@ import androidx.compose.ui.test.swipe
 import androidx.test.core.app.ApplicationProvider
 import java.io.File
 import java.util.Properties
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Rule
@@ -44,14 +46,14 @@ class GameScreenLayoutTest {
     @get:Rule
     val temp = TemporaryFolder()
 
-    private fun setContent(gamePath: String) {
+    private fun setContent(gamePath: String, isGba: Boolean = false) {
         val root = File(temp.root, "stores").apply { mkdirs() }
         composeRule.setContent {
             PoingTheme {
                 GameScreen(
                     gamePath = gamePath,
                     gameName = "TETRIS",
-                    isGba = false,
+                    isGba = isGba,
                     optionsStore = CoreOptionsStore(root),
                     appSettings = AppSettingsStore(root),
                     onQuit = {},
@@ -99,5 +101,52 @@ class GameScreenLayoutTest {
             layoutFile("game").inputStream().use { load(it) }
         }
         assertTrue(props.getProperty("dpad.y")?.toFloatOrNull() == 0f)
+    }
+
+    /**
+     * Control moves (Robert, 2026-11-12: "Both need moved"): the
+     * L/R tabs live in the top bar at the far corners for GBA
+     * games — and nowhere for GB/GBC games, which have no L/R.
+     * assertExists, not assertIsDisplayed: the Robolectric window
+     * is narrower than the full top bar, so a corner tab can sit
+     * outside it — what this pins is that the tabs are in the
+     * bar, not in their old row mid-screen.
+     */
+    @Test
+    fun lrTabsSitInTheTopBarForGba() {
+        val game = File(temp.root, "game.gba")
+        setContent(game.absolutePath, isGba = true)
+        composeRule.onNodeWithTag("controls-l").assertExists()
+        composeRule.onNodeWithTag("controls-r").assertExists()
+        composeRule.onNodeWithTag("hold-L").assertExists()
+        composeRule.onNodeWithTag("hold-R").assertExists()
+    }
+
+    @Test
+    fun noLrTabsForGbGames() {
+        val game = File(temp.root, "game.gb")
+        setContent(game.absolutePath)
+        composeRule.onNodeWithTag("controls-l").assertDoesNotExist()
+        composeRule.onNodeWithTag("controls-r").assertDoesNotExist()
+    }
+
+    /**
+     * Control moves (Robert, 2026-11-12): Start/Select are small
+     * pills side by side in their own row below the game view, not
+     * stacked in the middle of the bottom row. Pinned by their
+     * bounds: same top edge, Start entirely left of Select.
+     */
+    @Test
+    fun startSelectSitSideBySideBelowTheGameView() {
+        val game = File(temp.root, "game.gb")
+        setContent(game.absolutePath)
+        composeRule.onNodeWithTag("controls-startselect").assertIsDisplayed()
+        composeRule.onNodeWithTag("hold-Start").assertIsDisplayed()
+        composeRule.onNodeWithTag("hold-Select").assertIsDisplayed()
+        val d = composeRule.density.density
+        val start = composeRule.onNodeWithTag("hold-Start").fetchSemanticsNode().boundsInRoot
+        val select = composeRule.onNodeWithTag("hold-Select").fetchSemanticsNode().boundsInRoot
+        assertEquals(start.top, select.top, 2f * d)
+        assertTrue("Start should sit left of Select", start.right <= select.left)
     }
 }

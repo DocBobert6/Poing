@@ -16,7 +16,6 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
@@ -37,6 +36,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
@@ -470,6 +470,10 @@ fun GameScreen(
             // without this the light sits in the status-bar band
             // (and, in landscape, by the punch-hole camera). The
             // light's top edge is now status-bar height + 8dp.
+            // L/R shoulder tabs (GBA only) sit in this bar at the
+            // far corners (Robert, 2026-11-12: "Both need moved")
+            // — out of their own row mid-screen, which frees the
+            // row's height for the game slot.
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -478,6 +482,23 @@ fun GameScreen(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
+                // One saved group: both pills share layout.lr, so
+                // dragging either moves both together, exactly as
+                // the old full-width row did. The saved offsets are
+                // deltas from the default spots (see ControlLayout),
+                // so moving the defaults needs no migration — a
+                // saved offset still applies as the same delta.
+                if (isGba) {
+                    MovableControl(
+                        position = layout.lr,
+                        editing = editingLayout,
+                        testTag = "controls-l",
+                        onMove = { layout = layout.with(ControlGroup.LR, it) },
+                        onMoveEnd = { layoutStore.save(saveBase, latestLayout) },
+                    ) {
+                        HoldButton("L", InputMask.JOY_L, held, paused, ::pushInput, shoulder = true)
+                    }
+                }
                 PowerLight(if (paused) PowerState.Paused else PowerState.Playing)
                 Spacer(Modifier.width(8.dp))
                 // Phase 6 (item 11) — the REC indicator while a
@@ -504,6 +525,17 @@ fun GameScreen(
                     }
                 }) {
                     Text(if (editingLayout) "Done" else if (paused) "Resume" else "Pause")
+                }
+                if (isGba) {
+                    MovableControl(
+                        position = layout.lr,
+                        editing = editingLayout,
+                        testTag = "controls-r",
+                        onMove = { layout = layout.with(ControlGroup.LR, it) },
+                        onMoveEnd = { layoutStore.save(saveBase, latestLayout) },
+                    ) {
+                        HoldButton("R", InputMask.JOY_R, held, paused, ::pushInput, shoulder = true)
+                    }
                 }
             }
             // Input display (Phase 6, item 6): shown only when the
@@ -533,6 +565,30 @@ fun GameScreen(
                     .weight(1f)
                     .fillMaxWidth(),
             )
+            // Start/Select as small pills, side by side, centred
+            // just below the game view (Robert, 2026-11-12: "Both
+            // need moved") — out of the stacked centre of the
+            // bottom row. The bottom row then holds D-pad left and
+            // A/B right. The group stays movable with its saved
+            // offset (a delta from the new default spot).
+            MovableControl(
+                position = layout.startSelect,
+                editing = editingLayout,
+                testTag = "controls-startselect",
+                onMove = { layout = layout.with(ControlGroup.START_SELECT, it) },
+                onMoveEnd = { layoutStore.save(saveBase, latestLayout) },
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 6.dp),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterHorizontally),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    HoldButton("Start", InputMask.JOY_START, held, paused, ::pushInput, pill = true)
+                    HoldButton("Select", InputMask.JOY_SELECT, held, paused, ::pushInput, pill = true)
+                }
+            }
             // Fast-forward / slow motion (Phase 6, item 1) and
             // rewind (Phase 6, item 9): shown only when their
             // Settings toggle is on — both off by default, per the
@@ -589,24 +645,6 @@ fun GameScreen(
                     }
                 }
             }
-            // L/R shoulder tabs (GBA only).
-            if (isGba) {
-                MovableControl(
-                    position = layout.lr,
-                    editing = editingLayout,
-                    testTag = "controls-lr",
-                    onMove = { layout = layout.with(ControlGroup.LR, it) },
-                    onMoveEnd = { layoutStore.save(saveBase, latestLayout) },
-                ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceEvenly,
-                    ) {
-                        HoldButton("L", InputMask.JOY_L, held, paused, ::pushInput, shoulder = true)
-                        HoldButton("R", InputMask.JOY_R, held, paused, ::pushInput, shoulder = true)
-                    }
-                }
-            }
             // Layout editing (Phase 6, item 4): drag any group to
             // move it; Reset puts every group back at its default
             // spot and saves. Done lives in the top bar.
@@ -631,7 +669,9 @@ fun GameScreen(
                     }
                 }
             }
-            // Controls row: D-pad left, Start/Select centre, A/B right.
+            // Controls row: D-pad left, A/B right. (Start/Select
+            // moved to their own row below the game view; L/R to
+            // the top bar — Robert, 2026-11-12.)
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -655,19 +695,6 @@ fun GameScreen(
                         // vibrating).
                         if (cartridgeRumble.currentStrength == 0) hapticsImpl.click()
                     })
-                }
-                MovableControl(
-                    position = layout.startSelect,
-                    editing = editingLayout,
-                    testTag = "controls-startselect",
-                    onMove = { layout = layout.with(ControlGroup.START_SELECT, it) },
-                    onMoveEnd = { layoutStore.save(saveBase, latestLayout) },
-                ) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        HoldButton("Start", InputMask.JOY_START, held, paused, ::pushInput, sizeDp = 48.dp)
-                        Spacer(Modifier.height(8.dp))
-                        HoldButton("Select", InputMask.JOY_SELECT, held, paused, ::pushInput, sizeDp = 48.dp)
-                    }
                 }
                 MovableControl(
                     position = layout.ab,
@@ -932,6 +959,11 @@ private fun DiagnosticLine(stats: PlayerStats?, modifier: Modifier = Modifier) {
         },
         style = terminalTextStyle(),
         color = Color.White,
+        // One line, always: with the L/R tabs in this bar the
+        // diagnostic has little width in portrait, and wrapping
+        // would grow the bar and eat game height.
+        maxLines = 1,
+        overflow = TextOverflow.Ellipsis,
         modifier = modifier,
     )
 }
