@@ -50,43 +50,58 @@ object DisplayShaders {
 
     /**
      * Pass 1 — colour. Jade FSTN: the Game Boy Pocket's
-     * screen, 1996 — true black-and-white, blue-tinted
-     * greyscale, sharp. The frame's luma drives a ramp from
-     * a near-black blue to a paper-white blue; the four
-     * shades of the core's greyscale palette land on it
-     * exactly. Jade pass-through: the frame untouched, for
-     * the DMG green and the coloured GBC/SGB palettes.
-     * Prism: the Game Boy Color's reflective TFT, 1998 — the
-     * core's colour correction done in the chain (the core's
-     * own correction is switched off while the chain is on,
-     * so a game is never corrected twice), plus a lift for a
-     * reflective screen in daylight. Dusk: the Game Boy
-     * Advance's reflective TFT, 2001 — the same correction
-     * with the Advance's own gamma, plus a gamma lift and a
-     * saturation lift, because the AGB-001 is dark and
-     * unlit. Any mode this build does not know yet falls
-     * through to pass-through, never to a wrong look.
+     * screen, 1996 — true black-and-white, sharp, and
+     * lower-contrast than an emissive display (a reflective
+     * LCD's white is dimmer and its black is raised). The
+     * four shades are mGBA's own "GB Pocket" palette
+     * (src/gb/overrides.c: UNIFORM_PAL(0x52D4, 0x4270,
+     * 0x2989, 0x10A3)), decoded to (165,181,165),
+     * (132,156,132), (74,99,82), (24,41,33) — green-grey,
+     * green dominant, never blue. Wikipedia's console
+     * palette list cross-checks it: (197,202,164),
+     * (140,146,107), (74,81,56), (24,24,24) — olive, also
+     * green/olive-dominant, brightest a little higher.
+     * The old ramp ((0.05,0.07,0.10) to (0.85,0.89,0.93))
+     * was wrong on both counts: too bright at the top
+     * (0.89 luma vs 0.68 researched) and blue-dominant,
+     * which no reference supports. The ramp is a 4-stop
+     * piecewise-linear map in luma, the stops at the core's
+     * "Grayscale" palette lumas (1.000, 0.678, 0.322,
+     * 0.000 — the four shades a GB game renders), so a GB
+     * game lands on exactly the four Pocket shades; the
+     * "GB Pocket" palette lands on nearly the same shades,
+     * and "GB Light" (a Pocket screen with a backlight)
+     * renders as Pocket shades too. Jade pass-through: the
+     * frame untouched, for the DMG green and the coloured
+     * GBC/SGB palettes.
+     * Prism: the Game Boy Color's reflective TFT, 1998 —
+     * Pokefan531's current (Nov 2025) hardware-scanned
+     * model: the measured 32-entry gamma LUT, then the
+     * colour matrix in linear light (see the LUT and matrix
+     * notes below). Dusk: the Game Boy Advance's reflective
+     * TFT, 2001 — the same, with the Advance's own LUT and
+     * matrix; the AGB-001 is dark and unlit, and the LUT
+     * already lifts the shadows, so there is no extra gamma
+     * or saturation lift (the old pow(0.85) + 1.15 were
+     * compensating for the pow(3.2) crush — see the
+     * perfection record). Any mode this build does not know
+     * yet falls through to pass-through, never to a wrong
+     * look.
      *
-     * The corrections are the core's own numbers, verified
-     * against the pinned tree (src/platform/libretro/
-     * libretro.c: CC_TARGET_GAMMA 2.2, GBC_CC_GAMMA_ADJ -0.5
-     * so Prism expands at 1.7, GBA_CC_GAMMA_ADJ +1.0 so Dusk
-     * expands at 3.2, LUM 0.94, the same matrix) — the chains
-     * cannot drift from the core. The shot-1 investigation
-     * (2026-11-12) found no chain-selection bug: the tan in
-     * Robert's GB screenshot is the GBC game's own background
-     * colour through Prism (FSTN cannot make tan — its ramp
-     * is always B>=G>=R — and the theme in the same shot
-     * proves the game is GBC by header), and the dullness
-     * was the grid, not the colour. The Dusk lift stays at
-     * pow(0.85): lift variants (0.90 / 0.92 / 1.0) buy only
-     * +0.02-0.04 chroma on brights and cost real shadow
-     * readability (mid grey luma 0.417 -> 0.357 at pow 1.0);
-     * the blue crush is the core's own matrix — the
-     * authentic AGB look, not a bug. Screen Optics was
-     * exonerated too (a mild bright-room boost, never a
-     * wash). See ~/workspace/poing/verify/shader-rework/
-     * MEASUREMENTS.md for the numbers.
+     * The matrix finding (2026-11-12, shader perfection):
+     * the old matrix was the TRANSPOSE of the reference.
+     * GLSL mat4 is column-major, so the hunterk
+     * color-mangler's comment-rows are the transpose of the
+     * math it actually computes — and mGBA's libretro.c
+     * implements the computed math (rCorrect = 0.82r +
+     * 0.24g - 0.06b, ...). The old shader applied the
+     * comment-rows, which do not preserve greys (row sums
+     * 1.14 / 0.98 / 0.88 — every grey came out warm, and
+     * pure blue came out violet with red 0.50 instead of
+     * 0.00). The correct rows sum to 1.00, so greys stay
+     * neutral; the new Pokefan531 matrices (2025) do too.
+     * The old shader's "same matrix as the core" claim was
+     * wrong — same constants, transposed application.
      */
     const val COLOUR_FRAGMENT = """
         precision mediump float;
@@ -97,9 +112,20 @@ object DisplayShaders {
           vec3 col = texture2D(uTex, vTex).rgb;
           if (uMode == 0) {
             float luma = dot(col, vec3(0.299, 0.587, 0.114));
-            vec3 dark = vec3(0.05, 0.07, 0.10);
-            vec3 light = vec3(0.85, 0.89, 0.93);
-            col = mix(dark, light, luma);
+            // The Pocket's four shades (mGBA's GB Pocket
+            // palette): luma 0.000 -> (24,41,33), 0.322 ->
+            // (74,99,82), 0.678 -> (132,156,132), 1.000 ->
+            // (165,181,165). The stops are the core's
+            // Grayscale palette lumas, so a GB game lands on
+            // exactly the four shades.
+            vec3 s0 = vec3(0.094, 0.161, 0.129);
+            vec3 s1 = vec3(0.290, 0.388, 0.322);
+            vec3 s2 = vec3(0.518, 0.612, 0.518);
+            vec3 s3 = vec3(0.647, 0.710, 0.647);
+            vec3 c01 = mix(s0, s1, clamp(luma / 0.322, 0.0, 1.0));
+            vec3 c12 = mix(s1, s2, clamp((luma - 0.322) / 0.356, 0.0, 1.0));
+            vec3 c23 = mix(s2, s3, clamp((luma - 0.678) / 0.322, 0.0, 1.0));
+            col = mix(mix(c01, c12, step(0.322, luma)), c23, step(0.678, luma));
           } else if (uMode == 2) {
             vec3 c = pow(col, vec3(1.7));
             vec3 m;
@@ -156,9 +182,21 @@ object DisplayShaders {
      * Measured on a flat field at the real sizes (799x716
      * for 160x144, 1075x716 for 240x160): max dip 22% ->
      * ~6.5%, mean factor 0.91 / 0.97 -> 0.98 / 0.995.
-     * The strength is the only dial, and it stays subtle —
-     * the grid must read, never shout. uGridMode picks which:
-     * 0 = dot-matrix, 1 = TFT lines.
+     * The perfection pass (2026-11-12) widens the dot once
+     * more, to r<=0.44: the real FSTN pixel's bright area
+     * is most of the cell, and the wider dot keeps the same
+     * max dip (~6.3%) while the mean factor rises (0.983 ->
+     * 0.990 at 5x) — the dots read cleaner with less
+     * overall dulling. The strength is the only dial, and
+     * it stays subtle — the grid must read, never shout.
+     * uGridMode picks which: 0 = dot-matrix, 1 = TFT lines.
+     *
+     * No subpixels: the real GBC panel is RGB and the GBA
+     * panel BGR, and the accurate grid shaders render
+     * vertical subpixel stripes — but only at integer
+     * multiples of 3x (3x/6x/9x). At 4.5-5x the stripes
+     * would moire and read as colour fringing, so the
+     * chains keep the fine cell-border lines instead.
      *
      * Screen Optics (§10.1) rides on this pass: the ambient
      * light's brightness / contrast / gamma, applied after
@@ -185,7 +223,7 @@ object DisplayShaders {
             vec2 d = min(cell, 1.0 - cell);
             g = smoothstep(0.0, 0.04, min(d.x, d.y));
           } else {
-            g = smoothstep(0.52, 0.40, distance(cell, vec2(0.5)));
+            g = smoothstep(0.56, 0.44, distance(cell, vec2(0.5)));
           }
           col *= 1.0 - uGridStrength * (1.0 - g);
           col *= uBrightness;

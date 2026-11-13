@@ -27,9 +27,17 @@ class DisplayShadersTest {
         val src = DisplayShaders.COLOUR_FRAGMENT
         assertTrue(src.contains("uMode"))
         assertTrue(src.contains("uTex"))
-        // The FSTN ramp: luma into a dark-to-light mix.
+        // The FSTN ramp is a 4-stop piecewise map in luma,
+        // the stops at the core's Grayscale palette lumas,
+        // landing on mGBA's GB Pocket palette shades —
+        // never the old linear blue ramp.
         assertTrue(src.contains("dot(col"))
-        assertTrue(src.contains("mix(dark, light, luma)"))
+        assertTrue(src.contains("vec3(0.647, 0.710, 0.647)"))
+        assertTrue(src.contains("vec3(0.518, 0.612, 0.518)"))
+        assertTrue(src.contains("vec3(0.290, 0.388, 0.322)"))
+        assertTrue(src.contains("vec3(0.094, 0.161, 0.129)"))
+        assertFalse(src.contains("mix(dark, light, luma)"))
+        assertFalse(src.contains("vec3(0.85, 0.89, 0.93)"))
     }
 
     @Test
@@ -87,12 +95,16 @@ class DisplayShadersTest {
         // The 2026-11-12 rework (Robert's screenshots): at the
         // new full-height size (4.5-5x) the old grid measured a
         // 22% luminance dip at every texel boundary. The dot is
-        // wider now (bright to r<=0.40, dark only toward the
-        // corners, was 0.35) and the TFT lines narrower (0.04
-        // of a cell each side, was 0.08).
+        // wider now (bright to r<=0.44, dark only toward the
+        // corners — 0.40 after the rework, 0.35 before it) and
+        // the TFT lines narrower (0.04 of a cell each side,
+        // was 0.08). The wider dot keeps the same max dip
+        // (~6.3%) with a higher mean factor, so the dots read
+        // cleaner with less overall dulling.
         val src = DisplayShaders.GRID_FRAGMENT
-        assertTrue(src.contains("smoothstep(0.52, 0.40, distance(cell, vec2(0.5)))"))
+        assertTrue(src.contains("smoothstep(0.56, 0.44, distance(cell, vec2(0.5)))"))
         assertTrue(src.contains("smoothstep(0.0, 0.04, min(d.x, d.y))"))
+        assertFalse(src.contains("smoothstep(0.52, 0.40,"))
         assertFalse(src.contains("smoothstep(0.5, 0.35,"))
         assertFalse(src.contains("smoothstep(0.0, 0.08,"))
     }
