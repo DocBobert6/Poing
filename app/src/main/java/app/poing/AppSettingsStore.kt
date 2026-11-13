@@ -27,6 +27,8 @@ class AppSettingsStore(private val root: File) {
         const val KEY_JADE_CHAIN = "display_jade"
         const val KEY_PRISM_CHAIN = "display_prism"
         const val KEY_DUSK_CHAIN = "display_dusk"
+        const val KEY_WORM_LIGHT = "display_worm_light"
+        const val KEY_OPTICS_DIMMING = "display_optics_dimming"
         const val DEFAULT_FF_SPEED = 2
         val FF_SPEEDS = setOf(2, 3, 4)
     }
@@ -65,6 +67,23 @@ class AppSettingsStore(private val root: File) {
     /** Phase 8 — the Dusk display chain (GBA): on by default, same rule as Jade. */
     fun duskEnabled(): Boolean = readBoolean(KEY_DUSK_CHAIN, true)
     fun setDuskEnabled(enabled: Boolean) = write(KEY_DUSK_CHAIN, enabled.toString())
+
+    /**
+     * Phase 8 — the Virtual Worm Light: off by default. A
+     * small toggle only, an easter egg, not a headline
+     * feature.
+     */
+    fun wormLightEnabled(): Boolean = readBoolean(KEY_WORM_LIGHT, false)
+    fun setWormLightEnabled(enabled: Boolean) = write(KEY_WORM_LIGHT, enabled.toString())
+
+    /**
+     * Phase 8 — Screen Optics: whether a dark room may dim
+     * the screen. OFF by default — dimming for authenticity
+     * fights the player seeing the game, so a dark room never
+     * dims the picture unless the player asked for it.
+     */
+    fun opticsDimmingEnabled(): Boolean = readBoolean(KEY_OPTICS_DIMMING, false)
+    fun setOpticsDimmingEnabled(enabled: Boolean) = write(KEY_OPTICS_DIMMING, enabled.toString())
 
     /**
      * Phase 8 — whether a chain is on. Clean is never gated

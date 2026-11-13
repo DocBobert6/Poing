@@ -47,6 +47,16 @@ class CartridgeSensors(context: Context) : SensorEventListener {
         private set
 
     /**
+     * Phase 8 — Screen Optics: an optional lux callback for
+     * the ambient light sensor. The light sensor already
+     * feeds the core (id 6) while a game is playing; this
+     * hands the same reading to the display chain, so no
+     * second listener is registered. Null when the player
+     * is not listening (the default).
+     */
+    var onLux: ((Float) -> Unit)? = null
+
+    /**
      * Start feeding sensor values to the bridge. A phone without
      * a sensor simply never pushes that sensor's values (the
      * core reads zero for it). Idempotent; safe to call before
@@ -99,7 +109,9 @@ class CartridgeSensors(context: Context) : SensorEventListener {
                 push(5, event.values.getOrElse(2) { 0f })
             }
             Sensor.TYPE_LIGHT -> {
-                push(6, event.values.getOrElse(0) { 0f })
+                val lux = event.values.getOrElse(0) { 0f }
+                push(6, lux)
+                onLux?.invoke(lux)
             }
         }
     }

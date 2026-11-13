@@ -211,4 +211,41 @@ class AppSettingsScreenTest {
         composeRule.onNodeWithTag("dusk-chain-switch").performClick()
         assertFalse(AppSettingsStore(temp.root).duskEnabled())
     }
+
+    @Test
+    fun wormLightOffByDefaultAndTogglingPersists() {
+        val s = store()
+        composeRule.setContent {
+            PoingTheme {
+                AppSettingsScreen(store = s, onCoreOptions = {}, onBack = { })
+            }
+        }
+        // The Worm Light row is index 12 here (no options
+        // store, so no palette row: header, Player,
+        // fast-forward, input display, haptics, RA title,
+        // RA, rewind, Display title, Jade, Prism, Dusk,
+        // Worm Light).
+        composeRule.onNodeWithTag("settings-list").performScrollToIndex(12)
+        composeRule.onNodeWithText("Worm Light").assertIsDisplayed()
+        assertFalse(AppSettingsStore(temp.root).wormLightEnabled())
+        composeRule.onNodeWithTag("worm-light-switch").performClick()
+        assertTrue(AppSettingsStore(temp.root).wormLightEnabled())
+    }
+
+    @Test
+    fun opticsDimmingOffByDefaultAndTogglingPersists() {
+        val s = store()
+        composeRule.setContent {
+            PoingTheme {
+                AppSettingsScreen(store = s, onCoreOptions = {}, onBack = { })
+            }
+        }
+        // The dimming row is index 13 here (the Worm Light
+        // row's index 12, plus the dimming row itself).
+        composeRule.onNodeWithTag("settings-list").performScrollToIndex(13)
+        composeRule.onNodeWithText("Dim in dark rooms").assertIsDisplayed()
+        assertFalse(AppSettingsStore(temp.root).opticsDimmingEnabled())
+        composeRule.onNodeWithTag("optics-dimming-switch").performClick()
+        assertTrue(AppSettingsStore(temp.root).opticsDimmingEnabled())
+    }
 }

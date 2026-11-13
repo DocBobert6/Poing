@@ -159,4 +159,30 @@ class AppSettingsStoreTest {
         s.setDuskEnabled(false)
         assertFalse(s.chainEnabled(DisplayChain.DUSK))
     }
+
+    @Test
+    fun wormLightDefaultsOffAndRoundTrips() {
+        // An easter egg, not a headline feature.
+        val s = store()
+        assertFalse(s.wormLightEnabled())
+        s.setWormLightEnabled(true)
+        assertTrue(s.wormLightEnabled())
+        assertTrue(AppSettingsStore(temp.root).wormLightEnabled())
+        s.setWormLightEnabled(false)
+        assertFalse(s.wormLightEnabled())
+    }
+
+    @Test
+    fun opticsDimmingDefaultsOffAndRoundTrips() {
+        // Dimming for authenticity fights the player seeing
+        // the game, so a dark room never dims the picture
+        // unless the player asked for it.
+        val s = store()
+        assertFalse(s.opticsDimmingEnabled())
+        s.setOpticsDimmingEnabled(true)
+        assertTrue(s.opticsDimmingEnabled())
+        assertTrue(AppSettingsStore(temp.root).opticsDimmingEnabled())
+        s.setOpticsDimmingEnabled(false)
+        assertFalse(s.opticsDimmingEnabled())
+    }
 }

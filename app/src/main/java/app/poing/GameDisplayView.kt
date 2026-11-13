@@ -49,6 +49,10 @@ fun GameDisplayView(
     stats: PlayerStats?,
     gameName: String,
     paused: Boolean,
+    // Phase 8 — Screen Optics: the Virtual Worm Light, an
+    // easter egg. Off by default; when on, its overlay sits
+    // over the game area (never over the controls below).
+    wormLight: Boolean = false,
     // The layout weight lives in the caller's Column (a
     // ColumnScope modifier cannot be built inside this
     // composable, so it arrives as a plain modifier).
@@ -94,6 +98,10 @@ fun GameDisplayView(
                         RaScoreboardNote(paused = paused)
                     }
                 }
+                WormLightOverlay(
+                    enabled = wormLight,
+                    modifier = Modifier.fillMaxSize(),
+                )
             }
         } else {
             Text("Loading $gameName…", color = Color.White)

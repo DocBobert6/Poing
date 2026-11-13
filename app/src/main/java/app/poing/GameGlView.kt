@@ -46,4 +46,9 @@ class GameGlView @JvmOverloads constructor(
         renderer.setChain(chain, jadeMode)
         requestRender()
     }
+
+    /** Apply the ambient light (called when the lux reading moves the picture — see DisplayRenderer). */
+    fun setOptics(params: OpticsParams) {
+        if (renderer.setOptics(params)) requestRender()
+    }
 }

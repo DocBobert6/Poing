@@ -114,6 +114,13 @@ object DisplayShaders {
      * The strength is the only dial, and it stays subtle —
      * the grid must read, never shout. uGridMode picks which:
      * 0 = dot-matrix, 1 = TFT lines.
+     *
+     * Screen Optics (§10.1) rides on this pass: the ambient
+     * light's brightness / contrast / gamma, applied after
+     * the grid so the whole presented picture — grid
+     * included — sits under the room's light. All three
+     * default to 1 (no adjustment); the sensor only ever
+     * moves them while a chain is on.
      */
     const val GRID_FRAGMENT = """
         precision mediump float;
@@ -122,6 +129,9 @@ object DisplayShaders {
         uniform vec2 uTexSize;
         uniform int uGridMode;
         uniform float uGridStrength;
+        uniform float uBrightness;
+        uniform float uContrast;
+        uniform float uGamma;
         void main() {
           vec3 col = texture2D(uTex, vTex).rgb;
           vec2 cell = fract(vTex * uTexSize);
@@ -133,6 +143,9 @@ object DisplayShaders {
             g = smoothstep(0.5, 0.35, distance(cell, vec2(0.5)));
           }
           col *= 1.0 - uGridStrength * (1.0 - g);
+          col *= uBrightness;
+          col = (col - 0.5) * uContrast + 0.5;
+          col = pow(max(col, vec3(0.0)), vec3(uGamma));
           gl_FragColor = vec4(col, 1.0);
         }
     """

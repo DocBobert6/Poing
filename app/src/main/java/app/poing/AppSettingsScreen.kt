@@ -71,6 +71,11 @@ fun AppSettingsScreen(
     // Phase 8 — Dusk, the Game Boy Advance display chain,
     // same rule as Jade.
     var dusk by remember { mutableStateOf(store.duskEnabled()) }
+    // Phase 8 — Screen Optics: the Virtual Worm Light (off
+    // by default — an easter egg) and the dark-room dimming
+    // toggle (off by default — dimming can hide the game).
+    var wormLight by remember { mutableStateOf(store.wormLightEnabled()) }
+    var opticsDimming by remember { mutableStateOf(store.opticsDimmingEnabled()) }
 
     LazyColumn(
         modifier = Modifier
@@ -381,6 +386,60 @@ fun AppSettingsScreen(
             }
         }
         item {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        "Worm Light",
+                        style = MaterialTheme.typography.titleMedium,
+                    )
+                    Text(
+                        "A warm spotlight you can drag across the screen. An easter egg, off by default.",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
+                Switch(
+                    checked = wormLight,
+                    onCheckedChange = {
+                        store.setWormLightEnabled(it)
+                        wormLight = it
+                    },
+                    modifier = Modifier.testTag("worm-light-switch"),
+                )
+            }
+        }
+        item {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        "Dim in dark rooms",
+                        style = MaterialTheme.typography.titleMedium,
+                    )
+                    Text(
+                        "Let the ambient light dim the screen in a dark room. Off by default — dimming can hide the game.",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
+                Switch(
+                    checked = opticsDimming,
+                    onCheckedChange = {
+                        store.setOpticsDimmingEnabled(it)
+                        opticsDimming = it
+                    },
+                    modifier = Modifier.testTag("optics-dimming-switch"),
+                )
+            }
+        }
+        item {
             Row(modifier = Modifier.padding(16.dp)) {
                 TextButton(onClick = {
                     store.reset()
@@ -392,6 +451,8 @@ fun AppSettingsScreen(
                     jade = store.jadeEnabled()
                     prism = store.prismEnabled()
                     dusk = store.duskEnabled()
+                    wormLight = store.wormLightEnabled()
+                    opticsDimming = store.opticsDimmingEnabled()
                     palette = optionsStore?.get("mgba_gb_colors")
                         ?: CoreOptions.GB_PALETTES.first()
                 }) {

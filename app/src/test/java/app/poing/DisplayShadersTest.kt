@@ -77,6 +77,20 @@ class DisplayShadersTest {
     }
 
     @Test
+    fun gridPassHasTheScreenOpticsUniforms() {
+        // The ambient light's brightness / contrast / gamma,
+        // applied after the grid so the whole presented
+        // picture sits under the room's light.
+        val src = DisplayShaders.GRID_FRAGMENT
+        assertTrue(src.contains("uBrightness"))
+        assertTrue(src.contains("uContrast"))
+        assertTrue(src.contains("uGamma"))
+        assertTrue(src.contains("col *= uBrightness"))
+        assertTrue(src.contains("(col - 0.5) * uContrast + 0.5"))
+        assertTrue(src.contains("pow(max(col, vec3(0.0)), vec3(uGamma))"))
+    }
+
+    @Test
     fun plainFallbackIsABareSample() {
         val src = DisplayShaders.PLAIN_FRAGMENT
         assertTrue(src.contains("texture2D(uTex, vTex)"))

@@ -178,6 +178,13 @@ fun GameScreen(
     }
     var palette by remember { mutableStateOf(optionsStore.get("mgba_gb_colors")) }
 
+    // Phase 8 — Screen Optics, snapshotted like the chain:
+    // the Worm Light (off by default — an easter egg) and
+    // whether a dark room may dim the screen (off by
+    // default — dimming can hide the game).
+    val wormLight = remember { appSettings.wormLightEnabled() }
+    val opticsDimming = remember { appSettings.opticsDimmingEnabled() }
+
     // Phase 8 — the GL view the chain draws through. Built
     // once per game; a device that cannot build one (no
     // GLES 2.0) falls back to the plain Compose Image in
@@ -388,6 +395,15 @@ fun GameScreen(
         // motion/light sensors feed the core while a game is
         // playing (started and stopped with the session).
         cartridgeSensors.start()
+        // Phase 8 — Screen Optics: the same light reading the
+        // core already gets drives the active chain's
+        // brightness / contrast / gamma (no second listener).
+        // The renderer only redraws when the picture would
+        // visibly change, so the ~50 Hz sensor rate costs
+        // nothing while the game is already drawing frames.
+        cartridgeSensors.onLux = { lux ->
+            glView?.setOptics(ScreenOptics.paramsFor(lux, opticsDimming))
+        }
         // Phase 6 (item 10b) — the rumble handler lives only
         // while a game is playing: the core can only rumble
         // while a game is loaded, and the handler goes away
@@ -408,6 +424,7 @@ fun GameScreen(
             gbCamera.stop()
             Bridge.onRumbleHandler = null
             cartridgeRumble.stop()
+            cartridgeSensors.onLux = null
             cartridgeSensors.stop()
             glView?.onPause()
             session.stop()
@@ -511,6 +528,7 @@ fun GameScreen(
                 stats = stats,
                 gameName = gameName,
                 paused = paused,
+                wormLight = wormLight,
                 modifier = Modifier
                     .weight(1f)
                     .fillMaxWidth(),

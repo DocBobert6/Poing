@@ -52,6 +52,14 @@ class DisplayRenderer : GLSurfaceView.Renderer {
     @Volatile
     private var jadeMode: JadeMode = JadeMode.FSTN
 
+    /**
+     * Phase 8 — Screen Optics: the ambient light's
+     * brightness / contrast / gamma for the active chain.
+     * Neutral until the first lux reading arrives.
+     */
+    @Volatile
+    private var optics: OpticsParams = OpticsParams.NEUTRAL
+
     private var colourProgram = 0
     private var gridProgram = 0
     private var plainProgram = 0
@@ -89,6 +97,21 @@ class DisplayRenderer : GLSurfaceView.Renderer {
             DisplayChain.CLEAN -> DisplayChain.CLEAN
         }
         this.jadeMode = jadeMode
+    }
+
+    /**
+     * Apply the ambient light's brightness / contrast /
+     * gamma. True when the picture would visibly change, so
+     * the caller can skip a redraw for sensor chatter: the
+     * light sensor fires ~50 times a second, and most
+     * readings move the picture by nothing worth drawing.
+     */
+    fun setOptics(params: OpticsParams): Boolean {
+        val old = optics
+        optics = params
+        return kotlin.math.abs(params.brightness - old.brightness) >= OPTICS_EPSILON ||
+            kotlin.math.abs(params.contrast - old.contrast) >= OPTICS_EPSILON ||
+            kotlin.math.abs(params.gamma - old.gamma) >= OPTICS_EPSILON
     }
 
     override fun onSurfaceCreated(gl: GL10?, config: EGLConfig?) {
@@ -200,6 +223,9 @@ class DisplayRenderer : GLSurfaceView.Renderer {
             if (chain == DisplayChain.PRISM || chain == DisplayChain.DUSK) 1 else 0,
         )
         GLES20.glUniform1f(uniform(gridProgram, "uGridStrength"), GRID_STRENGTH)
+        GLES20.glUniform1f(uniform(gridProgram, "uBrightness"), optics.brightness)
+        GLES20.glUniform1f(uniform(gridProgram, "uContrast"), optics.contrast)
+        GLES20.glUniform1f(uniform(gridProgram, "uGamma"), optics.gamma)
         GLES20.glActiveTexture(GLES20.GL_TEXTURE0)
         GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, fboTextureId)
         drawQuad(gridProgram)
@@ -367,5 +393,8 @@ class DisplayRenderer : GLSurfaceView.Renderer {
 
         /** The grid's strength: the dots and the lines read, never shout. */
         private const val GRID_STRENGTH = 0.22f
+
+        /** Screen Optics: a smaller move than this is sensor chatter, not a new picture. */
+        private const val OPTICS_EPSILON = 0.01f
     }
 }
