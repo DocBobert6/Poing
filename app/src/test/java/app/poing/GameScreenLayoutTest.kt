@@ -45,7 +45,7 @@ class GameScreenLayoutTest {
     @get:Rule
     val temp = TemporaryFolder()
 
-    private fun setContent(gamePath: String, isGba: Boolean = false) {
+    private fun setContent(gamePath: String, isGba: Boolean = false, system: GameSystem? = null) {
         val root = File(temp.root, "stores").apply { mkdirs() }
         composeRule.setContent {
             PoingTheme {
@@ -53,6 +53,7 @@ class GameScreenLayoutTest {
                     gamePath = gamePath,
                     gameName = "TETRIS",
                     isGba = isGba,
+                    system = system ?: if (isGba) GameSystem.GBA else GameSystem.GB,
                     optionsStore = CoreOptionsStore(root),
                     appSettings = AppSettingsStore(root),
                     onQuit = {},
@@ -148,6 +149,26 @@ class GameScreenLayoutTest {
         val select = composeRule.onNodeWithTag("hold-Select").fetchSemanticsNode().boundsInRoot
         assertEquals(start.top, select.top, 2f * d)
         assertTrue("Start should sit left of Select", start.right <= select.left)
+    }
+
+    /**
+     * Per-system styles (Robert, 2026-11-12): the overlay renders
+     * for every system — including GBC, whose theme (dark grey
+     * buttons on the Atomic Purple well) is a third path through
+     * ControlOverlay, not just GB/GBA. The theme VALUES are pinned
+     * by ControlThemesTest; this pins that the GBC wiring reaches
+     * the player at all.
+     */
+    @Test
+    fun overlayRendersForEverySystem() {
+        val game = File(temp.root, "game.gbc")
+        setContent(game.absolutePath, system = GameSystem.GBC)
+        composeRule.onNodeWithTag("controls-dpad").assertIsDisplayed()
+        composeRule.onNodeWithTag("controls-ab").assertIsDisplayed()
+        composeRule.onNodeWithTag("hold-A").assertIsDisplayed()
+        composeRule.onNodeWithTag("hold-B").assertIsDisplayed()
+        composeRule.onNodeWithTag("controls-l").assertDoesNotExist()
+        composeRule.onNodeWithTag("controls-r").assertDoesNotExist()
     }
 
     /**

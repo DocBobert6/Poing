@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 
 /**
@@ -34,10 +35,16 @@ import androidx.compose.ui.unit.dp
  * spot (see ControlLayout), so the new defaults need no
  * migration — a saved offset still applies as the same delta,
  * and Reset returns to the new defaults.
+ *
+ * Per-system buttons + style (Robert, 2026-11-12): the theme
+ * for [system] (see ControlThemes) is resolved once here and
+ * passed into the buttons — appearance only, the inputs are
+ * identical on every system.
  */
 @Composable
 fun BoxScope.ControlOverlay(
     isGba: Boolean,
+    system: GameSystem,
     layout: ControlLayout,
     editingLayout: Boolean,
     held: HeldInput,
@@ -49,6 +56,8 @@ fun BoxScope.ControlOverlay(
     onMove: (ControlGroup, ControlPosition) -> Unit,
     onMoveEnd: () -> Unit,
 ) {
+    val theme = ControlThemes.themeFor(system)
+    val pressed = Color(theme.pressed)
     // L/R shoulder tabs (GBA only) at the top corners of the
     // player area, like the icon's shoulders. One saved group:
     // both pills share layout.lr, so dragging either moves both
@@ -62,7 +71,12 @@ fun BoxScope.ControlOverlay(
             onMoveEnd = onMoveEnd,
             modifier = Modifier.align(Alignment.TopStart).padding(start = 16.dp, top = 12.dp),
         ) {
-            HoldButton("L", InputMask.JOY_L, held, paused, onInputChanged, shoulder = true)
+            HoldButton(
+                "L", InputMask.JOY_L, held, paused, onInputChanged, shoulder = true,
+                unpressedBackground = Color(theme.shoulder.background),
+                unpressedLabel = Color(theme.shoulder.label),
+                pressedBackground = pressed,
+            )
         }
         MovableControl(
             position = layout.lr,
@@ -72,7 +86,12 @@ fun BoxScope.ControlOverlay(
             onMoveEnd = onMoveEnd,
             modifier = Modifier.align(Alignment.TopEnd).padding(end = 16.dp, top = 12.dp),
         ) {
-            HoldButton("R", InputMask.JOY_R, held, paused, onInputChanged, shoulder = true)
+            HoldButton(
+                "R", InputMask.JOY_R, held, paused, onInputChanged, shoulder = true,
+                unpressedBackground = Color(theme.shoulder.background),
+                unpressedLabel = Color(theme.shoulder.label),
+                pressedBackground = pressed,
+            )
         }
     }
     // D-pad centred in the left flank bar, A/B centred in the
@@ -87,7 +106,10 @@ fun BoxScope.ControlOverlay(
         onMoveEnd = onMoveEnd,
         modifier = Modifier.align(Alignment.CenterStart).padding(start = 16.dp),
     ) {
-        DpadControl(held, paused, onInputChanged, onDirectionChange = onControlDown)
+        DpadControl(
+            held, paused, onInputChanged, onDirectionChange = onControlDown,
+            crossColor = Color(theme.dpadCross), wellColor = Color(theme.dpadWell),
+        )
     }
     MovableControl(
         position = layout.ab,
@@ -98,9 +120,19 @@ fun BoxScope.ControlOverlay(
         modifier = Modifier.align(Alignment.CenterEnd).padding(end = 16.dp),
     ) {
         Row {
-            HoldButton("B", InputMask.JOY_B, held, paused, onInputChanged, onDown = onControlDown)
+            HoldButton(
+                "B", InputMask.JOY_B, held, paused, onInputChanged, onDown = onControlDown,
+                unpressedBackground = Color(theme.buttonB.background),
+                unpressedLabel = Color(theme.buttonB.label),
+                pressedBackground = pressed,
+            )
             Spacer(Modifier.width(12.dp))
-            HoldButton("A", InputMask.JOY_A, held, paused, onInputChanged, onDown = onControlDown)
+            HoldButton(
+                "A", InputMask.JOY_A, held, paused, onInputChanged, onDown = onControlDown,
+                unpressedBackground = Color(theme.buttonA.background),
+                unpressedLabel = Color(theme.buttonA.label),
+                pressedBackground = pressed,
+            )
         }
     }
     // Start/Select as small pills, side by side, centred,
@@ -114,9 +146,19 @@ fun BoxScope.ControlOverlay(
         modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 16.dp),
     ) {
         Row {
-            HoldButton("Start", InputMask.JOY_START, held, paused, onInputChanged, pill = true)
+            HoldButton(
+                "Start", InputMask.JOY_START, held, paused, onInputChanged, pill = true,
+                unpressedBackground = Color(theme.startSelect.background),
+                unpressedLabel = Color(theme.startSelect.label),
+                pressedBackground = pressed,
+            )
             Spacer(Modifier.width(12.dp))
-            HoldButton("Select", InputMask.JOY_SELECT, held, paused, onInputChanged, pill = true)
+            HoldButton(
+                "Select", InputMask.JOY_SELECT, held, paused, onInputChanged, pill = true,
+                unpressedBackground = Color(theme.startSelect.background),
+                unpressedLabel = Color(theme.startSelect.label),
+                pressedBackground = pressed,
+            )
         }
     }
 }

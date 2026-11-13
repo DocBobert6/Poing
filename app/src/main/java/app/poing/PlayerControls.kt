@@ -40,11 +40,13 @@ import androidx.compose.ui.unit.dp
  * basically the phone's height, controls in the black bars
  * left and right of it).
  *
- * Unpressed is silver with black lettering; pressed is the icon
- * purple with white lettering — the hardware look, not the old
- * dark-grey buttons. The gesture behaviour is unchanged from
- * Phase 2/4 (per-pointer tracking, multi-touch, pause-keyed loops
- * so a lift under the pause overlay cannot stick a button down).
+ * Unpressed is the theme's button colour with its label colour;
+ * pressed is the theme's pressed colour with a white label (see
+ * ControlThemes — one theme per system; the defaults below are
+ * the Phase 5 silver hardware look). The gesture behaviour is
+ * unchanged from Phase 2/4 (per-pointer tracking, multi-touch,
+ * pause-keyed loops so a lift under the pause overlay cannot
+ * stick a button down).
  */
 
 /**
@@ -128,6 +130,13 @@ fun HoldButton(
     sizeDp: Dp = 64.dp,
     shoulder: Boolean = false,
     pill: Boolean = false,
+    // Per-system style (ControlThemes): the unpressed background
+    // + label and the pressed background. Defaults are the Phase 5
+    // silver hardware look, so the FF/RW action buttons — utility
+    // controls, not hardware — and the existing tests stay silver.
+    unpressedBackground: Color = PoingSilver,
+    unpressedLabel: Color = Color.Black,
+    pressedBackground: Color = PoingPurple,
     // Phase 6 (item 7) — haptics: fires once when the finger
     // lands. Only A/B pass one; Start/Select/L/R stay silent.
     onDown: (() -> Unit)? = null,
@@ -147,7 +156,7 @@ fun HoldButton(
         modifier = buttonModifier
             .testTag("hold-$label")
             .clip(shape)
-            .background(if (pressed) PoingPurple else PoingSilver)
+            .background(if (pressed) pressedBackground else unpressedBackground)
             // Keyed on [paused]: pausing restarts the gesture loop,
             // so a finger that lifts under the pause overlay cannot
             // leave this button stuck down (the lift never reaches
@@ -174,7 +183,7 @@ fun HoldButton(
     ) {
         Text(
             label,
-            color = if (pressed) Color.White else Color.Black,
+            color = if (pressed) Color.White else unpressedLabel,
             style = displayTextStyle(DisplaySizeSmall),
         )
     }
@@ -279,6 +288,10 @@ fun DpadControl(
     // per direction change while held, never on release and never
     // on a pointer event that leaves the directions unchanged.
     onDirectionChange: (() -> Unit)? = null,
+    // Per-system style (ControlThemes): the cross and the well.
+    // Defaults are the Phase 5 silver cross on a dark well.
+    crossColor: Color = PoingSilver,
+    wellColor: Color = Color(0xFF1A1A1A),
 ) {
     var sizePx by remember { mutableStateOf(0f) }
     Box(
@@ -286,7 +299,7 @@ fun DpadControl(
             .testTag("dpad")
             .size(144.dp)
             .clip(RoundedCornerShape(16.dp))
-            .background(Color(0xFF1A1A1A))
+            .background(wellColor)
             .onSizeChanged { sizePx = it.width.toFloat() }
             // Keyed on [paused]: pausing restarts the loop and drops
             // its active-pointer map, so a direction held when the
@@ -320,20 +333,20 @@ fun DpadControl(
             },
         contentAlignment = Alignment.Center,
     ) {
-        // The silver cross: a vertical bar and a horizontal bar,
-        // the icon's D-pad. Static — the game itself shows the
-        // direction; the cross never needs a pressed state.
+        // The cross: two bars in the theme's cross colour. Static —
+        // the game itself shows the direction; the cross never needs
+        // a pressed state.
         Box(
             Modifier
                 .size(width = 48.dp, height = 144.dp)
                 .clip(RoundedCornerShape(8.dp))
-                .background(PoingSilver),
+                .background(crossColor),
         )
         Box(
             Modifier
                 .size(width = 144.dp, height = 48.dp)
                 .clip(RoundedCornerShape(8.dp))
-                .background(PoingSilver),
+                .background(crossColor),
         )
     }
 }

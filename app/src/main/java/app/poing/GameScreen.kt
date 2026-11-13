@@ -548,6 +548,7 @@ fun GameScreen(
                 // bottom centre.
                 ControlOverlay(
                     isGba = isGba,
+                    system = system,
                     layout = layout,
                     editingLayout = editingLayout,
                     held = held,
