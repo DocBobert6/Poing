@@ -26,11 +26,11 @@ enum class WormLightColor(
     /** True for translucent plastic (clear): render faded. */
     val translucent: Boolean = false,
 ) {
-    DARK_GRAY("Dark grey", 0xFF555555),
-    ATOMIC_PURPLE("Atomic Purple", 0xFF7E57C2),
-    CLEAR("Clear", 0xFFD9D9D9, translucent = true),
-    GREEN("Green", 0xFF43A047),
-    BLACK("Black", 0xFF222222);
+    DARK_GRAY("Dark grey", 0xFF555555.toInt()),
+    ATOMIC_PURPLE("Atomic Purple", 0xFF7E57C2.toInt()),
+    CLEAR("Clear", 0xFFD9D9D9.toInt(), translucent = true),
+    GREEN("Green", 0xFF43A047.toInt()),
+    BLACK("Black", 0xFF222222.toInt());
 
     companion object {
         /** Dark medium gray — Robert's default. */

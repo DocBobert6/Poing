@@ -15,7 +15,9 @@ class WormLightColorTest {
     @Test
     fun defaultIsDarkMediumGray() {
         assertEquals(WormLightColor.DARK_GRAY, WormLightColor.DEFAULT)
-        assertEquals(0xFF555555, WormLightColor.DEFAULT.argb)
+        // The literal is a Long in Kotlin (above Int range),
+        // so it needs the same .toInt() as the enum entries.
+        assertEquals(0xFF555555.toInt(), WormLightColor.DEFAULT.argb)
     }
 
     @Test
@@ -28,7 +30,7 @@ class WormLightColorTest {
         assertTrue(swatches.contains(WormLightColor.GREEN))
         assertTrue(swatches.contains(WormLightColor.BLACK))
         // The Atomic Purple is the app's own purple.
-        assertEquals(0xFF7E57C2, WormLightColor.ATOMIC_PURPLE.argb)
+        assertEquals(0xFF7E57C2.toInt(), WormLightColor.ATOMIC_PURPLE.argb)
     }
 
     @Test
