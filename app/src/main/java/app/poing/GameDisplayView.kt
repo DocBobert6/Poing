@@ -65,11 +65,17 @@ fun GameDisplayView(
         val frame = bitmap
         val s = stats
         if (frame != null && s != null) {
+            // Screen-size fix (2026-11-12): no outer margin here.
+            // The 8dp margin this box used to carry was transparent
+            // dead space over the slot's black — invisible, and it
+            // shrank the game surface by 16dp in each dimension for
+            // nothing. The only thing between the game and the box
+            // edge now is the bezel itself (2dp silver border +
+            // 4dp gap), so the game surface fills the aspect box.
             Box(
                 modifier = Modifier
                     .aspectRatio(s.width.toFloat() / s.height.toFloat())
                     .fillMaxSize()
-                    .padding(8.dp)
                     .background(Color(0xFF111111))
                     .border(2.dp, PoingSilver, RoundedCornerShape(4.dp))
                     .padding(4.dp)
