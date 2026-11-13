@@ -240,7 +240,14 @@ fun wormLightGeometry(
     // with sin/cos swapped down.
     val halfW = sqrt(lensRx * lensRx * cosR * cosR + lensRy * lensRy * sinR * sinR)
     val halfH = sqrt(lensRx * lensRx * sinR * sinR + lensRy * lensRy * cosR * cosR)
-    val headX = (head.x * boxWidth + swayPx * 0.5f).coerceIn(halfW, boxWidth - halfW)
+    // The head's unswayed x: the coil's control points are
+    // measured from it, so the apex moves with exactly the
+    // full sway — the head itself only with half of it (see
+    // swayTrailsTheHeadAndTheCoilApex). Measuring from the
+    // swayed head would double-count: the sway would reach
+    // the apex through the interpolation too.
+    val headBaseX = (head.x * boxWidth).coerceIn(halfW, boxWidth - halfW)
+    val headX = (headBaseX + swayPx * 0.5f).coerceIn(halfW, boxWidth - halfW)
     val headY = (head.y * boxHeight).coerceIn(0f, stripPx)
     val headPx = Offset(headX, headY)
     // The plug: at the left edge, centred in the strip.
@@ -254,11 +261,11 @@ fun wormLightGeometry(
     // apex with the head's trail.
     val p0 = Offset(plugW, stripPx / 2f)
     val p1 = Offset(
-        p0.x + (headPx.x - p0.x) * 0.25f + swayPx,
+        p0.x + (headBaseX - p0.x) * 0.25f + swayPx,
         stripPx * 0.06f,
     )
     val p2 = Offset(
-        p0.x + (headPx.x - p0.x) * 0.75f + swayPx,
+        p0.x + (headBaseX - p0.x) * 0.75f + swayPx,
         stripPx * 0.06f,
     )
     // The bulb: inside the lens, toward its top — the bulb

@@ -19,7 +19,7 @@ import org.robolectric.annotation.Config
 /**
  * Worm Light rework (Robert, 2026-11-12): the overlay renders
  * when on and is not composed at all when off — so it cannot
- * swallow a touch while off. The cone/head geometry itself is
+ * swallow a touch while off. The lamp/coil geometry itself is
  * pinned by WormLightGeometryTest on the plain JVM.
  *
  * Pinned to emulated SDK 35, same as the startup gate.
