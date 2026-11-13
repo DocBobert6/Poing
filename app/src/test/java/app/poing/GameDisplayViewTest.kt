@@ -6,8 +6,10 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.size
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onRoot
@@ -91,6 +93,95 @@ class GameDisplayViewTest {
         val boxH = boxW / 1.5f
         assertEquals(boxW, game.width, 1f * d)
         assertEquals(boxH, game.height, 1f * d)
+    }
+
+    /**
+     * Worm Light realism (Robert, 2026-11-12): while the lamp
+     * is on, the game gives up a strip at the top — the lamp's
+     * space, where the head hangs above the picture. The frame
+     * stays the largest 3:2 box in the row BELOW the strip
+     * (never stretched), and the lamp overlay spans the whole
+     * player area. Asserted against the measured slot, like
+     * the fill test above.
+     */
+    @Test
+    fun gameGivesUpATopStripWhileTheLampIsOn() {
+        val bitmap = Bitmap.createBitmap(240, 160, Bitmap.Config.ARGB_8888)
+        val stats = PlayerStats(
+            width = 240,
+            height = 160,
+            coreFps = 59.7,
+            measuredFps = 59.0,
+            framesDrawn = 165,
+            sampleRate = 48000,
+        )
+        composeRule.setContent {
+            PoingTheme {
+                Box(Modifier.size(300.dp, 200.dp).testTag("slot")) {
+                    GameDisplayView(
+                        glView = null,
+                        bitmap = bitmap,
+                        stats = stats,
+                        gameName = "TEST",
+                        paused = false,
+                        wormLight = true,
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                }
+            }
+        }
+        val d = composeRule.density.density
+        val slot = composeRule.onNodeWithTag("slot").fetchSemanticsNode().boundsInRoot
+        val game = composeRule.onNodeWithContentDescription("Game: TEST").fetchSemanticsNode().boundsInRoot
+        val stripPx = WORM_LIGHT_STRIP_DP * d
+        val rowH = slot.height - stripPx
+        val boxW = minOf(slot.width, rowH * 1.5f)
+        val boxH = boxW / 1.5f
+        // The frame starts below the strip and is the largest
+        // 3:2 box in the row below it.
+        assertEquals(slot.top + stripPx, game.top, 1f * d)
+        assertEquals(boxW, game.width, 1f * d)
+        assertEquals(boxH, game.height, 1f * d)
+        // The lamp itself is there, spanning the player area.
+        composeRule.onNodeWithTag("worm-light").assertExists()
+    }
+
+    @Test
+    fun gameTakesTheFullHeightWhenTheLampIsOff() {
+        val bitmap = Bitmap.createBitmap(240, 160, Bitmap.Config.ARGB_8888)
+        val stats = PlayerStats(
+            width = 240,
+            height = 160,
+            coreFps = 59.7,
+            measuredFps = 59.0,
+            framesDrawn = 165,
+            sampleRate = 48000,
+        )
+        composeRule.setContent {
+            PoingTheme {
+                Box(Modifier.size(300.dp, 200.dp).testTag("slot")) {
+                    GameDisplayView(
+                        glView = null,
+                        bitmap = bitmap,
+                        stats = stats,
+                        gameName = "TEST",
+                        paused = false,
+                        wormLight = false,
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                }
+            }
+        }
+        val d = composeRule.density.density
+        val slot = composeRule.onNodeWithTag("slot").fetchSemanticsNode().boundsInRoot
+        val game = composeRule.onNodeWithContentDescription("Game: TEST").fetchSemanticsNode().boundsInRoot
+        // No strip: the frame starts at the slot's own top and
+        // fills it, exactly as the fill test pins.
+        assertEquals(slot.top, game.top, 1f * d)
+        val boxW = minOf(slot.width, slot.height * 1.5f)
+        assertEquals(boxW, game.width, 1f * d)
+        assertEquals(boxW / 1.5f, game.height, 1f * d)
+        composeRule.onAllNodesWithTag("worm-light").assertCountEquals(0)
     }
 
     /**

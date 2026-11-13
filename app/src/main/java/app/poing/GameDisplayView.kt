@@ -5,8 +5,11 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -16,6 +19,7 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 
 /**
@@ -99,40 +103,65 @@ fun GameDisplayView(
             // one is not in this Box's hit path. Only a tap on
             // the bare game area (or the black bars beside it)
             // peeks the bar.
-            Box(
-                modifier = Modifier
-                    .aspectRatio(s.width.toFloat() / s.height.toFloat())
-                    .fillMaxSize(),
-                contentAlignment = Alignment.Center,
-            ) {
-                if (glView != null) {
-                    AndroidView(
-                        factory = { glView },
-                        modifier = Modifier.fillMaxSize(),
-                    )
-                } else {
-                    Image(
-                        bitmap = frame.asImageBitmap(),
-                        contentDescription = "Game: $gameName",
-                        modifier = Modifier.fillMaxSize(),
-                        contentScale = ContentScale.Fit,
-                    )
+            //
+            // Worm Light realism (Robert, 2026-11-12): while
+            // the lamp is on, the game gives up a strip at the
+            // top — the lamp's space, where the head hangs
+            // above the picture. The strip is a layout element
+            // above the game row, so the frame stays the largest
+            // aspect box in the row below it (never stretched),
+            // and the lamp overlay spans the whole player area
+            // (strip + game) as a sibling above the Column, so
+            // the coil can come in from the player's left edge.
+            // When the lamp is off there is no strip and the
+            // game takes the full height back, exactly as
+            // before.
+            Column(modifier = Modifier.fillMaxSize()) {
+                if (wormLight) {
+                    Spacer(modifier = Modifier.height(WORM_LIGHT_STRIP_DP.dp))
                 }
                 Box(
-                    modifier = Modifier.fillMaxSize(),
-                    contentAlignment = Alignment.TopCenter,
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxWidth(),
+                    contentAlignment = Alignment.Center,
                 ) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        RaUnlockPopup(paused = paused)
-                        RaScoreboardNote(paused = paused)
+                    Box(
+                        modifier = Modifier
+                            .aspectRatio(s.width.toFloat() / s.height.toFloat())
+                            .fillMaxSize(),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        if (glView != null) {
+                            AndroidView(
+                                factory = { glView },
+                                modifier = Modifier.fillMaxSize(),
+                            )
+                        } else {
+                            Image(
+                                bitmap = frame.asImageBitmap(),
+                                contentDescription = "Game: $gameName",
+                                modifier = Modifier.fillMaxSize(),
+                                contentScale = ContentScale.Fit,
+                            )
+                        }
+                        Box(
+                            modifier = Modifier.fillMaxSize(),
+                            contentAlignment = Alignment.TopCenter,
+                        ) {
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                RaUnlockPopup(paused = paused)
+                                RaScoreboardNote(paused = paused)
+                            }
+                        }
                     }
                 }
-                WormLightOverlay(
-                    enabled = wormLight,
-                    hardwareColor = wormLightColor,
-                    modifier = Modifier.fillMaxSize(),
-                )
             }
+            WormLightOverlay(
+                enabled = wormLight,
+                hardwareColor = wormLightColor,
+                modifier = Modifier.fillMaxSize(),
+            )
         } else {
             Text("Loading $gameName…", color = Color.White)
         }

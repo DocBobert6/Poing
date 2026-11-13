@@ -51,6 +51,13 @@ import androidx.compose.ui.platform.testTag
  * it cannot swallow a touch.
  */
 
+// The lamp's strip above the picture (Worm Light realism,
+// Robert, 2026-11-12): the head hangs in this strip, so the
+// game gives up this height while the lamp is on and takes
+// the full height back when it is off. 56dp holds the oval
+// lens (~30-40dp tall) with clearance above and below.
+const val WORM_LIGHT_STRIP_DP = 56f
+
 // The default head: top edge, centred — clipped on, like
 // the real accessory. (Was (0.5f, 0.35f), mid-picture.)
 val WORM_LIGHT_DEFAULT_HEAD = Offset(0.5f, 0.12f)
