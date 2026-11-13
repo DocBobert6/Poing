@@ -41,6 +41,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlin.math.roundToInt
 
 /**
  * Phase 2 spike player screen: a fullscreen game view, minimal
@@ -173,6 +174,12 @@ fun GameScreen(
         if (appSettings.chainEnabled(wanted)) wanted else DisplayChain.CLEAN
     }
     var palette by remember { mutableStateOf(optionsStore.get("mgba_gb_colors")) }
+
+    // Screen Optics dim fix (Robert, 2026-11-12): the live lux
+    // for the diagnostic line (dev stats only). Only the
+    // rounded whole-lux value is state, so a steady room does
+    // not recompose the bar on every ~50 Hz sensor reading.
+    var latestLux by remember { mutableStateOf<Int?>(null) }
 
     // Phase 8 — Screen Optics, snapshotted like the chain:
     // the Worm Light (off by default — an easter egg) and
@@ -430,6 +437,8 @@ fun GameScreen(
         // nothing while the game is already drawing frames.
         cartridgeSensors.onLux = { lux ->
             glView?.setOptics(ScreenOptics.paramsFor(lux, opticsDimming))
+            val rounded = lux.takeIf { it.isFinite() && it >= 0f }?.roundToInt()
+            if (rounded != latestLux) latestLux = rounded
         }
         // Phase 6 (item 10b) — the rumble handler lives only
         // while a game is playing: the core can only rumble
@@ -502,6 +511,10 @@ fun GameScreen(
             if (barVisible) {
                 TopBarRow(
                     stats = stats,
+                    // The live lux shows in the diagnostic line
+                    // only when dev stats are on — the line is
+                    // the dev-stats display.
+                    lux = if (devStats) latestLux else null,
                     recording = recording,
                     recordingElapsed = recordingElapsed,
                     buttonLabel = if (editingLayout) "Done" else if (paused) "Resume" else "Pause",

@@ -50,6 +50,11 @@ fun TopBarRow(
     recordingElapsed: Long,
     buttonLabel: String,
     onButtonClick: () -> Unit,
+    // Screen Optics dim fix (Robert, 2026-11-12): the live lux
+    // for the diagnostic line, shown only when dev stats are
+    // on (the caller passes null otherwise). Null means no
+    // reading yet, or dev stats off.
+    lux: Int? = null,
 ) {
     Row(
         modifier = Modifier
@@ -71,7 +76,7 @@ fun TopBarRow(
             )
             Spacer(Modifier.width(8.dp))
         }
-        DiagnosticLine(stats = stats, modifier = Modifier.weight(1f))
+        DiagnosticLine(stats = stats, lux = lux, modifier = Modifier.weight(1f))
         // The tag lets tests tell the bar's button apart from
         // the pause menu's own Resume button (same text, two
         // nodes when paused).
@@ -123,10 +128,13 @@ fun FloatingPlayerStatus(
  * The diagnostic overlay line: terminal face (VT323) for the
  * labels, segment digits (DSEG7) for the numbers — frame size,
  * core fps, measured fps, frames drawn. The numbers are always
- * segment, never the display face.
+ * segment, never the display face. With dev stats on, the live
+ * ambient-light reading joins them (whole lux), so the room's
+ * light — and whether the dim engages — is visible on the
+ * screen itself (Screen Optics dim fix, Robert, 2026-11-12).
  */
 @Composable
-private fun DiagnosticLine(stats: PlayerStats?, modifier: Modifier = Modifier) {
+private fun DiagnosticLine(stats: PlayerStats?, lux: Int? = null, modifier: Modifier = Modifier) {
     if (stats == null) {
         Text("starting…", style = terminalTextStyle(), color = Color.White, modifier = modifier)
         return
@@ -141,6 +149,11 @@ private fun DiagnosticLine(stats: PlayerStats?, modifier: Modifier = Modifier) {
             withStyle(SpanStyle(fontFamily = Vt323)) { append("fps ") }
             withStyle(SpanStyle(fontFamily = Dseg7)) { append("${stats.framesDrawn}") }
             withStyle(SpanStyle(fontFamily = Vt323)) { append(" frames") }
+            if (lux != null) {
+                withStyle(SpanStyle(fontFamily = Vt323)) { append(" ") }
+                withStyle(SpanStyle(fontFamily = Dseg7)) { append("$lux") }
+                withStyle(SpanStyle(fontFamily = Vt323)) { append("lx") }
+            }
         },
         style = terminalTextStyle(),
         color = Color.White,
