@@ -72,7 +72,13 @@ fun TopBarRow(
             Spacer(Modifier.width(8.dp))
         }
         DiagnosticLine(stats = stats, modifier = Modifier.weight(1f))
-        Button(onClick = onButtonClick) {
+        // The tag lets tests tell the bar's button apart from
+        // the pause menu's own Resume button (same text, two
+        // nodes when paused).
+        Button(
+            onClick = onButtonClick,
+            modifier = Modifier.testTag("top-bar-button"),
+        ) {
             Text(buttonLabel)
         }
     }

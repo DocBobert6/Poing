@@ -281,17 +281,23 @@ class GameScreenLayoutTest {
     /**
      * Player chrome (Robert, 2026-11-12): while paused the
      * bar stays visible — the Resume button must be there —
-     * and it does not hide on the peek timer.
+     * and it does not hide on the peek timer. The bar's button
+     * is asserted by its tag, not its text: the pause menu has
+     * its own Resume button with the same text, so a text
+     * lookup finds two nodes. The count pins both are there
+     * (bar + menu).
      */
     @Test
     fun topBarStaysVisibleWhilePaused() {
         val game = File(temp.root, "game.gb")
         setContent(game.absolutePath, devStats = true)
         composeRule.onNodeWithText("Pause").performClick()
-        composeRule.onNodeWithText("Resume").assertIsDisplayed()
+        composeRule.onNodeWithTag("top-bar-button").assertIsDisplayed()
+        composeRule.onAllNodesWithText("Resume").assertCountEquals(2)
         composeRule.mainClock.advanceTimeBy(5000)
         composeRule.waitForIdle()
-        composeRule.onNodeWithText("Resume").assertIsDisplayed()
+        composeRule.onNodeWithTag("top-bar-button").assertIsDisplayed()
+        composeRule.onAllNodesWithText("Resume").assertCountEquals(2)
     }
 
     /**
