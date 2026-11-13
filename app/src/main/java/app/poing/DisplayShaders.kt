@@ -79,11 +79,14 @@ object DisplayShaders {
      * model: the measured 32-entry gamma LUT, then the
      * colour matrix in linear light (see the LUT and matrix
      * notes below). Dusk: the Game Boy Advance's reflective
-     * TFT, 2001 — the same correction with the Advance's own
-     * gamma, plus a gamma lift and a saturation lift, because
-     * the AGB-001 is dark and unlit. Any mode this build does
-     * not know yet falls through to pass-through, never to a
-     * wrong look.
+     * TFT, 2001 — the same, with the Advance's own LUT and
+     * matrix; the AGB-001 is dark and unlit, and the LUT
+     * already lifts the shadows, so there is no extra gamma
+     * or saturation lift (the old pow(0.85) + 1.15 were
+     * compensating for the pow(3.2) crush — see the
+     * perfection record). Any mode this build does not know
+     * yet falls through to pass-through, never to a wrong
+     * look.
      *
      * The matrix finding (2026-11-12, shader perfection):
      * the old matrix was the TRANSPOSE of the reference.
@@ -158,22 +161,32 @@ object DisplayShaders {
             col = pow(max(m, vec3(0.0)), vec3(1.0 / 2.2));
             col = clamp(col, vec3(0.0), vec3(1.0));
           } else if (uMode == 3) {
-            vec3 c = pow(col, vec3(3.2));
+            // The AGB-001's reflective TFT, 2001 — the same
+            // hardware-scanned model as Prism, with the
+            // Advance's own LUT and matrix. The AGB-001 is
+            // dark and unlit, and the LUT already lifts the
+            // shadows, so there is no extra gamma or
+            // saturation lift: the old pow(0.85) + 1.15 were
+            // compensating for the pow(3.2) crush, and the
+            // new pipeline is brighter in the shadows than
+            // the old one without them (grey8 0.19 -> 0.23,
+            // dark brown blue 0.04 -> 0.21 — see the
+            // perfection record). The blue crush is the
+            // matrix's own doing — the authentic AGB look.
+            float ri = min(floor(col.r * 32.0), 31.0);
+            float gi = min(floor(col.g * 32.0), 31.0);
+            float bi = min(floor(col.b * 32.0), 31.0);
+            float vr = (uGammaRow + 0.5) / 2.0;
+            vec3 g = vec3(
+              texture2D(uGammaLut, vec2((ri + 0.5) / 32.0, vr)).r,
+              texture2D(uGammaLut, vec2((gi + 0.5) / 32.0, vr)).r,
+              texture2D(uGammaLut, vec2((bi + 0.5) / 32.0, vr)).r);
+            vec3 lin = clamp(pow(g, vec3(2.2)) * 0.8915, vec3(0.0), vec3(1.0));
             vec3 m;
-            m.r = (0.82 * c.r + 0.125 * c.g + 0.195 * c.b) * 0.94;
-            m.g = (0.24 * c.r + 0.665 * c.g + 0.075 * c.b) * 0.94;
-            m.b = (-0.06 * c.r + 0.21 * c.g + 0.73 * c.b) * 0.94;
+            m.r = 0.8988 * lin.r + 0.2229 * lin.g - 0.1217 * lin.b;
+            m.g = 0.1163 * lin.r + 0.6217 * lin.g + 0.2620 * lin.b;
+            m.b = 0.1831 * lin.r + 0.2438 * lin.g + 0.5731 * lin.b;
             col = pow(max(m, vec3(0.0)), vec3(1.0 / 2.2));
-            col = pow(col, vec3(0.85));
-            float luma = dot(col, vec3(0.299, 0.587, 0.114));
-            col = mix(vec3(luma), col, 1.15);
-            // The saturation mix extrapolates: a colour whose
-            // blue is far below its luma (Nintendo orange,
-            // dark browns) comes out negative on that channel,
-            // and the old min() only clamped the top. The GPU
-            // clamps on write to the 8-bit framebuffer, so it
-            // was invisible — but the shader now states both
-            // sides itself.
             col = clamp(col, vec3(0.0), vec3(1.0));
           }
           gl_FragColor = vec4(col, 1.0);

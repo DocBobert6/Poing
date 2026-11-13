@@ -116,17 +116,28 @@ class DisplayShadersTest {
     @Test
     fun colourPassHasTheDuskMode() {
         val src = DisplayShaders.COLOUR_FRAGMENT
-        // Dusk is mode 3: the Advance's gamma, then a gamma
-        // lift and a saturation lift for a dark, unlit screen.
+        // Dusk is mode 3: the measured 32-entry gamma LUT
+        // (the GBA row), then the colour matrix in linear
+        // light — the same hardware-scanned model as Prism,
+        // with the Advance's own LUT and matrix. No
+        // power-law gamma, no extra gamma lift, no
+        // saturation mix: the LUT already lifts the shadows,
+        // and the new pipeline is brighter in the shadows
+        // than the old one without them.
         assertTrue(src.contains("uMode == 3"))
-        assertTrue(src.contains("pow(col, vec3(3.2))"))
-        assertTrue(src.contains("pow(col, vec3(0.85))"))
-        assertTrue(src.contains("mix(vec3(luma), col, 1.15)"))
-        // The saturation mix extrapolates below zero (a
-        // colour whose blue is far below its luma comes out
-        // negative on that channel), so the output is clamped
-        // on both sides — the old min() only clamped the top.
+        assertTrue(src.contains("clamp(pow(g, vec3(2.2)) * 0.8915, vec3(0.0), vec3(1.0))"))
+        // The current GBA matrix, effective rows — never the
+        // old transposed rows.
+        assertTrue(src.contains("0.8988 * lin.r + 0.2229 * lin.g - 0.1217 * lin.b"))
+        assertTrue(src.contains("0.1163 * lin.r + 0.6217 * lin.g + 0.2620 * lin.b"))
+        assertTrue(src.contains("0.1831 * lin.r + 0.2438 * lin.g + 0.5731 * lin.b"))
+        assertTrue(src.contains("pow(max(m, vec3(0.0)), vec3(1.0 / 2.2))"))
+        // The output is clamped on both sides.
         assertTrue(src.contains("clamp(col, vec3(0.0), vec3(1.0))"))
+        assertFalse(src.contains("pow(col, vec3(3.2))"))
+        assertFalse(src.contains("pow(col, vec3(0.85))"))
+        assertFalse(src.contains("mix(vec3(luma), col, 1.15)"))
+        assertFalse(src.contains("0.82 * c.r + 0.125 * c.g + 0.195 * c.b"))
     }
 
     @Test
