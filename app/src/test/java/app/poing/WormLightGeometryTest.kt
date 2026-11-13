@@ -11,12 +11,12 @@ import kotlin.math.sqrt
 /**
  * Worm Light realism (Robert, 2026-11-12, after three
  * reference photos of the real accessory): the cord plugs in
- * at the left edge, coils up the left side, arches over the
- * top, and the head — a clear oval lens with the bulb inside
- * — hangs above the screen in the strip the game gives up,
- * pooling warm light on the game from above. The old cone
- * geometry is gone. The geometry is pure, so these run on
- * the plain JVM.
+ * just left of the display area, coils up the left side of
+ * the game, arches over the top, and the head — a clear oval
+ * lens with the bulb inside — hangs above the screen in the
+ * strip the game gives up, pooling warm light on the game
+ * from above. The old cone geometry is gone. The geometry is
+ * pure, so these run on the plain JVM.
  *
  * The box here is 1000x600 px at density 2.625 (a Pixel 10a):
  * a GBA picture at that size, so the numbers below are the
@@ -81,14 +81,35 @@ class WormLightGeometryTest {
     }
 
     @Test
-    fun plugSitsAtTheLeftEdgeInTheStrip() {
+    fun plugSitsJustLeftOfTheGameRect() {
         val g = geometry()
-        // The EXT port's plug: 10x24dp at the left edge,
-        // centred in the strip.
-        assertEquals(0f, g.plugRect.left, 0.01f)
+        // The EXT port's plug: 10x24dp, its right edge a 4dp
+        // gap left of the game rect's left edge, centred in
+        // the strip — beside the picture, never at the device
+        // screen's edge (Robert, 2026-11-13: "still attached
+        // to top and it's too far left").
+        assertEquals(160.25f - 4f * density, g.plugRect.right, 0.01f)
         assertEquals(10f * density, g.plugRect.width, 0.01f)
         assertEquals(24f * density, g.plugRect.height, 0.01f)
         assertEquals(stripPx / 2f, g.plugRect.center.y, 0.01f)
+        assertTrue("the plug should sit right of the screen edge", g.plugRect.left > 0f)
+        assertTrue("the plug should sit left of the game", g.plugRect.right < g.gameRect.left)
+        // A GB game is narrower, so its plug sits further
+        // right — always beside its own picture.
+        val gb = geometry(aspect = 160f / 144f)
+        assertEquals(248.33f - 4f * density, gb.plugRect.right, 0.01f)
+        assertTrue(gb.plugRect.left > 0f)
+    }
+
+    @Test
+    fun plugParksAtTheEdgeWhenTheGameFillsTheWidth() {
+        // A game nearly as wide as the player leaves no room
+        // left of it: the plug parks at the screen edge
+        // instead of going off-screen.
+        val g = geometry(aspect = 3.0f)
+        assertEquals(0f, g.gameRect.left, 0.01f)
+        assertEquals(0f, g.plugRect.left, 0.01f)
+        assertEquals(10f * density, g.plugRect.right, 0.01f)
     }
 
     @Test
@@ -97,9 +118,9 @@ class WormLightGeometryTest {
         // The spine starts at the plug's right edge and ends
         // at the head, and both control points sit near the
         // top of the strip — above both ends — so the cord
-        // rises from the plug, arches over the top, and
-        // descends to the head.
-        assertEquals(10f * density, g.coilP0.x, 0.01f)
+        // rises from the plug beside the game's left edge,
+        // arches over the top, and descends to the head.
+        assertEquals(160.25f - 4f * density, g.coilP0.x, 0.01f)
         assertEquals(stripPx / 2f, g.coilP0.y, 0.01f)
         assertEquals(g.lensCenter, g.coilP3)
         assertTrue("first control should be above the plug", g.coilP1.y < g.coilP0.y)
@@ -107,6 +128,8 @@ class WormLightGeometryTest {
         assertTrue("controls should run plug to head", g.coilP0.x < g.coilP1.x)
         assertTrue("controls should run plug to head", g.coilP1.x < g.coilP2.x)
         assertTrue("controls should run plug to head", g.coilP2.x < g.coilP3.x)
+        assertEquals(237.31f, g.coilP1.x, 0.01f)
+        assertEquals(412.44f, g.coilP2.x, 0.01f)
         assertEquals(stripPx * 0.06f, g.coilP1.y, 0.01f)
         assertEquals(stripPx * 0.06f, g.coilP2.y, 0.01f)
     }
@@ -189,8 +212,8 @@ class WormLightGeometryTest {
         // the head.
         val g = geometry(swayPx = 40f)
         assertEquals(520f, g.lensCenter.x, 0.01f)
-        assertEquals(144.69f + 40f, g.coilP1.x, 0.01f)
-        assertEquals(381.56f + 40f, g.coilP2.x, 0.01f)
+        assertEquals(277.31f, g.coilP1.x, 0.01f)
+        assertEquals(452.44f, g.coilP2.x, 0.01f)
         assertEquals((520f - 160.25f) / 679.5f, g.pool.center.x, 0.01f)
     }
 
@@ -267,5 +290,23 @@ class WormLightGeometryTest {
         val alongLong = wormLightPoolFactor(center, radii, 0f, Offset(0.775f, 0.20f))
         val downShort = wormLightPoolFactor(center, radii, PI.toFloat() / 2f, Offset(0.5f, 0.475f))
         assertEquals(alongLong, downShort, 0.001f)
+    }
+
+    @Test
+    fun poolFactorTiltsTowardTheHeadsSide() {
+        // A head left of centre tilts the pool's long axis
+        // down-right (the beam slants down from the head):
+        // a point down-right of the centre scores higher
+        // than its mirror up-right. The oracle runs the
+        // shader's rotation in vTex space (y = 0 at the
+        // bottom) — without that flip the tilt reads
+        // mirrored against the picture.
+        val center = Offset(0.5f, 0.20f)
+        val radii = Offset(0.55f, 0.42f)
+        val downRight = wormLightPoolFactor(center, radii, 0.6f, Offset(0.8f, 0.35f))
+        val upRight = wormLightPoolFactor(center, radii, 0.6f, Offset(0.8f, 0.05f))
+        assertTrue("down-right should score higher than up-right", downRight > upRight)
+        assertEquals(0.229f, downRight, 0.01f)
+        assertEquals(0.116f, upRight, 0.01f)
     }
 }

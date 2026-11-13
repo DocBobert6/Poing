@@ -350,7 +350,18 @@ object DisplayShaders {
           // mirrored by wormLightPoolFactor (WormLightOverlay)
           // so it is unit-testable on the JVM — keep the
           // constants in step.
-          vec2 wlD = vTex - uWlCenter;
+          //
+          // The centre's y is flipped into vTex space
+          // below: on this pass vTex is flipped (uFlipV 1 —
+          // the source is the pass-1 framebuffer), so y = 0
+          // is the BOTTOM of the picture here. Without the
+          // flip the pool lands brightest at the bottom
+          // (Robert's 2026-11-13 screenshot: the glow sat
+          // low on the title screen, and the top quarter
+          // was the coolest). The plain program samples the
+          // Bitmap directly (uFlipV 0, y = 0 at the top)
+          // and takes the centre as-is.
+          vec2 wlD = vTex - vec2(uWlCenter.x, 1.0 - uWlCenter.y);
           float wlC = cos(uWlRot);
           float wlS = sin(uWlRot);
           vec2 wlR = vec2(wlD.x * wlC - wlD.y * wlS, wlD.x * wlS + wlD.y * wlC);

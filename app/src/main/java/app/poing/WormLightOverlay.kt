@@ -41,9 +41,10 @@ import kotlin.math.sqrt
  * Worm Light realism (Robert, 2026-11-12, after three
  * reference photos of the real accessory): the lamp is a
  * real Worm Light now, not a spotlight cone on the picture.
- * The cord plugs in at the LEFT edge of the player (like
- * the real EXT port), coils up the left side, arches over
- * the top, and the head hangs ABOVE the screen in the strip
+ * The cord plugs in JUST LEFT of the display area (like
+ * the real EXT port on the side of the device), coils up
+ * the left side of the game, arches over the top, and the
+ * head hangs ABOVE the screen in the strip
  * the game gives up while the lamp is on — angled down at
  * it. The head is a CLEAR OVAL LENS with the bulb visible
  * inside as a bright point, plus a soft glow around it; the
@@ -114,10 +115,14 @@ const val WORM_LIGHT_LENS_ROTATION_DEG = 35f
 const val WORM_LIGHT_BULB_RX_DP = 8f
 const val WORM_LIGHT_BULB_RY_DP = 6f
 
-// The plug at the left edge, in dp: the EXT port's plug,
-// where the cord enters the player.
+// The plug just left of the display area, in dp: the EXT
+// port's plug, where the cord enters the player. The gap
+// is the small space between the plug and the game rect's
+// left edge — the plug sits beside the picture, never at
+// the device screen's edge and never over the picture.
 const val WORM_LIGHT_PLUG_W_DP = 10f
 const val WORM_LIGHT_PLUG_H_DP = 24f
+const val WORM_LIGHT_PLUG_GAP_DP = 4f
 
 // The coil: a telephone cord has a fixed number of loops,
 // so a longer spine spreads them (stretch) and a shorter
@@ -250,16 +255,30 @@ fun wormLightGeometry(
     val headX = (headBaseX + swayPx * 0.5f).coerceIn(halfW, boxWidth - halfW)
     val headY = (head.y * boxHeight).coerceIn(0f, stripPx)
     val headPx = Offset(headX, headY)
-    // The plug: at the left edge, centred in the strip.
+    // The plug: just left of the display area — the game
+    // rect's left edge minus a small gap — centred in the
+    // strip. The old anchor was the player area's left edge
+    // (x = 0), so the cord ran in from the device screen's
+    // edge and along the top edge (Robert, 2026-11-13:
+    // "still attached to top and it's too far left"). The
+    // plug never leaves the screen: when the game nearly
+    // fills the width there is no room left of it, so the
+    // plug parks at the edge instead of going off-screen.
     val plugW = WORM_LIGHT_PLUG_W_DP * density
     val plugH = WORM_LIGHT_PLUG_H_DP * density
-    val plugRect = Rect(0f, stripPx / 2f - plugH / 2f, plugW, stripPx / 2f + plugH / 2f)
+    val plugGap = WORM_LIGHT_PLUG_GAP_DP * density
+    val plugRight = (gameLeft - plugGap).coerceAtLeast(plugW)
+    val plugRect = Rect(
+        plugRight - plugW, stripPx / 2f - plugH / 2f,
+        plugRight, stripPx / 2f + plugH / 2f,
+    )
     // The coil's spine: a cubic from the plug's right edge
     // to the head, both control points near the top of the
-    // strip, so the cord rises from the plug, arches over
-    // the top, and descends to the head. The sway moves the
-    // apex with the head's trail.
-    val p0 = Offset(plugW, stripPx / 2f)
+    // strip, so the cord rises from the plug beside the
+    // game's left edge, arches over the top, and descends
+    // to the head. The sway moves the apex with the head's
+    // trail.
+    val p0 = Offset(plugRight, stripPx / 2f)
     val p1 = Offset(
         p0.x + (headBaseX - p0.x) * 0.25f + swayPx,
         stripPx * 0.06f,
@@ -365,7 +384,11 @@ fun coilRibbonPoints(
  * centre (0.30 fall + 0.35 hotspot), 0.0 at and outside
  * the ellipse edge. The shader is the authority; this is
  * its test oracle, not a second implementation — keep the
- * constants in step with the GLSL.
+ * constants in step with the GLSL. The inputs are in frame
+ * UV (y = 0 at the top); the rotation is applied in vTex
+ * space (y = 0 at the bottom), the same conversion the
+ * grid shader makes, so a rotated pool's tilt reads the
+ * same way here as on the picture.
  */
 fun wormLightPoolFactor(
     center: Offset,
@@ -374,7 +397,13 @@ fun wormLightPoolFactor(
     uv: Offset,
 ): Float {
     val dx = uv.x - center.x
-    val dy = uv.y - center.y
+    // Flip y into vTex space (y = 0 at the bottom): the
+    // shader's rotation is applied there, so the same flip
+    // belongs here or a rotated pool's tilt reads mirrored
+    // against the shader. (The grid shader flips the
+    // centre's y the same way; flipping both points is the
+    // same conversion.)
+    val dy = center.y - uv.y
     val c = cos(rotationRad)
     val s = sin(rotationRad)
     val rx = dx * c - dy * s
@@ -485,8 +514,9 @@ fun WormLightOverlay(
             val hw = Color(hardwareColor.argb).copy(
                 alpha = if (hardwareColor.translucent) 0.6f else 1f,
             )
-            // The plug at the left edge, in the strip zone —
-            // the EXT port, where the cord enters the player.
+            // The plug just left of the game rect, in the
+            // strip zone — the EXT port, where the cord
+            // enters the player.
             drawRoundRect(
                 color = hw,
                 topLeft = Offset(g.plugRect.left, g.plugRect.top),
