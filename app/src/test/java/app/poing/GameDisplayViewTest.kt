@@ -102,7 +102,12 @@ class GameDisplayViewTest {
      * stays the largest 3:2 box in the row BELOW the strip
      * (never stretched), and the lamp overlay spans the whole
      * player area. Asserted against the measured slot, like
-     * the fill test above.
+     * the fill test above — and against the row, not the slot:
+     * in the narrow Robolectric window the game is
+     * width-limited, so the frame is vertically CENTRED in
+     * its row (top-aligned only when the height binds, as on
+     * the phone in landscape). The aspect invariant pins that
+     * the frame keeps its ratio whatever binds.
      */
     @Test
     fun gameGivesUpATopStripWhileTheLampIsOn() {
@@ -137,11 +142,14 @@ class GameDisplayViewTest {
         val rowH = slot.height - stripPx
         val boxW = minOf(slot.width, rowH * 1.5f)
         val boxH = boxW / 1.5f
-        // The frame starts below the strip and is the largest
-        // 3:2 box in the row below it.
-        assertEquals(slot.top + stripPx, game.top, 1f * d)
+        // The frame is the largest 3:2 box in the row below
+        // the strip, centred in that row.
         assertEquals(boxW, game.width, 1f * d)
         assertEquals(boxH, game.height, 1f * d)
+        assertEquals(slot.top + stripPx + (rowH - boxH) / 2f, game.top, 1f * d)
+        assertEquals(slot.left + (slot.width - boxW) / 2f, game.left, 1f * d)
+        // The frame keeps its native aspect whatever binds.
+        assertEquals(game.width, game.height * 1.5f, 1f * d)
         // The lamp itself is there, spanning the player area.
         composeRule.onNodeWithTag("worm-light").assertExists()
     }
@@ -175,12 +183,16 @@ class GameDisplayViewTest {
         val d = composeRule.density.density
         val slot = composeRule.onNodeWithTag("slot").fetchSemanticsNode().boundsInRoot
         val game = composeRule.onNodeWithContentDescription("Game: TEST").fetchSemanticsNode().boundsInRoot
-        // No strip: the frame starts at the slot's own top and
-        // fills it, exactly as the fill test pins.
-        assertEquals(slot.top, game.top, 1f * d)
+        // No strip: the frame is the largest 3:2 box in the
+        // slot, centred in it — exactly as the fill test
+        // pins, with the centring made explicit.
         val boxW = minOf(slot.width, slot.height * 1.5f)
+        val boxH = boxW / 1.5f
         assertEquals(boxW, game.width, 1f * d)
-        assertEquals(boxW / 1.5f, game.height, 1f * d)
+        assertEquals(boxH, game.height, 1f * d)
+        assertEquals(slot.top + (slot.height - boxH) / 2f, game.top, 1f * d)
+        assertEquals(slot.left + (slot.width - boxW) / 2f, game.left, 1f * d)
+        assertEquals(game.width, game.height * 1.5f, 1f * d)
         composeRule.onAllNodesWithTag("worm-light").assertCountEquals(0)
     }
 
