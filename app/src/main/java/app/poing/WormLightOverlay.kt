@@ -22,9 +22,13 @@ import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.graphics.drawscope.StrokeCap
+import androidx.compose.ui.graphics.drawscope.clipRect
+import androidx.compose.ui.graphics.drawscope.rotate
+import androidx.compose.ui.graphics.drawscope.scale
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
@@ -413,6 +417,11 @@ fun WormLightOverlay(
     BoxWithConstraints(modifier = modifier.testTag("worm-light")) {
         val width = constraints.maxWidth.toFloat()
         val height = constraints.maxHeight.toFloat()
+        // The density for the geometry: BoxWithConstraints
+        // does not expose it as a property here, so it comes
+        // from the ambient LocalDensity (the same value the
+        // Canvas draw scope sees as its own density).
+        val density = LocalDensity.current.density
         val g = wormLightGeometry(
             width, height, position, density, gameAspect,
             WORM_LIGHT_STRIP_DP, sway,
