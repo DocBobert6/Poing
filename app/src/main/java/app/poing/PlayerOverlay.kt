@@ -2,6 +2,7 @@ package app.poing
 
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 
@@ -48,13 +49,16 @@ fun BoxScope.ControlOverlay(
 ) {
     val theme = ControlThemes.themeFor(system)
     val alpha = layout.opacity / 100f
+    // Performance fix 1 (2026-11-14): the filtered list is
+    // built once per layout/system, not once per pass.
+    val specs = remember(layout, isGba) { layout.controlsFor(isGba) }
     // One placed control per spec: the centre fraction and the
     // size come from the layout, so a resized or moved control
     // renders exactly where the editor put it. The D-pad is one
     // cross; A and B are separate controls that happen to sit
     // as a pair (the editor moves them together by default);
     // L/R and Start/Select likewise.
-    for (spec in layout.controlsFor(isGba)) {
+    for (spec in specs) {
         val size = spec.sizeDp.toFloat()
         val height = if (spec.id == ControlId.L || spec.id == ControlId.R ||
             spec.id == ControlId.START || spec.id == ControlId.SELECT

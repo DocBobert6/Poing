@@ -85,7 +85,16 @@ fun GameScreen(
 ) {
     val context = LocalContext.current
     val activity = context as? ComponentActivity
-    var bitmap by remember { mutableStateOf<Bitmap?>(null) }
+    // Performance fix 1 (2026-11-14) — the frame Bitmap is NOT
+    // Compose state on the GL path: it changed every frame, so
+    // the whole player screen re-executed 60x/s for a Bitmap
+    // Compose never draws (the GL view owns the picture). The
+    // GL path keeps only the frame ASPECT in state, written
+    // only when the geometry changes; the Bitmap is Compose
+    // state only on the no-GL fallback path, where the plain
+    // Compose Image draws it.
+    var frameAspect by remember { mutableStateOf<Float?>(null) }
+    var fallbackBitmap by remember { mutableStateOf<Bitmap?>(null) }
     var stats by remember { mutableStateOf<PlayerStats?>(null) }
     // Edge smoothing, item 5 (2026-11-14) — the dev-stats
     // readout: which program actually drew the last frame.
@@ -347,7 +356,16 @@ fun GameScreen(
             // chain is on, the chain owns the colour (see
             // DisplayChain.effectiveCoreOptions).
             options = DisplayChain.effectiveCoreOptions(optionsStore.all(), displayChain),
-            onFrame = { bitmap = it; glView?.setFrame(it) },
+            onFrame = { frame ->
+                val view = glView
+                if (view != null) {
+                    view.setFrame(frame)
+                    val aspect = frame.width.toFloat() / frame.height.toFloat()
+                    if (aspect != frameAspect) frameAspect = aspect
+                } else {
+                    fallbackBitmap = frame
+                }
+            },
             onStats = { stats = it; drawPath = glView?.drawPath() },
             onError = onError,
         )
@@ -591,6 +609,27 @@ fun GameScreen(
         }
     }
 
+    // Performance fix 1 (2026-11-14) — the overlay callbacks
+    // are remembered, so the control tree is not rebuilt on
+    // every frame's recomposition: fresh lambdas made every
+    // pass unskippable. All three close only over remembered
+    // objects and state setters, so the remembered instances
+    // never go stale.
+    val onInputChanged: () -> Unit = remember { ::pushInput }
+    val onControlDown: () -> Unit = remember {
+        {
+            // Phase 6 (item 10b): a click is a fresh vibrate,
+            // which would kill a running rumble waveform — the
+            // game's rumble wins while it is active, so the
+            // click is skipped then (the motor is already
+            // vibrating).
+            if (cartridgeRumble.currentStrength == 0) hapticsImpl.click()
+        }
+    }
+    val onWormLightDragHeadChange: (WormLightDragHead?) -> Unit = remember {
+        { head -> wormLightDragHead = head }
+    }
+
     BoxWithConstraints(
         modifier = Modifier
             .fillMaxSize()
@@ -663,12 +702,13 @@ fun GameScreen(
             ) {
                 GameDisplayView(
                     glView = glView,
-                    bitmap = bitmap,
+                    bitmap = fallbackBitmap,
+                    frameAspect = frameAspect,
                     gameName = gameName,
                     paused = paused,
                     wormLight = wormLight,
                     wormLightColor = wormLightColor,
-                    onWormLightDragHeadChange = { wormLightDragHead = it },
+                    onWormLightDragHeadChange = onWormLightDragHeadChange,
                     // Top bar / back swipe (Robert, 2026-11-12):
                     // no tap hook — a tap on the game area
                     // does nothing to the bar; only a back
@@ -749,16 +789,8 @@ fun GameScreen(
             canvasHeightDp = canvasHeightDp,
             held = held,
             paused = paused,
-            onInputChanged = ::pushInput,
-            onControlDown = {
-                // Phase 6 (item 10b): a click is a fresh
-                // vibrate, which would kill a running
-                // rumble waveform — the game's rumble wins
-                // while it is active, so the click is
-                // skipped then (the motor is already
-                // vibrating).
-                if (cartridgeRumble.currentStrength == 0) hapticsImpl.click()
-            },
+            onInputChanged = onInputChanged,
+            onControlDown = onControlDown,
         )
         // Worm Light improvements (Robert, 2026-11-13):
         // while a drag is in progress, the lamp's head

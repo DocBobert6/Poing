@@ -1,5 +1,7 @@
 package app.poing
 
+import androidx.compose.runtime.Stable
+
 /**
  * The currently held inputs, as one mutable mask. Held in
  * `remember` (not Compose state — the mask itself never needs a
@@ -7,11 +9,17 @@ package app.poing
  * The pointer-input callbacks read the mask at call time, so they
  * never go stale.
  *
+ * Performance fix 1 (2026-11-14): @Stable — the mask is never
+ * read in composition (only pushInput and the gesture callbacks
+ * read it), so the overlay can skip when nothing it reads
+ * changed.
+ *
  * Phase 5 — moved verbatim out of GameScreen.kt into its own file
  * when the player skin split the controls out (the old GameScreen
  * tail held this class alongside HoldButton/DpadControl, and the
  * split dropped it by accident; commit 4's CI caught it).
  */
+@Stable
 class HeldInput {
     @Volatile
     var mask: Int = 0

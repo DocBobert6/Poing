@@ -234,6 +234,74 @@ class GameDisplayViewTest {
     }
 
     /**
+     * Performance fix 1 (2026-11-14): on the GL path the frame
+     * Bitmap never reaches composition — only its aspect does
+     * (frameAspect), so the player screen does not re-execute
+     * on every frame. The view shows the game on the aspect
+     * alone, with no Bitmap at all, and the loading line is
+     * gone once the first frame has arrived.
+     */
+    @Test
+    fun gameAspectComesFromFrameAspectWithoutBitmap() {
+        composeRule.setContent {
+            PoingTheme {
+                Box(Modifier.size(300.dp, 200.dp).testTag("slot")) {
+                    GameDisplayView(
+                        glView = null,
+                        bitmap = null,
+                        frameAspect = 1.5f,
+                        gameName = "TEST",
+                        paused = false,
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                }
+            }
+        }
+        val d = composeRule.density.density
+        val slot = composeRule.onNodeWithTag("slot").fetchSemanticsNode().boundsInRoot
+        val box = composeRule.onNodeWithTag("game-aspect-box").fetchSemanticsNode().boundsInRoot
+        composeRule.onAllNodesWithText("Loading", substring = true).assertCountEquals(0)
+        // The aspect box is the largest 3:2 box in the slot.
+        val boxW = minOf(slot.width, slot.height * 1.5f)
+        val boxH = boxW / 1.5f
+        assertEquals(boxW, box.width, 1f * d)
+        assertEquals(boxH, box.height, 1f * d)
+    }
+
+    /**
+     * Performance fix 1 (2026-11-14): when both are present
+     * the frame aspect wins over the Bitmap's — the GL path's
+     * aspect is the geometry the view is sized to.
+     */
+    @Test
+    fun frameAspectWinsOverBitmapAspect() {
+        val bitmap = Bitmap.createBitmap(160, 144, Bitmap.Config.ARGB_8888)
+        composeRule.setContent {
+            PoingTheme {
+                Box(Modifier.size(300.dp, 200.dp).testTag("slot")) {
+                    GameDisplayView(
+                        glView = null,
+                        bitmap = bitmap,
+                        frameAspect = 1.5f,
+                        gameName = "TEST",
+                        paused = false,
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                }
+            }
+        }
+        val d = composeRule.density.density
+        val slot = composeRule.onNodeWithTag("slot").fetchSemanticsNode().boundsInRoot
+        val game = composeRule.onNodeWithContentDescription("Game: TEST").fetchSemanticsNode().boundsInRoot
+        // The 160x144 Bitmap would be 10:9; the 1.5 frame aspect wins.
+        val boxW = minOf(slot.width, slot.height * 1.5f)
+        val boxH = boxW / 1.5f
+        assertEquals(boxW, game.width, 1f * d)
+        assertEquals(boxH, game.height, 1f * d)
+        assertEquals(game.width, game.height * 1.5f, 1f * d)
+    }
+
+    /**
      * Top bar / back swipe (Robert, 2026-11-12): the tap
      * hook is gone — a tap on the game area does nothing to
      * the bar, which is only reachable by a back swipe (see

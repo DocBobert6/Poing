@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -46,7 +47,14 @@ import androidx.compose.ui.viewinterop.AndroidView
 @Composable
 fun GameDisplayView(
     glView: GameGlView?,
+    // Performance fix 1 (2026-11-14): the Bitmap is Compose
+    // state only on the no-GL fallback path, where the plain
+    // Compose Image draws it. On the GL path the frame goes
+    // straight to the GL view and only its ASPECT reaches
+    // composition, so the player screen does not re-execute
+    // on every frame.
     bitmap: Bitmap?,
+    frameAspect: Float? = null,
     gameName: String,
     paused: Boolean,
     // Phase 8 — Screen Optics: the Virtual Worm Light, an
@@ -74,7 +82,14 @@ fun GameDisplayView(
             .testTag("game-area"),
         contentAlignment = Alignment.Center,
     ) {
-        val frame = bitmap
+        // Performance fix 1 (2026-11-14): the game shows on
+        // the frame aspect — from the GL path's state, or from
+        // the fallback Bitmap when there is one. The fallback
+        // ImageBitmap is hoisted so a recomposition does not
+        // re-wrap the Bitmap per pass.
+        val aspect = frameAspect
+            ?: bitmap?.let { it.width.toFloat() / it.height.toFloat() }
+        val fallbackImage = remember(bitmap) { bitmap?.asImageBitmap() }
         // Black screen on launch (Robert, 2026-11-14): the view
         // used to compose only once the once-a-second stats had
         // arrived (frame != null && stats != null), so the game
@@ -83,8 +98,9 @@ fun GameDisplayView(
         // button press was only a timing coincidence inside that
         // window (no button handler touches the GL view or the
         // render loop). The view now composes on the first
-        // frame alone; the aspect comes from the frame Bitmap
-        // itself, and only the dev-stats diagnostic line (in the
+        // frame alone; the aspect comes from the frame (the
+        // GL path's aspect state, or the fallback Bitmap),
+        // and only the dev-stats diagnostic line (in the
         // top bar, which already tolerates null stats) waits
         // for the stats.
         // Worm Light realism (Robert, 2026-11-12): when the
@@ -103,7 +119,7 @@ fun GameDisplayView(
         LaunchedEffect(glView) {
             glView?.requestRender()
         }
-        if (frame != null) {
+        if (aspect != null) {
             // No bezel (Robert, 2026-11-12): the silver 2dp
             // border, the dark surround and the 4dp inner padding
             // are gone, so the frame fills the aspect box
@@ -145,8 +161,9 @@ fun GameDisplayView(
                 ) {
                     Box(
                         modifier = Modifier
-                            .aspectRatio(frame.width.toFloat() / frame.height.toFloat())
-                            .fillMaxSize(),
+                            .aspectRatio(aspect)
+                            .fillMaxSize()
+                            .testTag("game-aspect-box"),
                         contentAlignment = Alignment.Center,
                     ) {
                         if (glView != null) {
@@ -154,14 +171,18 @@ fun GameDisplayView(
                                 factory = { glView },
                                 modifier = Modifier.fillMaxSize(),
                             )
-                        } else {
+                        } else if (fallbackImage != null) {
                             Image(
-                                bitmap = frame.asImageBitmap(),
+                                bitmap = fallbackImage,
                                 contentDescription = "Game: $gameName",
                                 modifier = Modifier.fillMaxSize(),
                                 contentScale = ContentScale.Fit,
                             )
                         }
+                        // No GL view and no fallback Bitmap:
+                        // cannot happen in production (the
+                        // fallback path always carries a
+                        // Bitmap); the box stays black.
                         Box(
                             modifier = Modifier.fillMaxSize(),
                             contentAlignment = Alignment.TopCenter,
@@ -184,7 +205,7 @@ fun GameDisplayView(
             WormLightOverlay(
                 enabled = wormLight,
                 hardwareColor = wormLightColor,
-                gameAspect = frame.width.toFloat() / frame.height.toFloat(),
+                gameAspect = aspect,
                 drawPool = glView == null,
                 onPoolChange = { pool -> glView?.setWormLight(pool) },
                 onDragHeadChange = onWormLightDragHeadChange,
