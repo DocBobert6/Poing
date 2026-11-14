@@ -91,12 +91,19 @@ class LibraryScreenTest {
         composeRule.onNodeWithText("TETRIS").assertIsDisplayed()
         // The second row sits below the fold in the narrow
         // Robolectric window now that the view switch adds a row
-        // to the header: scroll it into view first. Grid items
-        // are 0 top bar, 1 Add row, 2 Licences/Settings,
-        // 3 shoulders, 4 view, 5 TETRIS, 6 POKEMON, 7 BIOS card.
-        // TETRIS is asserted before the scroll, since scrolling
-        // POKEMON in can push it out.
-        composeRule.onNodeWithTag("library-grid").performScrollToIndex(6)
+        // to the header: scroll it into view first. Scroll to
+        // the FIRST row (index 5), not to POKEMON itself: the
+        // grid is edge-to-edge, so scrolling the target row to
+        // the very top parks it under the status bar, where
+        // assertIsDisplayed fails — and whether the scroll
+        // clamps short of the top depends on how tall the BIOS
+        // card below it is, so the index-6 scroll broke when
+        // the card grew a button row (2026-11-14). Scrolling
+        // to TETRIS leaves POKEMON a full row below the top,
+        // in view whatever the card below does. TETRIS is
+        // asserted before the scroll, since scrolling POKEMON
+        // in can push it out.
+        composeRule.onNodeWithTag("library-grid").performScrollToIndex(5)
         composeRule.onNodeWithText("POKEMON").assertIsDisplayed()
     }
 
