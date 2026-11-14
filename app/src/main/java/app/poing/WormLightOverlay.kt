@@ -3,7 +3,10 @@ package app.poing
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.Canvas
-import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.awaitTouchSlopOrCancellation
+import androidx.compose.foundation.gestures.drag
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
@@ -29,6 +32,7 @@ import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.graphics.drawscope.scale
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.PointerInputChange
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import kotlinx.coroutines.Job
@@ -890,13 +894,24 @@ fun WormLightOverlay(
             modifier = Modifier
                 .fillMaxSize()
                 .pointerInput(width, height) {
-                    // A tap ends in onDragCancel, not onDragEnd:
-                    // detectDragGestures only calls onDragEnd
-                    // after the touch slop is exceeded, and a
-                    // tap never exceeds it. So the tap-to-aim
-                    // toggle lives here, where both ends reach
-                    // it; the settle wobble stays onDragEnd-only
-                    // (a cancelled drag does not wobble).
+                    // Tap-to-aim needs a tap the detector
+                    // actually reports — detectDragGestures
+                    // does NOT: its onDragStart, onDrag,
+                    // onDragEnd and onDragCancel all sit
+                    // inside the touch-slop-passed branch,
+                    // so a tap (which never passes slop)
+                    // produces no callback at all. The
+                    // toggle used to live in onDragCancel
+                    // and could never fire — on device as
+                    // well as in test (five rounds of test
+                    // fixes all failed on the same probe
+                    // before the source was read). So the
+                    // gesture loop is written out here:
+                    // awaitFirstDown sees the press,
+                    // awaitTouchSlopOrCancellation
+                    // returning null IS the tap, and the
+                    // drag path mirrors detectDragGestures
+                    // step for step.
                     fun toggleAimIfTap() {
                         if (pressOnHead &&
                             dragDistancePx <= WORM_LIGHT_TAP_MAX_DP * density
@@ -916,41 +931,77 @@ fun WormLightOverlay(
                             aimMode = !aimMode
                         }
                     }
-                    detectDragGestures(
-                        onDragStart = { press ->
-                            // A fresh grab cancels any settle
-                            // wobble still running.
-                            wobbleJob?.cancel()
-                            sway = 0f
-                            dragStartX = position.x * width
-                            // Was this press on the head? The
-                            // geometry here is computed from
-                            // the live position state — never
-                            // the g captured by this closure,
-                            // which is stale by the time a
-                            // drag starts.
-                            val pressGeom = wormLightGeometry(
+                    // One drag step: accumulate the distance,
+                    // rotate in aim mode or move the head
+                    // otherwise, and report the head
+                    // synchronously — not in the press handler,
+                    // so a tap never flashes the drag layer,
+                    // and not through a LaunchedEffect, which
+                    // a fast drag can outrun. The geometry is
+                    // computed fresh from the live position
+                    // and the new aim angle, so the reported
+                    // head is the head as drawn after this
+                    // movement.
+                    fun handleDrag(change: PointerInputChange, dragAmount: Offset) {
+                        change.consume()
+                        dragDistancePx += dragAmount.getDistance()
+                        if (aimMode) {
+                            // Aim mode: the drag rotates
+                            // the head and the pool — the
+                            // head never moves. The angle
+                            // is the direction from the
+                            // head to the finger; a press
+                            // need not start on the head.
+                            // The head's centre is computed
+                            // fresh from the live position
+                            // — never the g captured by
+                            // this closure, which is stale.
+                            val geom = wormLightGeometry(
                                 width, height, position, density,
-                                gameAspect, WORM_LIGHT_STRIP_DP, 0f,
-                                aimAngleRad = if (aimMode) aimAngleRad else null,
+                                gameAspect, WORM_LIGHT_STRIP_DP, sway,
+                                aimAngleRad = aimAngleRad,
                             )
-                            val (halfW, halfH) = lensHalfExtents(
-                                pressGeom.lensRotationDeg * PI.toFloat() / 180f,
-                                density,
-                            )
-                            val grab = WORM_LIGHT_TAP_GRAB_EXTRA_DP * density
-                            pressOnHead =
-                                abs(press.x - pressGeom.lensCenter.x) <= halfW + grab &&
-                                abs(press.y - pressGeom.lensCenter.y) <= halfH + grab
-                            dragDistancePx = 0f
-                        },
-                        onDragEnd = {
-                            // A tap on the head toggles aim
-                            // mode (see toggleAimIfTap above);
-                            // a real move drag settles with a
-                            // wobble. An aim-mode drag neither
-                            // toggles nor wobbles.
-                            toggleAimIfTap()
+                            val finger = change.position
+                            val dx = finger.x - geom.lensCenter.x
+                            val dy = finger.y - geom.lensCenter.y
+                            if (sqrt(dx * dx + dy * dy) >= 1f) {
+                                aimAngleRad = atan2(dy, dx)
+                            }
+                        } else {
+                            // The raw position is only
+                            // clamped to the box here — the
+                            // geometry clamps the head to
+                            // the box (free head, Robert,
+                            // 2026-11-13), so the drag and
+                            // the clamp stay in one place.
+                            val x = (position.x * width + dragAmount.x)
+                                .coerceIn(0f, width)
+                            val y = (position.y * height + dragAmount.y)
+                                .coerceIn(0f, height)
+                            position = Offset(x / width, y / height)
+                            sway = (x - dragStartX) * WORM_LIGHT_SWAY_DRAG_FACTOR
+                        }
+                        val geom = wormLightGeometry(
+                            width, height, position, density,
+                            gameAspect, WORM_LIGHT_STRIP_DP, sway,
+                            aimAngleRad = if (aimMode) aimAngleRad else null,
+                        )
+                        onDragHeadChange(
+                            wormLightDragHead(geom, density, hardwareColor, aimMode),
+                        )
+                    }
+                    // How a drag ends: a tap on the head
+                    // toggles aim mode (see toggleAimIfTap);
+                    // a drag that ends normally settles with
+                    // a wobble unless it was a tap-sized move
+                    // or an aim-mode drag; a cancelled drag
+                    // does not wobble. Both ends clear the
+                    // drag-layer head, so the overlay's own
+                    // head (below the controls) is the only
+                    // one.
+                    fun endDrag(completed: Boolean) {
+                        toggleAimIfTap()
+                        if (completed) {
                             if (!aimMode &&
                                 dragDistancePx > WORM_LIGHT_TAP_MAX_DP * density
                             ) {
@@ -968,77 +1019,66 @@ fun WormLightOverlay(
                                     ) { sway = value }
                                 }
                             }
-                            // The drag is over: the player
-                            // clears its drag-layer head, so
-                            // the overlay's own head (below
-                            // the controls) is the only one.
-                            onDragHeadChange(null)
-                        },
-                        onDragCancel = {
-                            toggleAimIfTap()
+                        } else {
                             wobbleJob?.cancel()
                             sway = 0f
-                            onDragHeadChange(null)
-                        },
-                        onDrag = { change, dragAmount ->
+                        }
+                        onDragHeadChange(null)
+                    }
+                    awaitEachGesture {
+                        val down = awaitFirstDown(requireUnconsumed = false)
+                        // A fresh grab cancels any settle
+                        // wobble still running.
+                        wobbleJob?.cancel()
+                        sway = 0f
+                        dragStartX = position.x * width
+                        // Was this press on the head? The
+                        // geometry here is computed from
+                        // the live position state — never
+                        // the g captured by this closure,
+                        // which is stale by the time a
+                        // drag starts. (detectDragGestures
+                        // computed it from the slop
+                        // position instead; the press point
+                        // itself is the right point for a
+                        // tap.)
+                        val pressGeom = wormLightGeometry(
+                            width, height, position, density,
+                            gameAspect, WORM_LIGHT_STRIP_DP, 0f,
+                            aimAngleRad = if (aimMode) aimAngleRad else null,
+                        )
+                        val (halfW, halfH) = lensHalfExtents(
+                            pressGeom.lensRotationDeg * PI.toFloat() / 180f,
+                            density,
+                        )
+                        val grab = WORM_LIGHT_TAP_GRAB_EXTRA_DP * density
+                        pressOnHead =
+                            abs(down.position.x - pressGeom.lensCenter.x) <= halfW + grab &&
+                            abs(down.position.y - pressGeom.lensCenter.y) <= halfH + grab
+                        dragDistancePx = 0f
+                        var overSlop = Offset.Zero
+                        val slopChange = awaitTouchSlopOrCancellation(down.id) { change, over ->
                             change.consume()
-                            dragDistancePx += dragAmount.getDistance()
-                            if (aimMode) {
-                                // Aim mode: the drag rotates
-                                // the head and the pool — the
-                                // head never moves. The angle
-                                // is the direction from the
-                                // head to the finger; a press
-                                // need not start on the head.
-                                // The head's centre is computed
-                                // fresh from the live position
-                                // — never the g captured by
-                                // this closure, which is stale.
-                                val geom = wormLightGeometry(
-                                    width, height, position, density,
-                                    gameAspect, WORM_LIGHT_STRIP_DP, sway,
-                                    aimAngleRad = aimAngleRad,
-                                )
-                                val finger = change.position
-                                val dx = finger.x - geom.lensCenter.x
-                                val dy = finger.y - geom.lensCenter.y
-                                if (sqrt(dx * dx + dy * dy) >= 1f) {
-                                    aimAngleRad = atan2(dy, dx)
-                                }
-                            } else {
-                                // The raw position is only
-                                // clamped to the box here — the
-                                // geometry clamps the head to
-                                // the box (free head, Robert,
-                                // 2026-11-13), so the drag and
-                                // the clamp stay in one place.
-                                val x = (position.x * width + dragAmount.x)
-                                    .coerceIn(0f, width)
-                                val y = (position.y * height + dragAmount.y)
-                                    .coerceIn(0f, height)
-                                position = Offset(x / width, y / height)
-                                sway = (x - dragStartX) * WORM_LIGHT_SWAY_DRAG_FACTOR
+                            overSlop = over
+                        }
+                        if (slopChange == null) {
+                            // The press ended without passing
+                            // touch slop: a tap. This is the
+                            // branch detectDragGestures never
+                            // takes — the toggle lives here,
+                            // where the tap is actually seen.
+                            // Nothing was ever reported, so
+                            // the null clear is only symmetry.
+                            toggleAimIfTap()
+                            onDragHeadChange(null)
+                        } else {
+                            handleDrag(slopChange, overSlop)
+                            val completed = drag(down.id) { change ->
+                                handleDrag(change, change.positionChange())
                             }
-                            // Report the head synchronously, on
-                            // the first real movement — not in
-                            // onDragStart, so a tap never flashes
-                            // the drag layer, and not through a
-                            // LaunchedEffect, which a fast drag
-                            // can outrun. The geometry is
-                            // computed fresh from the live
-                            // position and the new aim angle, so
-                            // the reported head is the head as
-                            // drawn after this movement.
-                            val geom = wormLightGeometry(
-                                width, height, position, density,
-                                gameAspect, WORM_LIGHT_STRIP_DP, sway,
-                                aimAngleRad = if (aimMode) aimAngleRad else null,
-                            )
-                            onDragHeadChange(
-                                wormLightDragHead(geom, density, hardwareColor, aimMode),
-                            )
-                        },
-                    )
+                            endDrag(completed)
+                        }
+                    }
                 },
         ) {
             val hw = Color(hardwareColor.argb).copy(

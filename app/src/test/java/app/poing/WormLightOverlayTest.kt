@@ -120,26 +120,31 @@ class WormLightOverlayTest {
         // straight down (~1.57 rad) while its centre stays at
         // the top-centre — the head never moves. The angle is
         // a direction, so it holds at any density or window.
-        // (A tap ends the gesture in onDragCancel, not
-        // onDragEnd — detectDragGestures only calls onDragEnd
-        // after the touch slop is exceeded — so this test is
-        // also the regression test for the toggle living on
-        // both ends.) Two probes separate the failure modes:
-        // sawAnyHead proves the swipe produced a drag at all
-        // (its down must land inside the node — so the swipe
-        // starts ON the head, not beside it, where a small
-        // measured node could put the start outside); sawAimHead
-        // proves the tap toggled aim mode. The rotation
-        // tolerance is 0.15, not exact: the swipe's final move
-        // lands within a few px of straight down, and near
-        // straight down a few px sideways swings the angle —
-        // the exact angle is pinned by the pure geometry test
-        // instead (aimAngleSetsTheLensAndThePool).
+        // (This test is the regression test for the tap
+        // itself: detectDragGestures never reports a tap at
+        // all — all its callbacks sit inside the
+        // touch-slop-passed branch — so the overlay writes
+        // its own gesture loop and the toggle lives in the
+        // tap branch, where awaitTouchSlopOrCancellation
+        // returns null. Five rounds of test-only fixes all
+        // failed on the same probe before that was read in
+        // the detector's source.) Two probes separate the
+        // failure modes: sawAnyHead proves the swipe produced
+        // a drag at all (its down must land inside the node
+        // — so the swipe starts ON the head, not beside it,
+        // where a small measured node could put the start
+        // outside); sawAimHead proves the tap toggled aim
+        // mode. The rotation tolerance is 0.15, not exact:
+        // the swipe's final move lands within a few px of
+        // straight down, and near straight down a few px
+        // sideways swings the angle — the exact angle is
+        // pinned by the pure geometry test instead
+        // (aimAngleSetsTheLensAndThePool).
         var reported: WormLightPool? = null
         var sawAnyHead = false
         var sawAimHead = false
         // Every onDragHeadChange call, null or not: the
-        // tap's onDragCancel calls it with null, so a count
+        // tap branch calls it with null, so a count
         // of 1 right after the tap proves the tap's gesture
         // completed (and the toggle ran); 0 proves the tap
         // never completed in the detector at all.
@@ -166,29 +171,15 @@ class WormLightOverlayTest {
         // head sits at (0.5, 0.06) of the node, i.e. centre
         // + (0, -0.44h) — so the tap lands on the head
         // whatever the node's root offset or measured size
-        // (centre is node-local per the API docs, so the
-        // coordinates were never the problem). The tap is
-        // down, an explicit 100ms event-time advance, then
-        // up: the docs say all events in one performTouchInput
-        // block are batched together and sent as a whole, and
-        // click() / a split down()+up() / a 2px swipe all
-        // send down and up with no event-time advance between
-        // them — under Robolectric those collapse, the up
-        // never completes the gesture, and the probe stayed
-        // at 0 drag-head calls (neither end callback ran).
-        // swipe() works because it spreads its events over a
-        // duration; the explicit advance does the same for
-        // the tap. A real tap has ~50-100ms between down and
-        // up, so this is the faithful shape, and the toggle
-        // still sees dragDistancePx 0 under the 12dp max.
+        // (centre is node-local per the API docs). A plain
+        // click(): the overlay's own gesture loop reports
+        // the tap, where detectDragGestures never did.
         composeRule.onNodeWithTag("worm-light").performTouchInput {
-            down(center + Offset(0f, -0.44f * size.second))
-            advanceEventTime(100)
-            up()
+            click(center + Offset(0f, -0.44f * size.second))
         }
         composeRule.waitForIdle()
         assertTrue(
-            "the tap should have completed (its onDragCancel reports null)",
+            "the tap should have completed (the tap branch reports null)",
             dragHeadCalls >= 1,
         )
         // Drag straight down from the head: in aim mode this
