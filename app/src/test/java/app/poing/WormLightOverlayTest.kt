@@ -170,15 +170,14 @@ class WormLightOverlayTest {
         // await — which is why the swipe probe passed while
         // the aim probe failed). A real tap is two separate
         // MotionEvents; the split injection is the faithful
-        // one, and the up goes to the pointer the down
-        // returned.
-        var tapPointer = 0
+        // one, and the up goes to pointer 0, the pointer the
+        // down opened.
         composeRule.onNodeWithTag("worm-light").performTouchInput {
-            tapPointer = down(center + Offset(0f, -0.44f * size.second))
+            down(center + Offset(0f, -0.44f * size.second))
         }
         composeRule.waitForIdle()
         composeRule.onNodeWithTag("worm-light").performTouchInput {
-            up(tapPointer)
+            up()
         }
         composeRule.waitForIdle()
         // Drag straight down from the head: in aim mode this
