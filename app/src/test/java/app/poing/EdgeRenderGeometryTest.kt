@@ -7,6 +7,7 @@ import kotlin.math.abs
 import kotlin.math.floor
 import kotlin.math.max
 import kotlin.math.min
+import kotlin.math.pow
 import kotlin.math.sqrt
 
 /**
@@ -62,6 +63,51 @@ class EdgeRenderGeometryTest {
 
     private fun mix(a: Float, b: Float, t: Float): Float = a + (b - a) * t
 
+    private fun mixRgb(a: Rgb, b: Rgb, t: Float): Rgb =
+        Rgb(mix(a.r, b.r, t), mix(a.g, b.g, t), mix(a.b, b.b, t))
+
+    /**
+     * The colour-fold, mirrored from EDGE_FRAGMENT's
+     * colourCorrect (which is COLOUR_FRAGMENT's mode logic
+     * as a function): mode 0 is Jade's FSTN ramp, mode 1
+     * passes through, modes 2 / 3 are the SameBoy response
+     * ramp (LUT row 0 CGB / row 1 AGB) then the mGBA matrix
+     * in linear light (x0.94). The LUT values come from
+     * DisplayShaders itself, so a LUT change moves both.
+     */
+    private fun colourCorrect(c: Rgb, mode: Int): Rgb {
+        if (mode == 1) return c
+        if (mode == 0) {
+            val l = c.luma()
+            val s0 = Rgb(0.094f, 0.161f, 0.129f)
+            val s1 = Rgb(0.290f, 0.388f, 0.322f)
+            val s2 = Rgb(0.518f, 0.612f, 0.518f)
+            val s3 = Rgb(0.647f, 0.710f, 0.647f)
+            val c01 = mixRgb(s0, s1, clampF(l / 0.322f, 0f, 1f))
+            val c12 = mixRgb(s1, s2, clampF((l - 0.322f) / 0.356f, 0f, 1f))
+            val c23 = mixRgb(s2, s3, clampF((l - 0.678f) / 0.322f, 0f, 1f))
+            return mixRgb(mixRgb(c01, c12, step(0.322f, l)), c23, step(0.678f, l))
+        }
+        val lut = if (mode == 2) DisplayShaders.GAMMA_LUT_GBC else DisplayShaders.GAMMA_LUT_GBA
+        fun ramp(ch: Float): Double {
+            val idx = min(floor(ch * 32f), 31f).toInt()
+            return (lut[idx] / 255.0).pow(2.2)
+        }
+        val lr = ramp(c.r)
+        val lg = ramp(c.g)
+        val lb = ramp(c.b)
+        val mR = 0.94 * (0.82 * lr + 0.24 * lg - 0.06 * lb)
+        val mG = 0.94 * (0.125 * lr + 0.665 * lg + 0.21 * lb)
+        val mB = 0.94 * (0.195 * lr + 0.075 * lg + 0.73 * lb)
+        return Rgb(
+            clampF(max(mR, 0.0).pow(1.0 / 2.2).toFloat(), 0f, 1f),
+            clampF(max(mG, 0.0).pow(1.0 / 2.2).toFloat(), 0f, 1f),
+            clampF(max(mB, 0.0).pow(1.0 / 2.2).toFloat(), 0f, 1f),
+        )
+    }
+
+    private fun close(a: Rgb, b: Rgb, eps: Float = 0.001f): Boolean = a.dist(b) <= eps
+
     /** GL_NEAREST sampling of the frame at UV (u, v). */
     private fun sample(frame: Array<Rgb>, w: Int, h: Int, u: Float, v: Float): Rgb {
         val x = floor(u * w).toInt().coerceIn(0, w - 1)
@@ -73,8 +119,8 @@ class EdgeRenderGeometryTest {
      * DisplayShaders.EDGE_FRAGMENT, mirrored in Kotlin
      * (reworked 2026-11-14: dither blends flat, no GB
      * snap, no motion, no taper, per-system text
-     * threshold). Must be kept in step with the shader;
-     * sim2.py (~/workspace/poing/verify/edge-rework/
+     * threshold, colour-fold in item 4). Must be kept in step
+     * with the shader; sim2.py (~/workspace/poing/verify/edge-rework/
      * sim2.py) mirrors the same shader in Python and
      * cross-checks these numbers at full device
      * resolution.
@@ -86,18 +132,23 @@ class EdgeRenderGeometryTest {
         u: Float,
         v: Float,
         params: EdgeParams,
+        mode: Int,
     ): Rgb {
         val tx = 1f / w
         val ty = 1f / h
-        val c0 = sample(frame, w, h, u, v)
-        val cN = sample(frame, w, h, u, v + ty)
-        val cS = sample(frame, w, h, u, v - ty)
-        val cE = sample(frame, w, h, u + tx, v)
-        val cW = sample(frame, w, h, u - tx, v)
-        val cNE = sample(frame, w, h, u + tx, v + ty)
-        val cNW = sample(frame, w, h, u - tx, v + ty)
-        val cSE = sample(frame, w, h, u + tx, v - ty)
-        val cSW = sample(frame, w, h, u - tx, v - ty)
+        // The colour-fold runs first: all nine samples are
+        // corrected before any edge work, so the dither
+        // averages, the gradients and the blends all work
+        // in the corrected colours.
+        val c0 = colourCorrect(sample(frame, w, h, u, v), mode)
+        val cN = colourCorrect(sample(frame, w, h, u, v + ty), mode)
+        val cS = colourCorrect(sample(frame, w, h, u, v - ty), mode)
+        val cE = colourCorrect(sample(frame, w, h, u + tx, v), mode)
+        val cW = colourCorrect(sample(frame, w, h, u - tx, v), mode)
+        val cNE = colourCorrect(sample(frame, w, h, u + tx, v + ty), mode)
+        val cNW = colourCorrect(sample(frame, w, h, u - tx, v + ty), mode)
+        val cSE = colourCorrect(sample(frame, w, h, u + tx, v - ty), mode)
+        val cSW = colourCorrect(sample(frame, w, h, u - tx, v - ty), mode)
         val tol = params.ditherTol
         val dDiag = c0.dist(cSE)
         val dE = c0.dist(cE)
@@ -243,13 +294,14 @@ class EdgeRenderGeometryTest {
         viewW: Int,
         viewH: Int,
         params: EdgeParams,
+        mode: Int,
     ): Array<Rgb> {
         val out = Array(viewW * viewH) { Rgb(0f, 0f, 0f) }
         for (j in 0 until viewH) {
             val v = (j + 0.5f) / viewH
             for (i in 0 until viewW) {
                 val u = (i + 0.5f) / viewW
-                out[j * viewW + i] = edgeFragment(frame, w, h, u, v, params)
+                out[j * viewW + i] = edgeFragment(frame, w, h, u, v, params, mode)
             }
         }
         return out
@@ -266,6 +318,26 @@ class EdgeRenderGeometryTest {
             }
         }
         return out
+    }
+
+    /**
+     * The colour-corrected nearest base: the plain blit does
+     * not colour-correct, so the edge output must be compared
+     * against the corrected nearest, not the raw frame — the
+     * colour-fold changes colours everywhere, and "changed"
+     * means edge / dither work only. The sim's
+     * nearest_corrected_np is the same base.
+     */
+    private fun nearestCorrected(
+        frame: Array<Rgb>,
+        w: Int,
+        h: Int,
+        viewW: Int,
+        viewH: Int,
+        mode: Int,
+    ): Array<Rgb> {
+        val base = nearest(frame, w, h, viewW, viewH)
+        return Array(base.size) { colourCorrect(base[it], mode) }
     }
 
     /**
@@ -317,8 +389,8 @@ class EdgeRenderGeometryTest {
         val dark = Rgb(0.1f, 0.1f, 0.1f)
         val frame = diagonalFrame(w, h, light, dark)
         val params = EdgeSmoothing.edgeParamsFor(GameSystem.GBA)
-        val out = renderEdge(frame, w, h, 480, 320, params)
-        val base = nearest(frame, w, h, 480, 320)
+        val out = renderEdge(frame, w, h, 480, 320, params, 3)
+        val base = nearestCorrected(frame, w, h, 480, 320, 3)
         val changed = changedPixels(out, base)
         // The blended band runs the length of the diagonal
         // (~200 texels); at 2x that is hundreds of display
@@ -353,8 +425,8 @@ class EdgeRenderGeometryTest {
         val dark = Rgb(0.1f, 0.1f, 0.1f)
         val frame = diagonalFrame(w, h, light, dark)
         val params = EdgeSmoothing.edgeParamsFor(GameSystem.GBA)
-        val out = renderEdge(frame, w, h, w, h, params)
-        val base = nearest(frame, w, h, w, h)
+        val out = renderEdge(frame, w, h, w, h, params, 3)
+        val base = nearestCorrected(frame, w, h, w, h, 3)
         assertEquals("at native size the shader is a no-op", 0, changedPixels(out, base))
     }
 
@@ -367,8 +439,8 @@ class EdgeRenderGeometryTest {
         val flat = Rgb(0.9f, 0.9f, 0.9f)
         val frame = Array(w * h) { flat }
         val params = EdgeSmoothing.edgeParamsFor(GameSystem.GBA)
-        val out = renderEdge(frame, w, h, 480, 320, params)
-        val base = nearest(frame, w, h, 480, 320)
+        val out = renderEdge(frame, w, h, 480, 320, params, 3)
+        val base = nearestCorrected(frame, w, h, 480, 320, 3)
         assertEquals(0, changedPixels(out, base))
     }
 
@@ -384,13 +456,16 @@ class EdgeRenderGeometryTest {
         val h = 144
         val frame = diagonalFrame(w, h, GB_PAL[0], GB_PAL[3])
         val params = EdgeSmoothing.edgeParamsFor(GameSystem.GB)
-        val out = renderEdge(frame, w, h, 320, 288, params)
-        val base = nearest(frame, w, h, 320, 288)
+        val out = renderEdge(frame, w, h, 320, 288, params, 0)
+        val base = nearestCorrected(frame, w, h, 320, 288, 0)
         val changed = changedPixels(out, base)
         assertTrue("a GB diagonal must blend, changed=$changed", changed > 50)
-        // Every output is still grey (the input is greyscale).
+        // Every output is FSTN green-grey (the colour-fold:
+        // the input greys land on the Pocket ramp, whose
+        // stops are all green-dominant) — no longer plain
+        // grey, and never a third hue.
         for (px in out) {
-            assertTrue("GB output must stay grey", abs(px.r - px.g) <= 0.001f && abs(px.g - px.b) <= 0.001f)
+            assertTrue("GB output must stay FSTN green-grey", px.g >= px.r - 0.001f && px.g >= px.b - 0.001f)
         }
         // And the band holds intermediates, not just the 4 shades.
         val distinct = out.map { (it.r * 1000).toInt() }.toSet().size
@@ -398,13 +473,39 @@ class EdgeRenderGeometryTest {
     }
 
     @Test
+    fun colourCorrectMatchesTheChainModel() {
+        // The fold's pins — the same numbers the sim checks
+        // (C1) and the rebuild measured: the FSTN ramp lands
+        // on the Pocket shades, Prism grey8 -> 64, Dusk
+        // grey8 -> 46, white -> 248 in both; and a pure red
+        // pins the matrix itself, not just the greys.
+        assertTrue(close(colourCorrect(Rgb(1f, 1f, 1f), 0), Rgb(0.647f, 0.710f, 0.647f)))
+        assertTrue(close(colourCorrect(Rgb(0f, 0f, 0f), 0), Rgb(0.094f, 0.161f, 0.129f)))
+        assertTrue(close(colourCorrect(Rgb(0.322f, 0.322f, 0.322f), 0), Rgb(0.290f, 0.388f, 0.322f)))
+        assertTrue(close(colourCorrect(Rgb(0.678f, 0.678f, 0.678f), 0), Rgb(0.518f, 0.612f, 0.518f)))
+        val g8 = Rgb(66f / 255f, 66f / 255f, 66f / 255f)
+        val white = Rgb(1f, 1f, 1f)
+        assertTrue(close(colourCorrect(g8, 2), Rgb(64f / 255f, 64f / 255f, 64f / 255f), 0.01f))
+        assertTrue(close(colourCorrect(white, 2), Rgb(248f / 255f, 248f / 255f, 248f / 255f), 0.01f))
+        assertTrue(close(colourCorrect(g8, 3), Rgb(46f / 255f, 46f / 255f, 46f / 255f), 0.01f))
+        assertTrue(close(colourCorrect(white, 3), Rgb(248f / 255f, 248f / 255f, 248f / 255f), 0.01f))
+        assertTrue(close(colourCorrect(Rgb(1f, 0f, 0f), 2), Rgb(0.8884f, 0.3778f, 0.4625f), 0.002f))
+        // Mode 1 passes through exactly (DMG-green / SGB
+        // palettes as the core rendered them).
+        val passthrough = Rgb(0.3f, 0.5f, 0.7f)
+        assertTrue(close(colourCorrect(passthrough, 1), passthrough, 0.0001f))
+    }
+
+    @Test
     fun gbcColourCheckerboardBlendsToTheAverage() {
         // GBC at 2x: a 2-colour checkerboard (dither in
-        // colour) blends to the average colour — the
-        // real-LCD look — not preserved as noise and not
-        // blurred into a third colour. The average is then
-        // 15-bit snapped (GBC snap15), so the tolerance
-        // allows the snap step (<= 0.016 a channel).
+        // colour) blends to the average of the CORRECTED
+        // colours (the fold runs before the dither blend)
+        // — the real-LCD look — not preserved as noise and
+        // not blurred into a third colour. The average is
+        // then 15-bit snapped (GBC snap15), so the
+        // tolerance allows the snap step (<= 0.016 a
+        // channel).
         val w = 16
         val h = 16
         val red = Rgb(0.8f, 0.1f, 0.1f)
@@ -415,9 +516,18 @@ class EdgeRenderGeometryTest {
             if ((x + y) % 2 == 0) red else blue
         }
         val params = EdgeSmoothing.edgeParamsFor(GameSystem.GBC)
-        val out = renderEdge(frame, w, h, w * 2, h * 2, params)
+        val out = renderEdge(frame, w, h, w * 2, h * 2, params, 2)
         val eff = effectiveTexels(out, w, h, w * 2, h * 2)
-        val avg = Rgb(0.45f, 0.1f, 0.45f)
+        // The average of the CORRECTED colours (the fold runs
+        // before the dither blend), then 15-bit snapped
+        // (GBC snap15) — the tolerance allows the snap step.
+        val redC = colourCorrect(red, 2)
+        val blueC = colourCorrect(blue, 2)
+        val avg = Rgb(
+            floor(((redC.r + blueC.r) * 0.5f) * 31f + 0.5f) / 31f,
+            floor(((redC.g + blueC.g) * 0.5f) * 31f + 0.5f) / 31f,
+            floor(((redC.b + blueC.b) * 0.5f) * 31f + 0.5f) / 31f,
+        )
         // Interior only: the 1-texel frame border is sampled
         // clamped (GL_CLAMP_TO_EDGE), so a border texel's
         // neighbours include itself and the checker does not
@@ -430,10 +540,11 @@ class EdgeRenderGeometryTest {
             }
         }
         // And the base is NOT the average: the checkerboard
-        // really is two colours before the blend.
-        val base = nearest(frame, w, h, w * 2, h * 2)
+        // really is two colours before the blend (the
+        // corrected red and blue).
+        val base = nearestCorrected(frame, w, h, w * 2, h * 2, 2)
         val baseEff = effectiveTexels(base, w, h, w * 2, h * 2)
-        assertTrue("the base checkerboard must hold two colours", baseEff.any { it.dist(red) <= 0.001f } && baseEff.any { it.dist(blue) <= 0.001f })
+        assertTrue("the base checkerboard must hold two colours", baseEff.any { it.dist(redC) <= 0.001f } && baseEff.any { it.dist(blueC) <= 0.001f })
     }
 
     @Test
@@ -449,8 +560,8 @@ class EdgeRenderGeometryTest {
         val dark = Rgb(0.1f, 0.1f, 0.1f)
         val frame = diagonalFrame(w, h, light, dark)
         val params = EdgeSmoothing.edgeParamsFor(GameSystem.GBC)
-        val out = renderEdge(frame, w, h, 480, 320, params)
-        val base = nearest(frame, w, h, 480, 320)
+        val out = renderEdge(frame, w, h, 480, 320, params, 2)
+        val base = nearestCorrected(frame, w, h, 480, 320, 2)
         val changed = changedPixels(out, base)
         assertTrue("a GBC diagonal must blend, changed=$changed", changed > 100)
         for (i in out.indices) {
@@ -475,8 +586,8 @@ class EdgeRenderGeometryTest {
             if (y in 70..74) dark else light
         }
         val params = EdgeSmoothing.edgeParamsFor(GameSystem.GBA)
-        val out = renderEdge(frame, w, h, 480, 320, params)
-        val base = nearest(frame, w, h, 480, 320)
+        val out = renderEdge(frame, w, h, 480, 320, params, 3)
+        val base = nearestCorrected(frame, w, h, 480, 320, 3)
         assertEquals(0, changedPixels(out, base))
     }
 

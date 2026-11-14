@@ -413,6 +413,38 @@ class DisplayRenderer : GLSurfaceView.Renderer {
             if (params.snap15) 1f else 0f,
         )
         GLES20.glUniform1f(uniform(edgeProgram, "uTextAlign"), params.textAlign)
+        // Colour-fold (item 4 of the 2026-11-14 edge
+        // rework): the edge pass carries the chains'
+        // researched colour model, so edge mode does not
+        // lose it — before this, edge-on meant chain CLEAN
+        // and the core's generic correction showed instead
+        // of Jade / Prism / Dusk. uMode follows the system,
+        // not the chain: GB is Jade FSTN (0) or
+        // pass-through (1, DMG-green / SGB as rendered),
+        // GBC is Prism (2), GBA is Dusk (3); the LUT row
+        // follows the system too (0 = CGB, 1 = AGB). The
+        // LUT is already uploaded on unit 1 for the chains.
+        GLES20.glUniform1i(
+            uniform(edgeProgram, "uMode"),
+            when (edgeSystem) {
+                GameSystem.GB -> if (jadeMode == JadeMode.FSTN) 0 else 1
+                GameSystem.GBC -> 2
+                GameSystem.GBA -> 3
+            },
+        )
+        if (gammaLutTextureId != 0) {
+            GLES20.glActiveTexture(GLES20.GL_TEXTURE1)
+            GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, gammaLutTextureId)
+            GLES20.glUniform1i(uniform(edgeProgram, "uGammaLut"), 1)
+            GLES20.glUniform1f(
+                uniform(edgeProgram, "uGammaRow"),
+                when (edgeSystem) {
+                    GameSystem.GBC -> 0f
+                    GameSystem.GBA -> 1f
+                    else -> 0f
+                },
+            )
+        }
         GLES20.glActiveTexture(GLES20.GL_TEXTURE0)
         GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, frameTextureId)
         drawQuad(edgeProgram)

@@ -23,7 +23,10 @@ package app.poing
  *
  * uMode in the colour pass: 0 = Jade FSTN, 1 = Jade
  * pass-through (the palette as the core rendered it),
- * 2 = Prism, 3 = Dusk.
+ * 2 = Prism, 3 = Dusk. The edge pass carries the same
+ * modes (uMode / uGammaRow / uGammaLut) — the colour-fold,
+ * item 4 of the 2026-11-14 edge rework — so edge mode
+ * does not lose the chains' researched colour.
  */
 object DisplayShaders {
 
@@ -435,6 +438,9 @@ object DisplayShaders {
         precision mediump float;
         varying vec2 vTex;
         uniform sampler2D uTex;
+        uniform sampler2D uGammaLut;
+        uniform int uMode;
+        uniform float uGammaRow;
         uniform vec2 uTexSize;
         uniform float uDitherTol;
         uniform float uEdgeLo;
@@ -445,17 +451,64 @@ object DisplayShaders {
         float edgeLuma(vec3 c) {
           return dot(c, vec3(0.299, 0.587, 0.114));
         }
+        // The colour-fold (item 4 of the 2026-11-14 edge
+        // rework): each system's colour model, folded into
+        // the edge pass BEFORE the edge work runs, so edge
+        // mode does not lose the chains' researched colour.
+        // This is COLOUR_FRAGMENT's mode logic, copied
+        // verbatim as a function — mode 0 is Jade's FSTN
+        // ramp, mode 1 passes through (DMG-green / SGB
+        // palettes as the core rendered them, as Jade
+        // does), modes 2 and 3 are the SameBoy response
+        // ramp (LUT row 0 CGB / row 1 AGB, via uGammaRow)
+        // then the mGBA colours matrix in linear light
+        // (x0.94). The LUT is the same texture the chains
+        // use, already uploaded on unit 1. Applied to all
+        // nine samples below, so the dither averages, the
+        // gradients and the blends all work in the
+        // corrected colours — a dither's intended grey is
+        // the average of the corrected shades.
+        vec3 colourCorrect(vec3 col) {
+          if (uMode == 0) {
+            float luma = dot(col, vec3(0.299, 0.587, 0.114));
+            vec3 s0 = vec3(0.094, 0.161, 0.129);
+            vec3 s1 = vec3(0.290, 0.388, 0.322);
+            vec3 s2 = vec3(0.518, 0.612, 0.518);
+            vec3 s3 = vec3(0.647, 0.710, 0.647);
+            vec3 c01 = mix(s0, s1, clamp(luma / 0.322, 0.0, 1.0));
+            vec3 c12 = mix(s1, s2, clamp((luma - 0.322) / 0.356, 0.0, 1.0));
+            vec3 c23 = mix(s2, s3, clamp((luma - 0.678) / 0.322, 0.0, 1.0));
+            return mix(mix(c01, c12, step(0.322, luma)), c23, step(0.678, luma));
+          } else if (uMode == 2 || uMode == 3) {
+            float ri = min(floor(col.r * 32.0), 31.0);
+            float gi = min(floor(col.g * 32.0), 31.0);
+            float bi = min(floor(col.b * 32.0), 31.0);
+            float vr = (uGammaRow + 0.5) / 2.0;
+            vec3 ramp = vec3(
+              texture2D(uGammaLut, vec2((ri + 0.5) / 32.0, vr)).r,
+              texture2D(uGammaLut, vec2((gi + 0.5) / 32.0, vr)).r,
+              texture2D(uGammaLut, vec2((bi + 0.5) / 32.0, vr)).r);
+            vec3 lin = pow(ramp, vec3(2.2));
+            vec3 m;
+            m.r = 0.94 * (0.82 * lin.r + 0.24 * lin.g - 0.06 * lin.b);
+            m.g = 0.94 * (0.125 * lin.r + 0.665 * lin.g + 0.21 * lin.b);
+            m.b = 0.94 * (0.195 * lin.r + 0.075 * lin.g + 0.73 * lin.b);
+            vec3 outCol = pow(max(m, vec3(0.0)), vec3(1.0 / 2.2));
+            return clamp(outCol, vec3(0.0), vec3(1.0));
+          }
+          return col;
+        }
         void main() {
           vec2 texel = vec2(1.0 / uTexSize.x, 1.0 / uTexSize.y);
-          vec3 c0 = texture2D(uTex, vTex).rgb;
-          vec3 cN = texture2D(uTex, vTex + vec2(0.0, texel.y)).rgb;
-          vec3 cS = texture2D(uTex, vTex - vec2(0.0, texel.y)).rgb;
-          vec3 cE = texture2D(uTex, vTex + vec2(texel.x, 0.0)).rgb;
-          vec3 cW = texture2D(uTex, vTex - vec2(texel.x, 0.0)).rgb;
-          vec3 cNE = texture2D(uTex, vTex + vec2(texel.x, texel.y)).rgb;
-          vec3 cNW = texture2D(uTex, vTex + vec2(-texel.x, texel.y)).rgb;
-          vec3 cSE = texture2D(uTex, vTex + vec2(texel.x, -texel.y)).rgb;
-          vec3 cSW = texture2D(uTex, vTex + vec2(-texel.x, -texel.y)).rgb;
+          vec3 c0 = colourCorrect(texture2D(uTex, vTex).rgb);
+          vec3 cN = colourCorrect(texture2D(uTex, vTex + vec2(0.0, texel.y)).rgb);
+          vec3 cS = colourCorrect(texture2D(uTex, vTex - vec2(0.0, texel.y)).rgb);
+          vec3 cE = colourCorrect(texture2D(uTex, vTex + vec2(texel.x, 0.0)).rgb);
+          vec3 cW = colourCorrect(texture2D(uTex, vTex - vec2(texel.x, 0.0)).rgb);
+          vec3 cNE = colourCorrect(texture2D(uTex, vTex + vec2(texel.x, texel.y)).rgb);
+          vec3 cNW = colourCorrect(texture2D(uTex, vTex + vec2(-texel.x, texel.y)).rgb);
+          vec3 cSE = colourCorrect(texture2D(uTex, vTex + vec2(texel.x, -texel.y)).rgb);
+          vec3 cSW = colourCorrect(texture2D(uTex, vTex + vec2(-texel.x, -texel.y)).rgb);
           float tol = uDitherTol;
           // Patterned dither: regular alternation is shading,
           // not an edge — so the centre blends to the average

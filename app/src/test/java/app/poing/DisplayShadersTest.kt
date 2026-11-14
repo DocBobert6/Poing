@@ -355,6 +355,52 @@ class DisplayShadersTest {
     }
 
     @Test
+    fun edgeFragmentFoldsTheColourModelIn() {
+        // Edge smoothing, item 4 (2026-11-14): the chains'
+        // researched colour is folded INTO the edge pass,
+        // before the edge work runs — edge mode no longer
+        // shows the core's generic correction instead of
+        // Jade / Prism / Dusk. The fold is COLOUR_FRAGMENT's
+        // mode logic as a function (colourCorrect): mode 0
+        // Jade's FSTN ramp, mode 1 pass-through, modes 2 / 3
+        // the SameBoy ramp (LUT row via uGammaRow) then the
+        // mGBA matrix x0.94 — and it is applied to all nine
+        // samples, so the dither averages, the gradients and
+        // the blends all work in the corrected colours. The
+        // renderer binds the same LUT texture on unit 1 and
+        // sets uMode from the system (GB FSTN 0 / pass 1,
+        // GBC 2, GBA 3) with uGammaRow 0 for GBC, 1 for GBA.
+        val src = DisplayShaders.EDGE_FRAGMENT
+        assertTrue(src.contains("uniform sampler2D uGammaLut"))
+        assertTrue(src.contains("uniform int uMode"))
+        assertTrue(src.contains("uniform float uGammaRow"))
+        assertTrue(src.contains("vec3 colourCorrect(vec3 col)"))
+        assertTrue(src.contains("if (uMode == 0)"))
+        assertTrue(src.contains("if (uMode == 2 || uMode == 3)"))
+        assertTrue(src.contains("vec3 s0 = vec3(0.094, 0.161, 0.129)"))
+        assertTrue(src.contains("vec3 s3 = vec3(0.647, 0.710, 0.647)"))
+        assertTrue(src.contains("texture2D(uGammaLut, vec2((ri + 0.5) / 32.0, vr)).r"))
+        assertTrue(src.contains("0.94 * (0.82 * lin.r + 0.24 * lin.g - 0.06 * lin.b)"))
+        assertTrue(src.contains("0.94 * (0.125 * lin.r + 0.665 * lin.g + 0.21 * lin.b)"))
+        assertTrue(src.contains("0.94 * (0.195 * lin.r + 0.075 * lin.g + 0.73 * lin.b)"))
+        // All nine samples are corrected before the edge work.
+        assertTrue(src.contains("vec3 c0 = colourCorrect(texture2D(uTex, vTex).rgb)"))
+        assertTrue(src.contains("vec3 cN = colourCorrect(texture2D(uTex, vTex + vec2(0.0, texel.y)).rgb)"))
+        assertTrue(src.contains("vec3 cS = colourCorrect(texture2D(uTex, vTex - vec2(0.0, texel.y)).rgb)"))
+        assertTrue(src.contains("vec3 cE = colourCorrect(texture2D(uTex, vTex + vec2(texel.x, 0.0)).rgb)"))
+        assertTrue(src.contains("vec3 cW = colourCorrect(texture2D(uTex, vTex - vec2(texel.x, 0.0)).rgb)"))
+        assertTrue(src.contains("vec3 cNE = colourCorrect(texture2D(uTex, vTex + vec2(texel.x, texel.y)).rgb)"))
+        assertTrue(src.contains("vec3 cNW = colourCorrect(texture2D(uTex, vTex + vec2(-texel.x, texel.y)).rgb)"))
+        assertTrue(src.contains("vec3 cSE = colourCorrect(texture2D(uTex, vTex + vec2(texel.x, -texel.y)).rgb)"))
+        assertTrue(src.contains("vec3 cSW = colourCorrect(texture2D(uTex, vTex + vec2(-texel.x, -texel.y)).rgb)"))
+        // And the fold's mode logic is the same text as the
+        // colour pass's — the two must not drift apart.
+        val colour = DisplayShaders.COLOUR_FRAGMENT
+        assertTrue(colour.contains("vec3 s0 = vec3(0.094, 0.161, 0.129)"))
+        assertTrue(colour.contains("0.94 * (0.82 * lin.r + 0.24 * lin.g - 0.06 * lin.b)"))
+    }
+
+    @Test
     fun plainPassHasTheWlFlipUniform() {
         // Phase 9 — the edge pass's blit runs the plain
         // program on the pass-1 framebuffer, where V is
