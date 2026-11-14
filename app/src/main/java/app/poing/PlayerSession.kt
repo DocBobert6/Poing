@@ -79,6 +79,13 @@ class PlayerSession(
     // always-true: the no-GL fallback path has no consumer
     // to wait on, and tests construct sessions without a view.
     private val frameConsumed: () -> Boolean = { true },
+    // Performance fix 6 — whether the rewind control is
+    // visible (snapshotted per game, like GameScreen's own
+    // copy). The rewind ring is only captured when it is
+    // true: with the control hidden (the default) the
+    // snapshots could never be used, so capturing one every
+    // second was pure waste.
+    private val rewindControlVisible: Boolean = false,
 ) {
     companion object {
         private const val TAG = "Poing"
@@ -220,6 +227,60 @@ class PlayerSession(
     private val rewindBuffer = RewindBuffer()
     private var framesSinceRewindCapture = 0
 
+    /**
+     * Performance fix 6 — the serialized-state size for the
+     * loaded game, cached once after load. The size is stable
+     * per game (same save RAM + RTC every call), and measuring
+     * it costs a full throwaway serialize — retro_serialize_
+     * size() saves the whole state into a VFileMemChunk just
+     * to read its length — so calling it per snapshot doubled
+     * the work. 0 when unknown; set in the emu loop after the
+     * game loads, and re-measured by serializeState() if a
+     * serialize ever fails for size.
+     */
+    private var serializeSize = 0
+
+    /**
+     * Performance fix 6 — one reusable scratch buffer for
+     * serializing, always sized exactly to [serializeSize]
+     * (exact, not at-least: the bridge returns the array
+     * length as the bytes written, so a larger array would
+     * over-report). Shared by the rewind capture (emu thread,
+     * while running) and the save paths (while paused) — the
+     * two never overlap, so one buffer is safe. Snapshots and
+     * save files keep their own copyOf, so nothing aliases
+     * the scratch.
+     */
+    private var serializeScratch = ByteArray(0)
+
+    /**
+     * Performance fix 6 — serialize the core state exactly
+     * once into the reusable scratch and return an owned
+     * copy, or null. One core serialize on the fast path: the
+     * size comes from the cache, and the bridge writes
+     * straight into the array (it refuses, writing nothing,
+     * when the array is too small). If the state outgrew the
+     * cached size, the cache is re-measured once and the
+     * serialize retried. Only on the emu thread between
+     * frames, or while paused — never racing retro_run.
+     */
+    private fun serializeState(): ByteArray? {
+        if (serializeSize <= 0) {
+            serializeSize = Bridge.nativeSerializeSize()
+            if (serializeSize <= 0) return null
+        }
+        if (serializeScratch.size != serializeSize) serializeScratch = ByteArray(serializeSize)
+        val written = Bridge.nativeSerialize(serializeScratch)
+        if (written >= 0) return serializeScratch.copyOf(written)
+        // The state outgrew the cached size: re-measure once and retry.
+        serializeSize = Bridge.nativeSerializeSize()
+        if (serializeSize <= 0) return null
+        if (serializeScratch.size != serializeSize) serializeScratch = ByteArray(serializeSize)
+        val retried = Bridge.nativeSerialize(serializeScratch)
+        if (retried < 0) return null
+        return serializeScratch.copyOf(retried)
+    }
+
     /** Snapshots held for rewind (0 when the game just started). */
     fun rewindSize(): Int = rewindBuffer.size
 
@@ -227,14 +288,13 @@ class PlayerSession(
      * Capture one rewind snapshot (the serialized core state plus
      * the RA progress that belongs to it). Only on the emu thread,
      * between frames — never call it from the UI thread.
+     * Performance fix 6 — one core serialize into the reusable
+     * scratch (see serializeState), not the old two serializes
+     * plus a fresh ByteArray per snapshot.
      */
     private fun captureRewindSnapshot() {
-        val size = Bridge.nativeSerializeSize()
-        if (size <= 0) return
-        val data = ByteArray(size)
-        val written = Bridge.nativeSerialize(data)
-        if (written < 0) return
-        rewindBuffer.push(data.copyOf(written), RaClient.serializeProgress())
+        val state = serializeState() ?: return
+        rewindBuffer.push(state, RaClient.serializeProgress())
     }
 
     /**
@@ -592,15 +652,13 @@ class PlayerSession(
     /**
      * Serialize the core state into [file]. Only valid while the
      * emu loop is paused — serialize must never race retro_run.
+     * Performance fix 6 — one core serialize into the reusable
+     * scratch (see serializeState).
      */
     private fun serializeTo(file: java.io.File): Boolean {
-        val size = Bridge.nativeSerializeSize()
-        if (size <= 0) return false
-        val data = ByteArray(size)
-        val written = Bridge.nativeSerialize(data)
-        if (written < 0) return false
+        val state = serializeState() ?: return false
         return try {
-            file.apply { parentFile?.mkdirs() }.writeBytes(data.copyOf(written))
+            file.apply { parentFile?.mkdirs() }.writeBytes(state)
             true
         } catch (_: Exception) {
             false
@@ -817,6 +875,16 @@ class PlayerSession(
         // not recognised simply leaves RA inactive for it.
         RaClient.loadGame(gamePath)
 
+        // Performance fix 6 — cache the serialized-state size
+        // once, now the game is fully loaded (battery save,
+        // cheats and any pending state are in): the size is
+        // stable per game, and measuring it costs a full
+        // throwaway serialize. On the emu thread, before the
+        // first retro_run, so nothing races it. A 0 here (the
+        // measure failed) just leaves the cache empty and
+        // serializeState() measures lazily on first use.
+        serializeSize = Bridge.nativeSerializeSize()
+
         val pixels = IntArray(width * height)
         val dims = IntArray(2)
         val bitmaps = arrayOf(
@@ -863,7 +931,15 @@ class PlayerSession(
             RaClient.onFrame()
             // Rewind (Phase 6, item 9): one snapshot a second, on
             // this thread between frames — no retro_run in flight.
-            if (++framesSinceRewindCapture >= RewindBuffer.CAPTURE_EVERY_FRAMES) {
+            // Performance fix 6 — only when the rewind control
+            // is visible: with it hidden (the default) the
+            // snapshots could never be used, so capturing them
+            // was pure waste. The control is shown from the same
+            // snapshotted setting, so the gate can never strand
+            // a visible control.
+            if (rewindControlVisible &&
+                ++framesSinceRewindCapture >= RewindBuffer.CAPTURE_EVERY_FRAMES
+            ) {
                 framesSinceRewindCapture = 0
                 captureRewindSnapshot()
             }

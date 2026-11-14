@@ -382,6 +382,10 @@ fun GameScreen(
             // consumed the previous frame. No GL view (the
             // no-GL fallback path) means no consumer to wait on.
             frameConsumed = { glView?.isFrameConsumed() ?: true },
+            // Performance fix 6 — the rewind ring is only
+            // captured when the control is visible (same
+            // snapshotted setting the overlay reads).
+            rewindControlVisible = rewindControlVisible,
         )
     }
 

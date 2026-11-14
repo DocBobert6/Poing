@@ -999,8 +999,19 @@ Java_app_poing_Bridge_nativeSerializeSize(JNIEnv * /* env */,
     return (jint)retro_serialize_size();
 }
 
-// Fills [data] with the state; returns bytes written, or -1. The
-// caller sizes the array with nativeSerializeSize first.
+// Fills [data] with the state; returns bytes written, or -1.
+// Performance fix 6 — serialize straight into the caller's
+// array: the old code measured the state with
+// retro_serialize_size() (itself a full throwaway serialize,
+// see libretro.c), malloc'd a native buffer, serialized into
+// it, then copied it into the array — two full serializes per
+// call, plus the malloc. The caller sizes the array exactly
+// from the cached state size (PlayerSession.serializeState),
+// and retro_serialize refuses (returns false, writes
+// nothing) when the buffer is too small, so the size check is
+// inherent. Returns the array length on success — the caller
+// sized it to the state, so that is the bytes written — or -1
+// when the array is too small or the serialize fails.
 JNIEXPORT jint JNICALL
 Java_app_poing_Bridge_nativeSerialize(JNIEnv *env, jobject /* thiz */,
                                       jbyteArray data) {
@@ -1009,17 +1020,12 @@ Java_app_poing_Bridge_nativeSerialize(JNIEnv *env, jobject /* thiz */,
     jsize len = env->GetArrayLength(data);
     if (len <= 0)
         return -1;
-    size_t need = retro_serialize_size();
-    if (need == 0 || (size_t)len < need)
-        return -1;
-    uint8_t *buf = (uint8_t *)malloc(need);
+    jbyte *buf = env->GetByteArrayElements(data, nullptr);
     if (!buf)
         return -1;
-    bool ok = retro_serialize(buf, need);
-    if (ok)
-        env->SetByteArrayRegion(data, 0, (jsize)need, (const jbyte *)buf);
-    free(buf);
-    return ok ? (jint)need : -1;
+    bool ok = retro_serialize(buf, (size_t)len);
+    env->ReleaseByteArrayElements(data, buf, 0);
+    return ok ? len : -1;
 }
 
 JNIEXPORT jboolean JNICALL

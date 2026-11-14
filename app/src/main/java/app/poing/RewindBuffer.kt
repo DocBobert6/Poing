@@ -3,10 +3,13 @@ package app.poing
 /**
  * Phase 6 (item 9) — the rewind ring buffer: the last N serialized
  * states, oldest first, newest last. The PlayerSession captures
- * one snapshot a second while the game runs (on the emu thread,
- * between frames — no retro_run in flight there, so the serialize
- * is safe); holding the rewind control pops snapshots newest
- * first, so the game steps back through the time the ring covers.
+ * one snapshot a second while the game runs and the rewind control
+ * is visible (performance fix 6 — with the control hidden the
+ * snapshots could never be used, so nothing is captured), on the
+ * emu thread between frames — no retro_run in flight there, so the
+ * serialize is safe; holding the rewind control pops snapshots
+ * newest first, so the game steps back through the time the ring
+ * covers.
  *
  * Pure Kotlin — no Android APIs — so the whole buffer runs under
  * plain JVM unit tests. The snapshots are plain byte arrays; the

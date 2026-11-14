@@ -58,7 +58,13 @@ object Bridge {
     /** Save states (see bridge.cpp). Only valid while the emu loop is paused. */
     external fun nativeSerializeSize(): Int
 
-    /** Fills [data] with the state; returns bytes written, or -1. */
+    /** Fills [data] with the state; returns bytes written, or -1.
+     * [data] must be sized exactly to the state (from
+     * nativeSerializeSize, cached per game — see
+     * PlayerSession.serializeState): the call serializes
+     * straight into it, and a too-small array fails without
+     * writing. Returns the array length on success, which is
+     * the bytes written when the array is sized exactly. */
     external fun nativeSerialize(data: ByteArray): Int
     external fun nativeUnserialize(data: ByteArray): Boolean
 
