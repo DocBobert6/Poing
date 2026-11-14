@@ -420,7 +420,14 @@ object DisplayShaders {
      * history breaks the pure-function temporal-stability
      * goal). There is NO blend-cap taper. The text
      * bypass's axis-aligned threshold is per-system
-     * (uTextAlign: GB 0.15, GBC 0.08, GBA 0.05). There
+     * (uTextAlign: GB 0.15, GBC 0.08, GBA 0.05), and the
+     * bypass itself is gated by stroke length (Task 4
+     * item 1): it survives only where the luma step along
+     * the stroke terminates within 2 texels, so round
+     * sprites blend while glyph strokes stay crisp. The
+     * gate feeds the edge blend only — the dither blend
+     * keeps the ungated bypass, because it replaces the
+     * texel rather than mixing it. There
      * is NO subpixel branch — the rework removed it in
      * item 3 (the offset was 0.3333 of a texel, and the
      * target phone is pOLED, not an RGB-stripe panel).
@@ -636,6 +643,49 @@ object DisplayShaders {
           float gy5 = (rN2 + rN2E + rN2W) - (rS2 + rS2E + rS2W);
           float axisAligned = step(min(abs(gx5), abs(gy5)), uTextAlign * max(abs(gx5), abs(gy5)) + 0.001);
           float text = step(0.5, lMax - lMin) * axisAligned;
+          // Stroke-length gate (Task 4 item 1, 2026-11-14):
+          // the text bypass survives only when the luma step
+          // along the stroke terminates within 2 texels in at
+          // least one direction. The stroke runs perpendicular
+          // to the 5x5-ring gradient (vertical when |gx5| >
+          // |gy5|, horizontal otherwise), so the two extra raw
+          // taps sit at +-2 texels along it and the raw centre
+          // luma is the reference; the scale is half the raw
+          // step across the 12 ring taps (the ring spans both
+          // sides of the edge). A glyph stroke is <=4 texels,
+          // so from any of its texels one end is within 2; a
+          // round edge continues past 2 in both directions — which
+          // is why the ungated bypass ate round sprites (a
+          // synthetic circle's boundary fired it on 21-35% of
+          // texels). The gate applies to the edge blend (w)
+          // ONLY: patternEff below keeps the ungated text
+          // bypass, because it REPLACES the texel with its
+          // dither average — a glyph the gate un-bypasses on
+          // a long straight run would be averaged away (the
+          // sim's TEST DRIVE title letters: 303 texels changed
+          // by up to 0.49 when the gate fed patternEff). The
+          // distance is 2, not the specified 4: the sim proved
+          // +-4 leaves tight arcs (R=6: 0.18, R=10: 0.14),
+          // +-3 leaves R=6 at 0.12, and +-2 follows every
+          // tested arc (R>=6: 0.00) with glyph contrast at
+          // baseline — a 2-tap gate at distance d can only
+          // follow arcs with drift d^2/(2R) < 0.5, i.e.
+          // R > d^2. Sim: sim4c.py, 93/93 (sim4c-run2.log).
+          float rMax = max(max(max(rE2, rNE2), max(rSE2, rW2)), max(max(rNW2, rSW2), max(max(rN2, rN2E), max(rN2W, max(rS2, max(rS2E, rS2W))))));
+          float rMin = min(min(min(rE2, rNE2), min(rSE2, rW2)), min(min(rNW2, rSW2), min(min(rN2, rN2E), min(rN2W, min(rS2, min(rS2E, rS2W))))));
+          float gateScale = 0.5 * (rMax - rMin);
+          float l0r = edgeLuma(texture2D(uTex, vTex).rgb);
+          float lF2;
+          float lB2;
+          if (abs(gx5) > abs(gy5)) {
+            lF2 = edgeLuma(texture2D(uTex, vTex + vec2(0.0, 2.0 * texel.y)).rgb);
+            lB2 = edgeLuma(texture2D(uTex, vTex + vec2(0.0, -2.0 * texel.y)).rgb);
+          } else {
+            lF2 = edgeLuma(texture2D(uTex, vTex + vec2(2.0 * texel.x, 0.0)).rgb);
+            lB2 = edgeLuma(texture2D(uTex, vTex + vec2(-2.0 * texel.x, 0.0)).rgb);
+          }
+          float gate = max(step(gateScale, abs(lF2 - l0r)), step(gateScale, abs(lB2 - l0r)));
+          float textGated = text * gate;
           // Corner: both diagonal pairs match. A diagonal
           // edge has a strong gradient in BOTH directions,
           // but its two diagonal pairs do not both match —
@@ -674,7 +724,7 @@ object DisplayShaders {
           // pure-function temporal-stability goal, and
           // scrolling needs none of it — smoothing identical
           // on every frame is no wobble by construction).
-          float w = edge * wAlong * (1.0 - pattern) * (1.0 - isolated) * (1.0 - text) * (1.0 - corner);
+          float w = edge * wAlong * (1.0 - pattern) * (1.0 - isolated) * (1.0 - textGated) * (1.0 - corner);
           w = clamp(w, 0.0, uBlendMax);
           vec3 col = mix(c0, along, w);
           col = clamp(col, lo, hi);
@@ -683,7 +733,12 @@ object DisplayShaders {
           // bypasses — a real dither texel is never
           // isolated and never text, so the gate does not
           // block real dither, but it keeps the blend from
-          // averaging a glyph or a 1px detail away.
+          // averaging a glyph or a 1px detail away. The
+          // text bypass here is the UNGATED one, not
+          // textGated: patternEff replaces the texel (see
+          // the stroke-length gate above), so it must keep
+          // the old protection — only the edge blend takes
+          // the gated bypass.
           float patternEff = pattern * (1.0 - isolated) * (1.0 - text);
           col = mix(col, ditherAvg, patternEff);
           // 15-bit snap-back, GBC / GBA only (uSnap15): the
@@ -698,7 +753,7 @@ object DisplayShaders {
           // the snap only ever applies to a blend.
           if (uSnap15 > 0.5) {
             vec3 snapped = floor(col * 31.0 + 0.5) / 31.0;
-            col = mix(c0, snapped, max(step(0.001, w), patternEff));
+            col = mix(c0, snapped, max(step(0.001, distance(col, c0)), patternEff));
           }
           gl_FragColor = vec4(col, 1.0);
         }

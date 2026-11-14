@@ -245,6 +245,29 @@ class EdgeRenderGeometryTest {
             params.textAlign * max(abs(gx5), abs(gy5)) + 0.001f,
         )
         val text = step(0.5f, lMax - lMin) * axisAligned
+        // Stroke-length gate (Task 4 item 1): the bypass
+        // survives only when the raw luma step along the
+        // stroke terminates within 2 texels in at least one
+        // direction — see the shader's comment and sim4c.py
+        // (~/workspace/poing/verify/edge-rework/sim4c.py,
+        // 93/93 in sim4c-run2.log). The gate feeds the edge
+        // blend (wgt) only; patternEff below keeps the
+        // ungated text bypass, because it replaces the texel.
+        val rMax = max(max(max(rE2, rNE2), max(rSE2, rW2)), max(max(rNW2, rSW2), max(max(rN2, rN2E), max(rN2W, max(rS2, max(rS2E, rS2W))))))
+        val rMin = min(min(min(rE2, rNE2), min(rSE2, rW2)), min(min(rNW2, rSW2), min(min(rN2, rN2E), min(rN2W, min(rS2, min(rS2E, rS2W))))))
+        val gateScale = 0.5f * (rMax - rMin)
+        val l0r = sample(frame, w, h, u, v).luma()
+        val lF2: Float
+        val lB2: Float
+        if (abs(gx5) > abs(gy5)) {
+            lF2 = sample(frame, w, h, u, v + 2f * ty).luma()
+            lB2 = sample(frame, w, h, u, v - 2f * ty).luma()
+        } else {
+            lF2 = sample(frame, w, h, u + 2f * tx, v).luma()
+            lB2 = sample(frame, w, h, u - 2f * tx, v).luma()
+        }
+        val gate = max(step(gateScale, abs(lF2 - l0r)), step(gateScale, abs(lB2 - l0r)))
+        val textGated = text * gate
         val corner = step(cNW.dist(cSE), 0.1f) * step(cNE.dist(cSW), 0.1f) *
             step(0.05f, edgeStrength)
         val subX = (u * w) - floor(u * w)
@@ -266,7 +289,7 @@ class EdgeRenderGeometryTest {
         }
         val edge = smoothstep(params.edgeLo, params.edgeHi, edgeStrength)
         var wgt = edge * wAlong * (1f - pattern) * (1f - isolated) *
-            (1f - text) * (1f - corner)
+            (1f - textGated) * (1f - corner)
         wgt = clampF(wgt, 0f, params.blendMax)
         var col = Rgb(
             clampF(mix(c0.r, along.r, wgt), lo.r, hi.r),
@@ -274,6 +297,9 @@ class EdgeRenderGeometryTest {
             clampF(mix(c0.b, along.b, wgt), lo.b, hi.b),
         )
         // Dither blend, gated by the 1px and text bypasses.
+        // The text bypass here is the UNGATED one, not
+        // textGated: patternEff replaces the texel (see the
+        // gate above), so it keeps the old protection.
         val patternEff = pattern * (1f - isolated) * (1f - text)
         col = Rgb(
             mix(col.r, ditherAvg.r, patternEff),
@@ -285,14 +311,19 @@ class EdgeRenderGeometryTest {
         // binary snap turned a smooth ramp into a hard
         // one-shade band. Only a blend or a pattern is ever
         // snapped (w == 0 and patternEff == 0 keeps its own
-        // colour exactly).
+        // colour exactly) — and the trigger is the colour
+        // actually having moved, not w > 0: the stroke-length
+        // gate lets w > 0 on straight glyph runs, where the
+        // blend is a no-op, and the old w-based trigger
+        // snapped those texels anyway (the text-bar test
+        // went from 0 to 3840 changed pixels on it).
         if (params.snap15) {
             val snapped = Rgb(
                 floor(col.r * 31f + 0.5f) / 31f,
                 floor(col.g * 31f + 0.5f) / 31f,
                 floor(col.b * 31f + 0.5f) / 31f,
             )
-            val blended = max(if (wgt > 0.001f) 1f else 0f, patternEff)
+            val blended = max(if (col.dist(c0) > 0.001f) 1f else 0f, patternEff)
             col = Rgb(
                 mix(c0.r, snapped.r, blended),
                 mix(c0.g, snapped.g, blended),
@@ -704,6 +735,120 @@ class EdgeRenderGeometryTest {
             "the 5x5 ratio must clear the threshold everywhere, min=$minRatio",
             minRatio > 0.15f,
         )
+    }
+
+    @Test
+    fun circleDoesNotTripTheTextBypass() {
+        // Task 4 item 1: the ungated text bypass ate round
+        // sprites — a synthetic circle's boundary fired it on
+        // 21-35% of texels (the sim's C19: R=6 0.35, R=10
+        // 0.34, R=16 0.31, R=24 0.27), because a curve's
+        // near-horizontal / near-vertical stretches are
+        // locally axis-aligned. The stroke-length gate drops
+        // the bypass where the step continues (a curve) and
+        // keeps it where the step terminates (a glyph): at
+        // distance 2 the gated fire is 0.00 on every tested
+        // radius (sim4c-run2.log). This test is the
+        // discriminator: the ungated fire must be high (the
+        // old code fails it) and the gated fire zero. There
+        // is deliberately no render-level circle test: on a
+        // slowly-bending arc the newly-blended texels mix
+        // toward same-colour along-neighbours, so the
+        // render is gate-independent here (measured: 576
+        // changed px and 0-1px widths with the gate on and
+        // off alike). The render-level proof is the sim's
+        // coverage metric on real frames (C20: 0.79-1.00) and
+        // strongest edges (C18), where staircased curves
+        // put the along-neighbours across the edge.
+        val w = 240
+        val h = 160
+        val light = Rgb(0.9f, 0.9f, 0.9f)
+        val dark = Rgb(0.1f, 0.1f, 0.1f)
+        val cx = 120
+        val cy = 80
+        val r = 10
+        val frame = Array(w * h) { idx ->
+            val x = idx % w
+            val y = idx / w
+            val dx = x - cx
+            val dy = y - cy
+            if (dx * dx + dy * dy < r * r) dark else light
+        }
+        val params = EdgeSmoothing.edgeParamsFor(GameSystem.GBA)
+        val tx = 1f / w
+        val ty = 1f / h
+        var n = 0
+        var ungatedFires = 0
+        var gatedFires = 0
+        for (y in 2 until h - 2) {
+            for (x in 2 until w - 2) {
+                val c = frame[y * w + x]
+                if (c.dist(frame[y * w + x + 1]) < 0.3f &&
+                    c.dist(frame[(y + 1) * w + x]) < 0.3f
+                ) continue
+                val u = (x + 0.5f) / w
+                val v = (y + 0.5f) / h
+                val rE2 = sample(frame, w, h, u + 2f * tx, v).luma()
+                val rNE2 = sample(frame, w, h, u + 2f * tx, v + ty).luma()
+                val rSE2 = sample(frame, w, h, u + 2f * tx, v - ty).luma()
+                val rW2 = sample(frame, w, h, u - 2f * tx, v).luma()
+                val rNW2 = sample(frame, w, h, u - 2f * tx, v + ty).luma()
+                val rSW2 = sample(frame, w, h, u - 2f * tx, v - ty).luma()
+                val rN2 = sample(frame, w, h, u, v + 2f * ty).luma()
+                val rN2E = sample(frame, w, h, u + tx, v + 2f * ty).luma()
+                val rN2W = sample(frame, w, h, u - tx, v + 2f * ty).luma()
+                val rS2 = sample(frame, w, h, u, v - 2f * ty).luma()
+                val rS2E = sample(frame, w, h, u + tx, v - 2f * ty).luma()
+                val rS2W = sample(frame, w, h, u - tx, v - 2f * ty).luma()
+                val gx5 = (rE2 + rNE2 + rSE2) - (rW2 + rNW2 + rSW2)
+                val gy5 = (rN2 + rN2E + rN2W) - (rS2 + rS2E + rS2W)
+                val axisAligned = step(
+                    min(abs(gx5), abs(gy5)),
+                    params.textAlign * max(abs(gx5), abs(gy5)) + 0.001f,
+                )
+                // The 3x3 range, on raw luma: this frame is
+                // two greys (0.9 / 0.1), so the raw range
+                // (0.8) and the colour-corrected range the
+                // mirror uses both clear the 0.5 step.
+                val l0 = c.luma()
+                val lN = frame[(y - 1) * w + x].luma()
+                val lS = frame[(y + 1) * w + x].luma()
+                val lE = frame[y * w + x + 1].luma()
+                val lW = frame[y * w + x - 1].luma()
+                val lNE = frame[(y - 1) * w + x + 1].luma()
+                val lNW = frame[(y - 1) * w + x - 1].luma()
+                val lSE = frame[(y + 1) * w + x + 1].luma()
+                val lSW = frame[(y + 1) * w + x - 1].luma()
+                val lMax = max(max(max(l0, lN), max(lS, lE)), max(max(lW, lNE), max(lNW, max(lSE, lSW))))
+                val lMin = min(min(min(l0, lN), min(lS, lE)), min(min(lW, lNE), min(lNW, min(lSE, lSW))))
+                val text = step(0.5f, lMax - lMin) * axisAligned
+                // The stroke-length gate at distance 2.
+                val rMax = max(max(max(rE2, rNE2), max(rSE2, rW2)), max(max(rNW2, rSW2), max(max(rN2, rN2E), max(rN2W, max(rS2, max(rS2E, rS2W))))))
+                val rMin = min(min(min(rE2, rNE2), min(rSE2, rW2)), min(min(rNW2, rSW2), min(min(rN2, rN2E), min(rN2W, min(rS2, min(rS2E, rS2W))))))
+                val gateScale = 0.5f * (rMax - rMin)
+                val l0r = c.luma()
+                val lF2: Float
+                val lB2: Float
+                if (abs(gx5) > abs(gy5)) {
+                    lF2 = sample(frame, w, h, u, v + 2f * ty).luma()
+                    lB2 = sample(frame, w, h, u, v - 2f * ty).luma()
+                } else {
+                    lF2 = sample(frame, w, h, u + 2f * tx, v).luma()
+                    lB2 = sample(frame, w, h, u - 2f * tx, v).luma()
+                }
+                val gate = max(step(gateScale, abs(lF2 - l0r)), step(gateScale, abs(lB2 - l0r)))
+                val textGated = text * gate
+                n++
+                if (text > 0.5f) ungatedFires++
+                if (textGated > 0.5f) gatedFires++
+            }
+        }
+        assertTrue("circle boundary texels must number in the dozens, n=$n", n > 40)
+        assertTrue(
+            "the ungated bypass must fire on the circle (old code), ungated=$ungatedFires/$n",
+            ungatedFires * 5 > n,
+        )
+        assertEquals("the gate must drop the bypass on the whole circle", 0, gatedFires)
     }
 
     @Test

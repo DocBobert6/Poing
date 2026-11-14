@@ -347,8 +347,15 @@ class DisplayShadersTest {
         assertFalse(src.contains("uTextAlign * max(abs(gx), abs(gy))"))
         // Directional blend along the edge, weight growing
         // toward the texel boundary — and no motion factor.
+        // Task 4 item 1: the edge blend takes the gated
+        // bypass (textGated), while patternEff above keeps
+        // the ungated text — the gate must not un-bypass
+        // glyphs for a replacement (the dither average).
         assertTrue(src.contains("fract(vTex * uTexSize)"))
-        assertTrue(src.contains("float w = edge * wAlong * (1.0 - pattern) * (1.0 - isolated) * (1.0 - text) * (1.0 - corner)"))
+        assertTrue(src.contains("float textGated = text * gate"))
+        assertTrue(src.contains("float gate = max(step(gateScale, abs(lF2 - l0r)), step(gateScale, abs(lB2 - l0r)))"))
+        assertTrue(src.contains("float w = edge * wAlong * (1.0 - pattern) * (1.0 - isolated) * (1.0 - textGated) * (1.0 - corner)"))
+        assertFalse(src.contains("(1.0 - text) * (1.0 - corner)"))
         assertFalse(src.contains("uMotion"))
         // 15-bit snap-back, GBC / GBA only, gated on
         // uSnap15 — and only a blend or a pattern is ever
@@ -356,7 +363,7 @@ class DisplayShadersTest {
         // colour).
         assertTrue(src.contains("floor(col * 31.0 + 0.5) / 31.0"))
         assertTrue(src.contains("if (uSnap15 > 0.5)"))
-        assertTrue(src.contains("col = mix(c0, snapped, max(step(0.001, w), patternEff))"))
+        assertTrue(src.contains("col = mix(c0, snapped, max(step(0.001, distance(col, c0)), patternEff))"))
         // The corner test survives from HowlingDog.
         assertTrue(src.contains("float corner = step(distance(cNW, cSE), 0.1)"))
     }
