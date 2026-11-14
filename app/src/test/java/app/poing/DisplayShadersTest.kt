@@ -351,10 +351,20 @@ class DisplayShadersTest {
         // bypass (textGated), while patternEff above keeps
         // the ungated text — the gate must not un-bypass
         // glyphs for a replacement (the dither average).
+        // Task 4 item 2: the (1.0 - pattern) factor is GONE
+        // from w — it killed the blend inside or next to any
+        // dither field, and the dither flattening
+        // (patternEff) already handles patterned texels, so
+        // the factor only ever removed blending. The sim's
+        // A/B (sim5.py C21) proves the deletion: strongest
+        // edge widths identical with/without it (SML2 map
+        // 27px, TD6 car 19px), flat-field changed>0.08 = 0
+        // either way.
         assertTrue(src.contains("fract(vTex * uTexSize)"))
         assertTrue(src.contains("float textGated = text * gate"))
         assertTrue(src.contains("float gate = max(step(gateScale, abs(lF2 - l0r)), step(gateScale, abs(lB2 - l0r)))"))
-        assertTrue(src.contains("float w = edge * wAlong * (1.0 - pattern) * (1.0 - isolated) * (1.0 - textGated) * (1.0 - corner)"))
+        assertTrue(src.contains("float w = edge * wAlong * (1.0 - isolated) * (1.0 - textGated) * (1.0 - corner)"))
+        assertFalse(src.contains("(1.0 - pattern)"))
         assertFalse(src.contains("(1.0 - text) * (1.0 - corner)"))
         assertFalse(src.contains("uMotion"))
         // 15-bit snap-back, GBC / GBA only, gated on

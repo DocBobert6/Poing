@@ -288,7 +288,7 @@ class EdgeRenderGeometryTest {
             hi = Rgb(max(max(c0.r, cW.r), cE.r), max(max(c0.g, cW.g), cE.g), max(max(c0.b, cW.b), cE.b))
         }
         val edge = smoothstep(params.edgeLo, params.edgeHi, edgeStrength)
-        var wgt = edge * wAlong * (1f - pattern) * (1f - isolated) *
+        var wgt = edge * wAlong * (1f - isolated) *
             (1f - textGated) * (1f - corner)
         wgt = clampF(wgt, 0f, params.blendMax)
         var col = Rgb(

@@ -724,7 +724,7 @@ object DisplayShaders {
           // pure-function temporal-stability goal, and
           // scrolling needs none of it — smoothing identical
           // on every frame is no wobble by construction).
-          float w = edge * wAlong * (1.0 - pattern) * (1.0 - isolated) * (1.0 - textGated) * (1.0 - corner);
+          float w = edge * wAlong * (1.0 - isolated) * (1.0 - textGated) * (1.0 - corner);
           w = clamp(w, 0.0, uBlendMax);
           vec3 col = mix(c0, along, w);
           col = clamp(col, lo, hi);
