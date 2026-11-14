@@ -84,6 +84,13 @@ fun AppSettingsScreen(
     // Phase 8 — Dusk, the Game Boy Advance display chain,
     // same rule as Jade.
     var dusk by remember { mutableStateOf(store.duskEnabled()) }
+    // Phase 9 — edge smoothing (off by default: an
+    // alternative to the chains, never stacked — on turns
+    // the chain off) and the combined mode (edge + light
+    // grid, one tap — shown only while edge smoothing is
+    // on).
+    var edgeSmoothing by remember { mutableStateOf(store.edgeSmoothingEnabled()) }
+    var edgeGrid by remember { mutableStateOf(store.edgeGridEnabled()) }
     // Phase 8 — Screen Optics: the Virtual Worm Light (off
     // by default — an easter egg) and the dark-room dimming
     // toggle (off by default — dimming can hide the game).
@@ -427,6 +434,62 @@ fun AppSettingsScreen(
                     },
                     modifier = Modifier.testTag("dusk-chain-switch"),
                 )
+            }
+        }
+        item {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        "Edge smoothing",
+                        style = MaterialTheme.typography.titleMedium,
+                    )
+                    Text(
+                        "Smooths sprite edges the way a handheld would — dither-aware, so Pokémon water and Zelda shadows stay dithered, not blurred. Off by default; on turns the display chain off.",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
+                Switch(
+                    checked = edgeSmoothing,
+                    onCheckedChange = {
+                        store.setEdgeSmoothingEnabled(it)
+                        edgeSmoothing = it
+                    },
+                    modifier = Modifier.testTag("edge-smoothing-switch"),
+                )
+            }
+        }
+        if (edgeSmoothing) {
+            item {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            "Edge smoothing + grid",
+                            style = MaterialTheme.typography.titleMedium,
+                        )
+                        Text(
+                            "Edge smoothing with a light LCD grid over it — the curated combined mode, one tap.",
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                    }
+                    Switch(
+                        checked = edgeGrid,
+                        onCheckedChange = {
+                            store.setEdgeGridEnabled(it)
+                            edgeGrid = it
+                        },
+                        modifier = Modifier.testTag("edge-grid-switch"),
+                    )
+                }
             }
         }
         item {

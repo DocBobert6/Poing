@@ -239,12 +239,12 @@ class AppSettingsScreenTest {
                 AppSettingsScreen(store = s, onCoreOptions = {}, onBack = { })
             }
         }
-        // The Worm Light row is index 13 here (no options
+        // The Worm Light row is index 14 here (no options
         // store, so no palette row: header, Player,
         // fast-forward, input display, haptics, RA title,
         // RA, rewind, Dev stats, Display title, Jade, Prism,
-        // Dusk, Worm Light).
-        composeRule.onNodeWithTag("settings-list").performScrollToIndex(13)
+        // Dusk, Edge smoothing, Worm Light).
+        composeRule.onNodeWithTag("settings-list").performScrollToIndex(14)
         composeRule.onNodeWithText("Worm Light").assertIsDisplayed()
         assertFalse(AppSettingsStore(temp.root).wormLightEnabled())
         composeRule.onNodeWithTag("worm-light-switch").performClick()
@@ -264,9 +264,9 @@ class AppSettingsScreenTest {
                 AppSettingsScreen(store = s, onCoreOptions = {}, onBack = { })
             }
         }
-        // The colour row is index 14 here (the Worm Light
-        // row's index 13, plus the colour row itself).
-        composeRule.onNodeWithTag("settings-list").performScrollToIndex(14)
+        // The colour row is index 15 here (the Worm Light
+        // row's index 14, plus the colour row itself).
+        composeRule.onNodeWithTag("settings-list").performScrollToIndex(15)
         composeRule.onNodeWithText("Worm Light colour").assertIsDisplayed()
         assertEquals(WormLightColor.DEFAULT, AppSettingsStore(temp.root).wormLightColor())
         composeRule.onNodeWithTag("worm-light-color-ATOMIC_PURPLE").performClick()
@@ -286,13 +286,49 @@ class AppSettingsScreenTest {
                 AppSettingsScreen(store = s, onCoreOptions = {}, onBack = { })
             }
         }
-        // The dimming row is index 15 here (the Worm Light
-        // row's index 13, the colour row's 14, plus the
+        // The dimming row is index 16 here (the Worm Light
+        // row's index 14, the colour row's 15, plus the
         // dimming row itself).
-        composeRule.onNodeWithTag("settings-list").performScrollToIndex(15)
+        composeRule.onNodeWithTag("settings-list").performScrollToIndex(16)
         composeRule.onNodeWithText("Dim in dark rooms").assertIsDisplayed()
         assertFalse(AppSettingsStore(temp.root).opticsDimmingEnabled())
         composeRule.onNodeWithTag("optics-dimming-switch").performClick()
         assertTrue(AppSettingsStore(temp.root).opticsDimmingEnabled())
+    }
+
+    @Test
+    fun edgeSmoothingOffByDefaultAndGridRowHidden() {
+        // Phase 9 — off by default, and the combined-mode
+        // row only exists while edge smoothing is on.
+        val s = store()
+        composeRule.setContent {
+            PoingTheme {
+                AppSettingsScreen(store = s, onCoreOptions = {}, onBack = { })
+            }
+        }
+        // The edge row is index 13 here (the Dusk row's
+        // index 12, plus the edge row itself).
+        composeRule.onNodeWithTag("settings-list").performScrollToIndex(13)
+        composeRule.onNodeWithText("Edge smoothing").assertIsDisplayed()
+        assertFalse(AppSettingsStore(temp.root).edgeSmoothingEnabled())
+        composeRule.onAllNodesWithText("Edge smoothing + grid").assertCountEquals(0)
+    }
+
+    @Test
+    fun togglingEdgeSmoothingOnShowsGridRowAndPersists() {
+        val s = store()
+        composeRule.setContent {
+            PoingTheme {
+                AppSettingsScreen(store = s, onCoreOptions = {}, onBack = { })
+            }
+        }
+        composeRule.onNodeWithTag("settings-list").performScrollToIndex(13)
+        composeRule.onNodeWithTag("edge-smoothing-switch").performClick()
+        assertTrue(AppSettingsStore(temp.root).edgeSmoothingEnabled())
+        composeRule.onNodeWithText("Edge smoothing + grid").assertIsDisplayed()
+        assertFalse(AppSettingsStore(temp.root).edgeGridEnabled())
+        composeRule.onNodeWithTag("edge-grid-switch").performClick()
+        assertTrue(AppSettingsStore(temp.root).edgeGridEnabled())
+        assertEquals(EdgeMode.EDGE_GRID, AppSettingsStore(temp.root).edgeMode())
     }
 }
