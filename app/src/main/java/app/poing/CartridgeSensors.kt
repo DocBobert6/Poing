@@ -5,6 +5,7 @@ import android.hardware.Sensor
 import android.hardware.SensorEvent
 import android.hardware.SensorEventListener
 import android.hardware.SensorManager
+import java.io.File
 
 /**
  * Phase 6 (item 10a) — the cartridge sensors: the phone's
@@ -47,6 +48,13 @@ class CartridgeSensors(context: Context) : SensorEventListener {
         private set
 
     /**
+     * Set while the game is paused (see GameScreen): in-flight
+     * sensor events landing after stop() unregistered the
+     * listeners are dropped here, not pushed to the core.
+     */
+    var paused: Boolean = false
+
+    /**
      * Phase 8 — Screen Optics: an optional lux callback for
      * the ambient light sensor. The light sensor already
      * feeds the core (id 6) while a game is playing; this
@@ -59,20 +67,29 @@ class CartridgeSensors(context: Context) : SensorEventListener {
     /**
      * Start feeding sensor values to the bridge. A phone without
      * a sensor simply never pushes that sensor's values (the
-     * core reads zero for it). Idempotent; safe to call before
+     * core reads zero for it). Only the sensors in [need] are
+     * registered — the rest would only wake the core's readers
+     * for values no cartridge can consume (see
+     * [cartridgeSensorNeed]). Idempotent; safe to call before
      * the native libraries load — the push is then a no-op that
      * the bridge's ensureLoaded guard swallows (see [push]).
      */
-    fun start() {
+    fun start(need: SensorNeed = SensorNeed.ALL) {
         if (started) return
-        accelerometer?.let {
-            sensorManager.registerListener(this, it, SensorManager.SENSOR_DELAY_GAME)
+        if (need.tilt) {
+            accelerometer?.let {
+                sensorManager.registerListener(this, it, SensorManager.SENSOR_DELAY_GAME)
+            }
         }
-        gyroscope?.let {
-            sensorManager.registerListener(this, it, SensorManager.SENSOR_DELAY_GAME)
+        if (need.gyro) {
+            gyroscope?.let {
+                sensorManager.registerListener(this, it, SensorManager.SENSOR_DELAY_GAME)
+            }
         }
-        light?.let {
-            sensorManager.registerListener(this, it, SensorManager.SENSOR_DELAY_GAME)
+        if (need.light) {
+            light?.let {
+                sensorManager.registerListener(this, it, SensorManager.SENSOR_DELAY_GAME)
+            }
         }
         started = true
     }
@@ -97,6 +114,9 @@ class CartridgeSensors(context: Context) : SensorEventListener {
     }
 
     override fun onSensorChanged(event: SensorEvent) {
+        // Dropped while paused: the listeners are stopped on
+        // pause, but an event already in flight can still land.
+        if (paused) return
         when (event.sensor.type) {
             Sensor.TYPE_ACCELEROMETER -> {
                 push(0, event.values.getOrElse(0) { 0f })
@@ -130,3 +150,92 @@ class CartridgeSensors(context: Context) : SensorEventListener {
         }
     }
 }
+
+/**
+ * Which of the phone's sensors this session needs. ALL is
+ * today's behaviour (everything registered); a session whose
+ * cartridge has no sensor hardware registers none.
+ */
+data class SensorNeed(val tilt: Boolean, val gyro: Boolean, val light: Boolean) {
+    companion object {
+        val ALL = SensorNeed(tilt = true, gyro = true, light = true)
+        val NONE = SensorNeed(tilt = false, gyro = false, light = false)
+    }
+}
+
+/**
+ * The motion-sensor need of the cartridge in [romFile], read
+ * from the ROM header — the same bytes the core's own
+ * detection uses, so the gate can never disagree with the
+ * core about a game:
+ * - GB/GBC: the cartridge-type byte at 0x147. MBC7 (0x22) is
+ *   the only GB mapper with tilt hardware (Kirby Tilt 'n'
+ *   Tumble); 0x0F is MBC3+RTC, not tilt (mbc.c). No GB
+ *   cartridge has a gyroscope or a solar sensor.
+ * - GBA: the 4-letter game code at 0xAC, looked up in the
+ *   core's own overrides table (overrides.c) — the core
+ *   enables tilt/gyro/light hardware ONLY for the codes in
+ *   that table, with no fallback for unknown codes, so this
+ *   lookup matches it exactly, including for homebrew (no
+ *   hardware on either side). Tilt (accelerometer): KHPJ
+ *   (Korokoro Puzzle Happy Panechu), KYGJ/KYGE/KYGP (Yoshi's
+ *   Universal Gravitation). Gyro: RZWJ/RZWE/RZWP (WarioWare:
+ *   Twisted!). (The Boktai solar codes — U3I*/U32*/U33J — are
+ *   the same table, but light is decided by the caller from
+ *   the solar option and Screen Optics, not here.)
+ * The light flag is always false in the result: light is
+ * decided by the caller (see GameScreen.sensorNeed), not by
+ * the cartridge. Null when the header cannot be read — the
+ * caller registers everything then, so an unreadable header
+ * can never break a tilt game.
+ *
+ * Verification note (2026-11-14): the core's sensor
+ * enablement itself cannot be the gate — _initSensors
+ * (libretro.c) enables all three families unconditionally at
+ * load, and the libretro frontend attaches the rotation
+ * source for every game (libretro.c:2051), so GBA tilt games
+ * DO consume the accelerometer through it. The cartridge
+ * hardware is the only signal that discriminates, and this
+ * is it.
+ */
+fun cartridgeSensorNeed(romFile: File, system: GameSystem): SensorNeed? {
+    val header = ByteArray(HEADER_BYTES)
+    val read = try {
+        romFile.inputStream().use { input ->
+            var offset = 0
+            while (offset < HEADER_BYTES) {
+                val n = input.read(header, offset, HEADER_BYTES - offset)
+                if (n < 0) break
+                offset += n
+            }
+            offset
+        }
+    } catch (_: Exception) {
+        return null
+    }
+    if (read < HEADER_BYTES) return null
+    return when (system) {
+        GameSystem.GB, GameSystem.GBC ->
+            SensorNeed(tilt = header[GB_CART_TYPE_OFFSET] == GB_MBC7_TYPE, gyro = false, light = false)
+        GameSystem.GBA -> {
+            val code = String(header, GBA_GAME_CODE_OFFSET, 4, Charsets.US_ASCII)
+            SensorNeed(tilt = code in TILT_CODES, gyro = code in GYRO_CODES, light = false)
+        }
+    }
+}
+
+/** The header bytes cartridgeSensorNeed reads (covers 0x147 and 0xAC). */
+private const val HEADER_BYTES = 512
+
+/** GB/GBC cartridge-type byte: MBC7 (tilt) is 0x22 (mbc.c). */
+private const val GB_CART_TYPE_OFFSET = 0x147
+private const val GB_MBC7_TYPE: Byte = 0x22
+
+/** GBA game-code offset (overrides.c looks the code up there). */
+private const val GBA_GAME_CODE_OFFSET = 0xAC
+
+/** GBA tilt (accelerometer) games, from the core's overrides table. */
+private val TILT_CODES = setOf("KHPJ", "KYGJ", "KYGE", "KYGP")
+
+/** GBA gyro games (WarioWare: Twisted!), from the core's overrides table. */
+private val GYRO_CODES = setOf("RZWJ", "RZWE", "RZWP")

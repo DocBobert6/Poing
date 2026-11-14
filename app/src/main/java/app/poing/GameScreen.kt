@@ -117,6 +117,13 @@ fun GameScreen(
     var solarLevel by remember { mutableStateOf(optionsStore.get("mgba_solar_sensor_level")) }
     var rumbleEnabled by remember { mutableStateOf(true) }
     var sensorsEnabled by remember { mutableStateOf(true) }
+    // Phase 6 (item 10a) — the cartridge sensors (tilt /
+    // gyroscope / solar): the phone's hardware, fed to the core
+    // while a game is playing. Built here (not beside the
+    // session lifecycle effect below) so doPause/doResume and
+    // applySensors can reach it — local functions must be
+    // declared before use, and the sensor state lives here.
+    val cartridgeSensors = remember { CartridgeSensors(context) }
     // Phase 6 (item 8c) — the RetroAchievements screens over the
     // paused game, like the cheats screen.
     var showAchievements by remember { mutableStateOf(false) }
@@ -446,6 +453,42 @@ fun GameScreen(
         session.setSpeed(effectiveSpeed())
     }
 
+    // Performance fix 4 — the cartridge sensors, gated on need
+    // and stopped while paused (audit #5). The cartridge's
+    // motion need is read once per game from the ROM header
+    // (see CartridgeSensors.cartridgeSensorNeed) — the same
+    // bytes the core's own detection uses. Light is needed
+    // when the solar sensor drives the game (option "sensor")
+    // or when Screen Optics is live: the chain pass and the
+    // edge combined mode apply the lux-driven uniforms; plain
+    // and plain edge never set them.
+    val cartSensorNeed = remember(gamePath) {
+        cartridgeSensorNeed(java.io.File(gamePath), system)
+    }
+
+    fun sensorNeed(): SensorNeed {
+        val cart = cartSensorNeed ?: SensorNeed.ALL
+        val opticsLive = displayChain != DisplayChain.CLEAN || edgeMode == EdgeMode.EDGE_GRID
+        return cart.copy(light = solarLevel == "sensor" || opticsLive)
+    }
+
+    // (Re-)apply the sensor registration for the current
+    // state: stopped while paused or when the user switched
+    // the sensors off in the Cartridge Surgery panel, else
+    // started with the current need. Called from doPause,
+    // doResume, the lifecycle observer, the session effect
+    // and the panel toggle, so every transition goes through
+    // the one place.
+    fun applySensors() {
+        cartridgeSensors.paused = paused
+        if (!sensorsEnabled || paused) {
+            cartridgeSensors.stop()
+            return
+        }
+        cartridgeSensors.stop()
+        cartridgeSensors.start(sensorNeed())
+    }
+
     // Pause: clear every held input FIRST (a finger that lifts while
     // the pause overlay covers the buttons never reaches the button's
     // gesture loop, so without this the button stays stuck down),
@@ -467,6 +510,12 @@ fun GameScreen(
         paused = true
         pushInput()
         applySpeed()
+        // Performance fix 4 — the sensors stop with the game:
+        // they fired ~50 Hz while paused, the only proven
+        // sustained idle load. applySensors also mirrors the
+        // paused flag onto the sensors, so in-flight events
+        // landing after stop() are dropped.
+        applySensors()
     }
 
     fun doResume() {
@@ -474,8 +523,12 @@ fun GameScreen(
         // Phase 8 — the GB palette may have changed in Core
         // Options while paused; re-read it so the chain follows.
         palette = optionsStore.get("mgba_gb_colors")
+        // The solar level may have changed the same way; the
+        // sensor need follows it (see sensorNeed).
+        solarLevel = optionsStore.get("mgba_solar_sensor_level")
         session.resume()
         paused = false
+        applySensors()
         applySpeed()
     }
 
@@ -494,8 +547,19 @@ fun GameScreen(
     DisposableEffect(activity) {
         if (activity == null) return@DisposableEffect onDispose {}
         val observer = LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_PAUSE) doPause()
-            if (event == Lifecycle.Event.ON_RESUME) glView?.onResume()
+            if (event == Lifecycle.Event.ON_PAUSE) {
+                doPause()
+                glView?.onPause()
+            }
+            if (event == Lifecycle.Event.ON_RESUME) {
+                glView?.onResume()
+                // The session stays paused until the player
+                // resumes it from the menu — applySensors is
+                // pause-aware, so this restarts the sensors only
+                // if the game is somehow not paused, and is a
+                // no-op while it is.
+                applySensors()
+            }
         }
         activity.lifecycle.addObserver(observer)
         onDispose { activity.lifecycle.removeObserver(observer) }
@@ -513,12 +577,6 @@ fun GameScreen(
             GamepadInput.state.clear()
         }
     }
-
-    // Phase 6 (item 10a) — the cartridge sensors (tilt /
-    // gyroscope / solar): the phone's hardware, fed to the core
-    // while a game is playing. Built here so the session
-    // lifecycle effect below can start and stop it.
-    val cartridgeSensors = remember { CartridgeSensors(context) }
 
     // Phase 6 (item 10b) — cartridge rumble: the phone's
     // vibrator, driven by the core while a game is playing.
@@ -545,8 +603,10 @@ fun GameScreen(
         glView?.onResume()
         // Phase 6 (item 10a) — the cartridge sensors: the phone's
         // motion/light sensors feed the core while a game is
-        // playing (started and stopped with the session).
-        cartridgeSensors.start()
+        // playing (started and stopped with the session, and
+        // gated on what the cartridge can consume — see
+        // applySensors).
+        applySensors()
         // Phase 8 — Screen Optics: the same light reading the
         // core already gets drives the active chain's
         // brightness / contrast / gamma (no second listener).
@@ -1010,7 +1070,7 @@ fun GameScreen(
                     onSensorsEnabled = { enabled ->
                         sensorsEnabled = enabled
                         if (enabled) {
-                            cartridgeSensors.start()
+                            applySensors()
                         } else {
                             cartridgeSensors.stop()
                             cartridgeSensors.zero()

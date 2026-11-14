@@ -122,6 +122,16 @@ class PlayerSession(
     @Volatile
     private var paused = false
 
+    /**
+     * The paused loops park here (see emuLoop/audioLoop): while
+     * paused they wait instead of waking every 50 ms, and
+     * resume()/stop() notify. The wait loop re-checks the
+     * flags, so a notify that lands before the wait is not
+     * lost; both flags are @Volatile, so a parked thread sees
+     * the change.
+     */
+    private val pauseLock = Object()
+
     /** True once a game is loaded and not yet unloaded. */
     @Volatile
     private var loaded = false
@@ -342,6 +352,8 @@ class PlayerSession(
             }
         }
         paused = false
+        // Wake the parked loops (see pauseLock).
+        synchronized(pauseLock) { pauseLock.notifyAll() }
         // A new run starts now.
         playStartMillis = System.currentTimeMillis()
     }
@@ -708,6 +720,9 @@ class PlayerSession(
         videoRecorder.stop()
         running = false
         paused = false
+        // Wake any loop parked in pauseLock.wait() so the joins
+        // below do not wait out their timeouts.
+        synchronized(pauseLock) { pauseLock.notifyAll() }
         try {
             emuThread?.join(2000)
         } catch (e: InterruptedException) {
@@ -812,10 +827,16 @@ class PlayerSession(
 
         while (running) {
             if (paused) {
-                // Idle: no retro_run, no new frames. The last frame
+                // Parked: no retro_run, no new frames, and no
+                // wakeups at all while paused. The last frame
                 // stays on screen behind the pause screen.
+                // resume()/stop() notify; the while re-checks
+                // the flags, so a notify that lands before the
+                // wait is not lost.
                 try {
-                    Thread.sleep(50)
+                    synchronized(pauseLock) {
+                        while (paused && running) pauseLock.wait()
+                    }
                 } catch (e: InterruptedException) {
                     break
                 }
@@ -936,10 +957,15 @@ class PlayerSession(
         val samples = ShortArray(4096 * 2) // stereo frames * 2 channels
         while (running) {
             if (paused) {
-                // Idle: the track is paused and flushed, so there is
-                // nothing to drain.
+                // Parked: the track is paused and flushed, so
+                // there is nothing to drain — and no wakeups at
+                // all while paused. resume()/stop() notify; the
+                // while re-checks the flags, so a notify that
+                // lands before the wait is not lost.
                 try {
-                    Thread.sleep(50)
+                    synchronized(pauseLock) {
+                        while (paused && running) pauseLock.wait()
+                    }
                 } catch (e: InterruptedException) {
                     break
                 }
