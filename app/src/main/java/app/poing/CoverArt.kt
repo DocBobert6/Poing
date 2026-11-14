@@ -104,7 +104,7 @@ private fun defaultHttpGet(url: String, maxBytes: Int): ByteArray? {
         setRequestProperty("User-Agent", "Poing")
         setRequestProperty("Accept", "application/vnd.github+json")
     }
-    try {
+    return try {
         if (conn.responseCode != java.net.HttpURLConnection.HTTP_OK) return null
         val out = java.io.ByteArrayOutputStream()
         conn.inputStream.use { input ->
@@ -116,7 +116,7 @@ private fun defaultHttpGet(url: String, maxBytes: Int): ByteArray? {
                 if (out.size() > maxBytes) return null // over the cap
             }
         }
-        return out.toByteArray()
+        out.toByteArray()
     } catch (_: Exception) {
         null
     } finally {
