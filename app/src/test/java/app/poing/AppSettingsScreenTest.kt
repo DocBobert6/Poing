@@ -297,6 +297,26 @@ class AppSettingsScreenTest {
     }
 
     @Test
+    fun coverArtMobileDataOffByDefaultAndTogglingPersists() {
+        // Cover-art fix, commit B (2026-11-14): the mobile
+        // data opt-in — off by default, and the switch writes
+        // it to the store.
+        val s = store()
+        composeRule.setContent {
+            PoingTheme {
+                AppSettingsScreen(store = s, onCoreOptions = {}, onBack = { })
+            }
+        }
+        // The row is index 18 here (the dimming row's 16,
+        // the Library header's 17, plus the row itself).
+        composeRule.onNodeWithTag("settings-list").performScrollToIndex(18)
+        composeRule.onNodeWithText("Download cover art over mobile data").assertIsDisplayed()
+        assertFalse(AppSettingsStore(temp.root).coverArtMobileDataAllowed())
+        composeRule.onNodeWithTag("cover-art-mobile-data-switch").performClick()
+        assertTrue(AppSettingsStore(temp.root).coverArtMobileDataAllowed())
+    }
+
+    @Test
     fun edgeSmoothingOffByDefaultAndGridRowHidden() {
         // Phase 9 — off by default, and the combined-mode
         // row only exists while edge smoothing is on.

@@ -187,6 +187,20 @@ class AppSettingsStoreTest {
     }
 
     @Test
+    fun coverArtMobileDataDefaultsOffAndRoundTrips() {
+        // Cover art downloads on unmetered Wi-Fi only unless
+        // the player opts into mobile data — off by default,
+        // so nothing ever uses the data allowance unasked.
+        val s = store()
+        assertFalse(s.coverArtMobileDataAllowed())
+        s.setCoverArtMobileDataAllowed(true)
+        assertTrue(s.coverArtMobileDataAllowed())
+        assertTrue(AppSettingsStore(temp.root).coverArtMobileDataAllowed())
+        s.setCoverArtMobileDataAllowed(false)
+        assertFalse(s.coverArtMobileDataAllowed())
+    }
+
+    @Test
     fun devStatsDefaultsOffAndRoundTrips() {
         // The top bar hides during gameplay unless the player
         // asked for the dev stats — off by default, so the bar

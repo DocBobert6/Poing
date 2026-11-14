@@ -40,6 +40,7 @@ class AppSettingsStore(private val root: File) {
         const val KEY_OPTICS_DIMMING = "display_optics_dimming"
         const val KEY_DEV_STATS = "dev_stats_visible"
         const val KEY_LIBRARY_VIEW = "library_view"
+        const val KEY_COVER_ART_MOBILE_DATA = "cover_art_mobile_data"
         const val DEFAULT_FF_SPEED = 2
         val FF_SPEEDS = setOf(2, 3, 4)
     }
@@ -156,6 +157,16 @@ class AppSettingsStore(private val root: File) {
     }
 
     fun setLibraryView(view: LibraryView) = write(KEY_LIBRARY_VIEW, view.name.lowercase())
+
+    /**
+     * Cover art over mobile data (Robert, 2026-11-14): off by
+     * default — cover art downloads on unmetered Wi-Fi only.
+     * On, the fetch may also run over mobile data (or any
+     * metered connection), which can use the data allowance.
+     */
+    fun coverArtMobileDataAllowed(): Boolean = readBoolean(KEY_COVER_ART_MOBILE_DATA, false)
+    fun setCoverArtMobileDataAllowed(allowed: Boolean) =
+        write(KEY_COVER_ART_MOBILE_DATA, allowed.toString())
 
     /**
      * Phase 8 — whether a chain is on. Clean is never gated

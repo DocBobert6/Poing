@@ -8,13 +8,16 @@ import android.net.NetworkRequest
 import java.io.File
 
 /**
- * Cover art, Wi-Fi only, cached. The source is the
+ * Cover art, Wi-Fi by default, cached. The source is the
  * libretro-thumbnails collection ([Thumbnails]): one file per game,
  * fetched on demand when its tile is shown, then cached on the
  * device. Never a silent bulk download of the library, never
  * bundled in the repo or the APK. Offline, no match, or a bad
  * download means the placeholder stays, with no error and no
- * blocking.
+ * blocking. By default the fetch runs on unmetered Wi-Fi only;
+ * the "Download cover art over mobile data" setting (off by
+ * default) lets it run on mobile data too — see
+ * [isCoverArtNetworkAvailable].
  *
  * The filename index is fetched once per system and cached
  * (art-index-gb/gbc/gba.txt); the art itself is only ever fetched
@@ -24,7 +27,7 @@ import java.io.File
  * happens once per system, ever.
  */
 fun interface CoverArtFetcher {
-    /** Returns PNG/JPEG bytes for the game, or null when unavailable. Only ever called on Wi-Fi. */
+    /** Returns PNG/JPEG bytes for the game, or null when unavailable. Only ever called when the network gate allows it. */
     fun fetch(game: LibraryGame): ByteArray?
 }
 
@@ -134,11 +137,11 @@ class CoverArtStore(
     fun coverFile(game: LibraryGame): File = File(coversDir(), "${game.id}.png")
     fun hasCover(game: LibraryGame): Boolean = coverFile(game).exists()
 
-    /** Cached cover, or a Wi-Fi-only fetch cached for next time. Null means: show the placeholder. */
-    fun coverOrFetch(game: LibraryGame, wifiAvailable: Boolean): File? {
+    /** Cached cover, or a fetch cached for next time (when the network gate allows it). Null means: show the placeholder. */
+    fun coverOrFetch(game: LibraryGame, networkAvailable: Boolean): File? {
         val file = coverFile(game)
         if (file.exists()) return file
-        if (!wifiAvailable) return null
+        if (!networkAvailable) return null
         val bytes = fetcher.fetch(game) ?: return null
         return try {
             file.writeBytes(bytes)
@@ -149,14 +152,24 @@ class CoverArtStore(
     }
 }
 
-/** True only on an unmetered Wi-Fi transport — cover art never downloads over mobile data. */
-fun isWifiConnected(context: Context): Boolean {
+/**
+ * True when cover art may be fetched. Unmetered Wi-Fi always
+ * qualifies. Any other connected network qualifies only when
+ * [allowMobileData] is on — the user opted into data use (the
+ * "Download cover art over mobile data" setting, off by
+ * default). False when there is no active network at all.
+ * (2026-11-14: this was `isWifiConnected`, Wi-Fi-only; the
+ * setting widened the gate, so the name follows the behaviour.)
+ */
+fun isCoverArtNetworkAvailable(context: Context, allowMobileData: Boolean): Boolean {
     val manager = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
         ?: return false
     val network = manager.activeNetwork ?: return false
     val caps = manager.getNetworkCapabilities(network) ?: return false
-    return caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) &&
+    if (caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) &&
         caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_METERED)
+    ) return true
+    return allowMobileData
 }
 
 /**

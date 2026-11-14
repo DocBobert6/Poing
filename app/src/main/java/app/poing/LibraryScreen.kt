@@ -114,10 +114,13 @@ fun LibraryScreen(
         if (notice != null) message = notice
     }
 
-    // Cover art: Wi-Fi-only fetch for games with no cached cover.
-    // The fetcher is the libretro-thumbnails collection (see
-    // CoverArt.kt): one file per game, cached on the device, so
-    // covers appear as their tiles are shown.
+    // Cover art: fetch for games with no cached cover, on
+    // unmetered Wi-Fi — or on mobile data too, when the user
+    // turns that on in Settings ("Download cover art over
+    // mobile data", off by default). The fetcher is the
+    // libretro-thumbnails collection (see CoverArt.kt): one
+    // file per game, cached on the device, so covers appear
+    // as their tiles are shown.
     // Two states, one for each half of the 2026-11-14 fix:
     // connectivityVersion bumps when connectivity changes (the
     // watcher below), so the fetch re-runs when Wi-Fi appears
@@ -137,7 +140,17 @@ fun LibraryScreen(
     }
     LaunchedEffect(games, connectivityVersion) {
         val landed = withContext(Dispatchers.IO) {
-            fetchMissingCovers(art, games, isWifiConnected(context))
+            // The setting is read fresh on every run, and the
+            // effect runs again when the library is re-entered
+            // (returning from Settings re-composes it), so a
+            // toggle change takes effect on the next entry.
+            val allowMobileData =
+                AppSettingsStore(context.filesDir).coverArtMobileDataAllowed()
+            fetchMissingCovers(
+                art,
+                games,
+                isCoverArtNetworkAvailable(context, allowMobileData),
+            )
         }
         if (landed) coversVersion++
     }

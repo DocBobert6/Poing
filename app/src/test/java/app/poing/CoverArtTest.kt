@@ -26,13 +26,13 @@ class CoverArtTest {
     fun noCoverWithoutWifi() {
         val art = CoverArtStore(temp.root)
         assertFalse(art.hasCover(game()))
-        assertNull(art.coverOrFetch(game(), wifiAvailable = false))
+        assertNull(art.coverOrFetch(game(), networkAvailable = false))
     }
 
     @Test
     fun noOpFetcherNeverProvidesCover() {
         val art = CoverArtStore(temp.root)
-        assertNull(art.coverOrFetch(game(), wifiAvailable = true))
+        assertNull(art.coverOrFetch(game(), networkAvailable = true))
     }
 
     @Test
@@ -42,7 +42,7 @@ class CoverArtTest {
         val art = CoverArtStore(temp.root, fetcher)
         art.coverFile(game()).writeBytes("cached".toByteArray())
         assertTrue(art.hasCover(game()))
-        assertEquals("cached", art.coverOrFetch(game(), wifiAvailable = false)?.readText())
+        assertEquals("cached", art.coverOrFetch(game(), networkAvailable = false)?.readText())
         assertEquals(0, fetched)
     }
 
@@ -50,9 +50,9 @@ class CoverArtTest {
     fun wifiFetchIsCachedForNextTime() {
         val fetcher = CoverArtFetcher { "fresh".toByteArray() }
         val art = CoverArtStore(temp.root, fetcher)
-        val first = art.coverOrFetch(game(), wifiAvailable = true)
+        val first = art.coverOrFetch(game(), networkAvailable = true)
         assertEquals("fresh", first?.readText())
-        val second = art.coverOrFetch(game(), wifiAvailable = false)
+        val second = art.coverOrFetch(game(), networkAvailable = false)
         assertEquals(first, second)
     }
 

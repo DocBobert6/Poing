@@ -100,6 +100,10 @@ fun AppSettingsScreen(
     // light itself stays warm white and is never a setting.
     var wormLightColor by remember { mutableStateOf(store.wormLightColor()) }
     var opticsDimming by remember { mutableStateOf(store.opticsDimmingEnabled()) }
+    // Cover art (Robert, 2026-11-14): let covers fetch over
+    // mobile data when the user turns it on. Off by default —
+    // covers download on unmetered Wi-Fi only.
+    var coverArtMobileData by remember { mutableStateOf(store.coverArtMobileDataAllowed()) }
 
     LazyColumn(
         modifier = Modifier
@@ -600,6 +604,40 @@ fun AppSettingsScreen(
             }
         }
         item {
+            Text(
+                "Library",
+                style = displayTextStyle(DisplaySizeMedium),
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+            )
+        }
+        item {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        "Download cover art over mobile data",
+                        style = MaterialTheme.typography.titleMedium,
+                    )
+                    Text(
+                        "Cover art usually downloads on unmetered Wi-Fi only. On, it may also download over mobile data — which can use your data allowance. Off by default.",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
+                Switch(
+                    checked = coverArtMobileData,
+                    onCheckedChange = {
+                        store.setCoverArtMobileDataAllowed(it)
+                        coverArtMobileData = it
+                    },
+                    modifier = Modifier.testTag("cover-art-mobile-data-switch"),
+                )
+            }
+        }
+        item {
             Row(modifier = Modifier.padding(16.dp)) {
                 TextButton(onClick = {
                     store.reset()
@@ -615,6 +653,7 @@ fun AppSettingsScreen(
                     wormLight = store.wormLightEnabled()
                     wormLightColor = store.wormLightColor()
                     opticsDimming = store.opticsDimmingEnabled()
+                    coverArtMobileData = store.coverArtMobileDataAllowed()
                     palette = optionsStore?.get("mgba_gb_colors")
                         ?: CoreOptions.GB_PALETTES.first()
                 }) {
