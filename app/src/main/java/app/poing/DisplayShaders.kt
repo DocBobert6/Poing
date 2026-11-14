@@ -445,9 +445,7 @@ object DisplayShaders {
         precision mediump float;
         varying vec2 vTex;
         uniform sampler2D uTex;
-        uniform sampler2D uGammaLut;
-        uniform int uMode;
-        uniform float uGammaRow;
+        uniform sampler2D uRawTex;
         uniform vec2 uTexSize;
         uniform float uDitherTol;
         uniform float uDitherGuardHi;
@@ -459,64 +457,44 @@ object DisplayShaders {
         float edgeLuma(vec3 c) {
           return dot(c, vec3(0.299, 0.587, 0.114));
         }
-        // The colour-fold (item 4 of the 2026-11-14 edge
-        // rework): each system's colour model, folded into
-        // the edge pass BEFORE the edge work runs, so edge
-        // mode does not lose the chains' researched colour.
-        // This is COLOUR_FRAGMENT's mode logic, copied
-        // verbatim as a function — mode 0 is Jade's FSTN
-        // ramp, mode 1 passes through (DMG-green / SGB
-        // palettes as the core rendered them, as Jade
-        // does), modes 2 and 3 are the SameBoy response
-        // ramp (LUT row 0 CGB / row 1 AGB, via uGammaRow)
-        // then the mGBA colours matrix in linear light
-        // (x0.94). The LUT is the same texture the chains
-        // use, already uploaded on unit 1. Applied to all
-        // nine samples below, so the dither averages, the
-        // gradients and the blends all work in the
-        // corrected colours — a dither's intended grey is
-        // the average of the corrected shades.
-        vec3 colourCorrect(vec3 col) {
-          if (uMode == 0) {
-            float luma = dot(col, vec3(0.299, 0.587, 0.114));
-            vec3 s0 = vec3(0.094, 0.161, 0.129);
-            vec3 s1 = vec3(0.290, 0.388, 0.322);
-            vec3 s2 = vec3(0.518, 0.612, 0.518);
-            vec3 s3 = vec3(0.647, 0.710, 0.647);
-            vec3 c01 = mix(s0, s1, clamp(luma / 0.322, 0.0, 1.0));
-            vec3 c12 = mix(s1, s2, clamp((luma - 0.322) / 0.356, 0.0, 1.0));
-            vec3 c23 = mix(s2, s3, clamp((luma - 0.678) / 0.322, 0.0, 1.0));
-            return mix(mix(c01, c12, step(0.322, luma)), c23, step(0.678, luma));
-          } else if (uMode == 2 || uMode == 3) {
-            float ri = min(floor(col.r * 32.0), 31.0);
-            float gi = min(floor(col.g * 32.0), 31.0);
-            float bi = min(floor(col.b * 32.0), 31.0);
-            float vr = (uGammaRow + 0.5) / 2.0;
-            vec3 ramp = vec3(
-              texture2D(uGammaLut, vec2((ri + 0.5) / 32.0, vr)).r,
-              texture2D(uGammaLut, vec2((gi + 0.5) / 32.0, vr)).r,
-              texture2D(uGammaLut, vec2((bi + 0.5) / 32.0, vr)).r);
-            vec3 lin = pow(ramp, vec3(2.2));
-            vec3 m;
-            m.r = 0.94 * (0.82 * lin.r + 0.24 * lin.g - 0.06 * lin.b);
-            m.g = 0.94 * (0.125 * lin.r + 0.665 * lin.g + 0.21 * lin.b);
-            m.b = 0.94 * (0.195 * lin.r + 0.075 * lin.g + 0.73 * lin.b);
-            vec3 outCol = pow(max(m, vec3(0.0)), vec3(1.0 / 2.2));
-            return clamp(outCol, vec3(0.0), vec3(1.0));
-          }
-          return col;
-        }
+        // Performance fix 7 (2026-11-14) — the colour-fold
+        // moved OUT of this pass into its own native-size
+        // pass (the colour program, into the edge colour
+        // framebuffer — see DisplayRenderer.drawEdge), so the
+        // nine 3x3 samples below read the already-corrected
+        // colours with plain taps: 9 per-tap corrections
+        // removed (each up to 3 LUT reads + 2 pow() for
+        // Prism / Dusk) over ~1M display fragments, every
+        // frame. The detectors, the dither averages, the
+        // the blends still work in the corrected colours —
+        // the correction is identical, it just runs once per
+        // texel instead of once per display fragment. The
+        // only round trip is the 8-bit colour framebuffer
+        // (~0.002 a channel — far inside every detector
+        // tolerance; the recon pass's A1 notes the same).
+        // The 5x5 ring, the stroke-gate taps and the centre
+        // reference still read the RAW frame (uRawTex):
+        // direction is a property of the source art, not the
+        // colour model, and the ring's thresholds were tuned
+        // on raw luma. The colour pass renders with uFlipV
+        // 1, so its framebuffer stores the corrected image
+        // UNFLIPPED — the same orientation as the raw Bitmap
+        // texture — and this pass samples both with the one
+        // varying (the recon pass's A2 renders its colour
+        // pass with uFlipV 0, so its two inputs are
+        // vertically mirrored; this pass does not repeat
+        // that — see the drawEdge note).
         void main() {
           vec2 texel = vec2(1.0 / uTexSize.x, 1.0 / uTexSize.y);
-          vec3 c0 = colourCorrect(texture2D(uTex, vTex).rgb);
-          vec3 cN = colourCorrect(texture2D(uTex, vTex + vec2(0.0, texel.y)).rgb);
-          vec3 cS = colourCorrect(texture2D(uTex, vTex - vec2(0.0, texel.y)).rgb);
-          vec3 cE = colourCorrect(texture2D(uTex, vTex + vec2(texel.x, 0.0)).rgb);
-          vec3 cW = colourCorrect(texture2D(uTex, vTex - vec2(texel.x, 0.0)).rgb);
-          vec3 cNE = colourCorrect(texture2D(uTex, vTex + vec2(texel.x, texel.y)).rgb);
-          vec3 cNW = colourCorrect(texture2D(uTex, vTex + vec2(-texel.x, texel.y)).rgb);
-          vec3 cSE = colourCorrect(texture2D(uTex, vTex + vec2(texel.x, -texel.y)).rgb);
-          vec3 cSW = colourCorrect(texture2D(uTex, vTex + vec2(-texel.x, -texel.y)).rgb);
+          vec3 c0 = texture2D(uTex, vTex).rgb;
+          vec3 cN = texture2D(uTex, vTex + vec2(0.0, texel.y)).rgb;
+          vec3 cS = texture2D(uTex, vTex - vec2(0.0, texel.y)).rgb;
+          vec3 cE = texture2D(uTex, vTex + vec2(texel.x, 0.0)).rgb;
+          vec3 cW = texture2D(uTex, vTex - vec2(texel.x, 0.0)).rgb;
+          vec3 cNE = texture2D(uTex, vTex + vec2(texel.x, texel.y)).rgb;
+          vec3 cNW = texture2D(uTex, vTex + vec2(-texel.x, texel.y)).rgb;
+          vec3 cSE = texture2D(uTex, vTex + vec2(texel.x, -texel.y)).rgb;
+          vec3 cSW = texture2D(uTex, vTex + vec2(-texel.x, -texel.y)).rgb;
           float tol = uDitherTol;
           // Patterned dither: regular alternation is shading,
           // not an edge — so the centre blends to the average
@@ -611,9 +589,9 @@ object DisplayShaders {
           // border, HUD numbers. The gradient ratio is
           // evaluated over the 5x5 OUTER RING, on RAW luma
           // (direction is a property of the source art, not
-          // the colour model; the ring costs 12 plain taps,
-          // no colour correction, no mixing with the
-          // corrected inner 3x3). The old 3x3 ratio fired on
+          // the colour model; the ring costs 12 plain taps
+          // on uRawTex, no colour correction, no mixing with
+          // the corrected inner 3x3). The old 3x3 ratio fired on
           // staircase steps — each step texel's gradient is
           // one-directional, so a staircased diagonal read
           // as "text" on a third to a half of its texels and
@@ -628,18 +606,18 @@ object DisplayShaders {
           // by the sim from the text / diagonal margins.
           float lMax = max(l0, max(max(lN, lS), max(max(lE, lW), max(max(lNE, lNW), max(lSE, lSW)))));
           float lMin = min(l0, min(min(lN, lS), min(min(lE, lW), min(min(lNE, lNW), min(lSE, lSW)))));
-          float rE2 = edgeLuma(texture2D(uTex, vTex + vec2(2.0 * texel.x, 0.0)).rgb);
-          float rNE2 = edgeLuma(texture2D(uTex, vTex + vec2(2.0 * texel.x, texel.y)).rgb);
-          float rSE2 = edgeLuma(texture2D(uTex, vTex + vec2(2.0 * texel.x, -texel.y)).rgb);
-          float rW2 = edgeLuma(texture2D(uTex, vTex + vec2(-2.0 * texel.x, 0.0)).rgb);
-          float rNW2 = edgeLuma(texture2D(uTex, vTex + vec2(-2.0 * texel.x, texel.y)).rgb);
-          float rSW2 = edgeLuma(texture2D(uTex, vTex + vec2(-2.0 * texel.x, -texel.y)).rgb);
-          float rN2 = edgeLuma(texture2D(uTex, vTex + vec2(0.0, 2.0 * texel.y)).rgb);
-          float rN2E = edgeLuma(texture2D(uTex, vTex + vec2(texel.x, 2.0 * texel.y)).rgb);
-          float rN2W = edgeLuma(texture2D(uTex, vTex + vec2(-texel.x, 2.0 * texel.y)).rgb);
-          float rS2 = edgeLuma(texture2D(uTex, vTex + vec2(0.0, -2.0 * texel.y)).rgb);
-          float rS2E = edgeLuma(texture2D(uTex, vTex + vec2(texel.x, -2.0 * texel.y)).rgb);
-          float rS2W = edgeLuma(texture2D(uTex, vTex + vec2(-texel.x, -2.0 * texel.y)).rgb);
+          float rE2 = edgeLuma(texture2D(uRawTex, vTex + vec2(2.0 * texel.x, 0.0)).rgb);
+          float rNE2 = edgeLuma(texture2D(uRawTex, vTex + vec2(2.0 * texel.x, texel.y)).rgb);
+          float rSE2 = edgeLuma(texture2D(uRawTex, vTex + vec2(2.0 * texel.x, -texel.y)).rgb);
+          float rW2 = edgeLuma(texture2D(uRawTex, vTex + vec2(-2.0 * texel.x, 0.0)).rgb);
+          float rNW2 = edgeLuma(texture2D(uRawTex, vTex + vec2(-2.0 * texel.x, texel.y)).rgb);
+          float rSW2 = edgeLuma(texture2D(uRawTex, vTex + vec2(-2.0 * texel.x, -texel.y)).rgb);
+          float rN2 = edgeLuma(texture2D(uRawTex, vTex + vec2(0.0, 2.0 * texel.y)).rgb);
+          float rN2E = edgeLuma(texture2D(uRawTex, vTex + vec2(texel.x, 2.0 * texel.y)).rgb);
+          float rN2W = edgeLuma(texture2D(uRawTex, vTex + vec2(-texel.x, 2.0 * texel.y)).rgb);
+          float rS2 = edgeLuma(texture2D(uRawTex, vTex + vec2(0.0, -2.0 * texel.y)).rgb);
+          float rS2E = edgeLuma(texture2D(uRawTex, vTex + vec2(texel.x, -2.0 * texel.y)).rgb);
+          float rS2W = edgeLuma(texture2D(uRawTex, vTex + vec2(-texel.x, -2.0 * texel.y)).rgb);
           float gx5 = (rE2 + rNE2 + rSE2) - (rW2 + rNW2 + rSW2);
           float gy5 = (rN2 + rN2E + rN2W) - (rS2 + rS2E + rS2W);
           float axisAligned = step(min(abs(gx5), abs(gy5)), uTextAlign * max(abs(gx5), abs(gy5)) + 0.001);
@@ -675,15 +653,15 @@ object DisplayShaders {
           float rMax = max(max(max(rE2, rNE2), max(rSE2, rW2)), max(max(rNW2, rSW2), max(max(rN2, rN2E), max(rN2W, max(rS2, max(rS2E, rS2W))))));
           float rMin = min(min(min(rE2, rNE2), min(rSE2, rW2)), min(min(rNW2, rSW2), min(min(rN2, rN2E), min(rN2W, min(rS2, min(rS2E, rS2W))))));
           float gateScale = 0.5 * (rMax - rMin);
-          float l0r = edgeLuma(texture2D(uTex, vTex).rgb);
+          float l0r = edgeLuma(texture2D(uRawTex, vTex).rgb);
           float lF2;
           float lB2;
           if (abs(gx5) > abs(gy5)) {
-            lF2 = edgeLuma(texture2D(uTex, vTex + vec2(0.0, 2.0 * texel.y)).rgb);
-            lB2 = edgeLuma(texture2D(uTex, vTex + vec2(0.0, -2.0 * texel.y)).rgb);
+            lF2 = edgeLuma(texture2D(uRawTex, vTex + vec2(0.0, 2.0 * texel.y)).rgb);
+            lB2 = edgeLuma(texture2D(uRawTex, vTex + vec2(0.0, -2.0 * texel.y)).rgb);
           } else {
-            lF2 = edgeLuma(texture2D(uTex, vTex + vec2(2.0 * texel.x, 0.0)).rgb);
-            lB2 = edgeLuma(texture2D(uTex, vTex + vec2(-2.0 * texel.x, 0.0)).rgb);
+            lF2 = edgeLuma(texture2D(uRawTex, vTex + vec2(2.0 * texel.x, 0.0)).rgb);
+            lB2 = edgeLuma(texture2D(uRawTex, vTex + vec2(-2.0 * texel.x, 0.0)).rgb);
           }
           float gate = max(step(gateScale, abs(lF2 - l0r)), step(gateScale, abs(lB2 - l0r)));
           float textGated = text * gate;
@@ -870,7 +848,7 @@ object DisplayShaders {
           return dot(c, vec3(0.299, 0.587, 0.114));
         }
         // The colour-fold, copied verbatim from
-        // EDGE_FRAGMENT (same text, same modes): the
+        // COLOUR_FRAGMENT (same text, same modes): the
         // corrected colours are what the detectors run on,
         // so a dither's intended colour is the average of
         // the corrected shades. GBC is mode 2 (Prism: the

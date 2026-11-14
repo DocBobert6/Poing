@@ -388,49 +388,67 @@ class DisplayShadersTest {
     }
 
     @Test
-    fun edgeFragmentFoldsTheColourModelIn() {
-        // Edge smoothing, item 4 (2026-11-14): the chains'
-        // researched colour is folded INTO the edge pass,
-        // before the edge work runs — edge mode no longer
-        // shows the core's generic correction instead of
-        // Jade / Prism / Dusk. The fold is COLOUR_FRAGMENT's
-        // mode logic as a function (colourCorrect): mode 0
-        // Jade's FSTN ramp, mode 1 pass-through, modes 2 / 3
-        // the SameBoy ramp (LUT row via uGammaRow) then the
-        // mGBA matrix x0.94 — and it is applied to all nine
-        // samples, so the dither averages, the gradients and
-        // the blends all work in the corrected colours. The
-        // renderer binds the same LUT texture on unit 1 and
-        // sets uMode from the system (GB FSTN 0 / pass 1,
-        // GBC 2, GBA 3) with uGammaRow 0 for GBC, 1 for GBA.
+    fun edgeFragmentReadsTheColourPassAndTheRawFrame() {
+        // Performance fix 7 (2026-11-14): the colour-fold
+        // moved OUT of the edge pass into its own native-size
+        // pass (the colour program — see
+        // DisplayRenderer.drawEdge), so the edge shader reads
+        // the already-corrected colours with plain taps, and
+        // the 5x5 ring, the stroke-gate taps and the centre
+        // reference still read the RAW frame (uRawTex).
+        // The fold itself lives in COLOUR_FRAGMENT with the
+        // same pins (mode 0 Jade FSTN, mode 1 pass-through,
+        // modes 2 / 3 the SameBoy ramp + mGBA matrix x0.94),
+        // and the renderer sets uMode from the system there.
         val src = DisplayShaders.EDGE_FRAGMENT
-        assertTrue(src.contains("uniform sampler2D uGammaLut"))
-        assertTrue(src.contains("uniform int uMode"))
-        assertTrue(src.contains("uniform float uGammaRow"))
-        assertTrue(src.contains("vec3 colourCorrect(vec3 col)"))
-        assertTrue(src.contains("if (uMode == 0)"))
-        assertTrue(src.contains("if (uMode == 2 || uMode == 3)"))
-        assertTrue(src.contains("vec3 s0 = vec3(0.094, 0.161, 0.129)"))
-        assertTrue(src.contains("vec3 s3 = vec3(0.647, 0.710, 0.647)"))
-        assertTrue(src.contains("texture2D(uGammaLut, vec2((ri + 0.5) / 32.0, vr)).r"))
-        assertTrue(src.contains("0.94 * (0.82 * lin.r + 0.24 * lin.g - 0.06 * lin.b)"))
-        assertTrue(src.contains("0.94 * (0.125 * lin.r + 0.665 * lin.g + 0.21 * lin.b)"))
-        assertTrue(src.contains("0.94 * (0.195 * lin.r + 0.075 * lin.g + 0.73 * lin.b)"))
-        // All nine samples are corrected before the edge work.
-        assertTrue(src.contains("vec3 c0 = colourCorrect(texture2D(uTex, vTex).rgb)"))
-        assertTrue(src.contains("vec3 cN = colourCorrect(texture2D(uTex, vTex + vec2(0.0, texel.y)).rgb)"))
-        assertTrue(src.contains("vec3 cS = colourCorrect(texture2D(uTex, vTex - vec2(0.0, texel.y)).rgb)"))
-        assertTrue(src.contains("vec3 cE = colourCorrect(texture2D(uTex, vTex + vec2(texel.x, 0.0)).rgb)"))
-        assertTrue(src.contains("vec3 cW = colourCorrect(texture2D(uTex, vTex - vec2(texel.x, 0.0)).rgb)"))
-        assertTrue(src.contains("vec3 cNE = colourCorrect(texture2D(uTex, vTex + vec2(texel.x, texel.y)).rgb)"))
-        assertTrue(src.contains("vec3 cNW = colourCorrect(texture2D(uTex, vTex + vec2(-texel.x, texel.y)).rgb)"))
-        assertTrue(src.contains("vec3 cSE = colourCorrect(texture2D(uTex, vTex + vec2(texel.x, -texel.y)).rgb)"))
-        assertTrue(src.contains("vec3 cSW = colourCorrect(texture2D(uTex, vTex + vec2(-texel.x, -texel.y)).rgb)"))
-        // And the fold's mode logic is the same text as the
-        // colour pass's — the two must not drift apart.
+        // No fold in this pass any more.
+        assertFalse(src.contains("colourCorrect"))
+        assertFalse(src.contains("uGammaLut"))
+        assertFalse(src.contains("uniform int uMode"))
+        assertFalse(src.contains("uGammaRow"))
+        // Two textures: the corrected colours (uTex) and the
+        // raw frame (uRawTex).
+        assertTrue(src.contains("uniform sampler2D uTex"))
+        assertTrue(src.contains("uniform sampler2D uRawTex"))
+        // The nine 3x3 samples are plain taps on the
+        // corrected texture.
+        assertTrue(src.contains("vec3 c0 = texture2D(uTex, vTex).rgb"))
+        assertTrue(src.contains("vec3 cN = texture2D(uTex, vTex + vec2(0.0, texel.y)).rgb"))
+        assertTrue(src.contains("vec3 cS = texture2D(uTex, vTex - vec2(0.0, texel.y)).rgb"))
+        assertTrue(src.contains("vec3 cE = texture2D(uTex, vTex + vec2(texel.x, 0.0)).rgb"))
+        assertTrue(src.contains("vec3 cW = texture2D(uTex, vTex - vec2(texel.x, 0.0)).rgb"))
+        assertTrue(src.contains("vec3 cNE = texture2D(uTex, vTex + vec2(texel.x, texel.y)).rgb"))
+        assertTrue(src.contains("vec3 cNW = texture2D(uTex, vTex + vec2(-texel.x, texel.y)).rgb"))
+        assertTrue(src.contains("vec3 cSE = texture2D(uTex, vTex + vec2(texel.x, -texel.y)).rgb"))
+        assertTrue(src.contains("vec3 cSW = texture2D(uTex, vTex + vec2(-texel.x, -texel.y)).rgb"))
+        // The ring (12), the centre reference (1) and the
+        // stroke-gate taps (4) read the raw frame — 17 in
+        // all. The counts pin the split: a tap on the wrong
+        // texture moves a count.
+        assertEquals(9, countOccurrences(src, "texture2D(uTex,"))
+        assertEquals(17, countOccurrences(src, "texture2D(uRawTex,"))
+        // And the fold's pins are still in the colour pass.
         val colour = DisplayShaders.COLOUR_FRAGMENT
+        assertTrue(colour.contains("uniform sampler2D uGammaLut"))
+        assertTrue(colour.contains("uniform int uMode"))
+        assertTrue(colour.contains("uniform float uGammaRow"))
         assertTrue(colour.contains("vec3 s0 = vec3(0.094, 0.161, 0.129)"))
+        assertTrue(colour.contains("vec3 s3 = vec3(0.647, 0.710, 0.647)"))
+        assertTrue(colour.contains("texture2D(uGammaLut, vec2((ri + 0.5) / 32.0, vr)).r"))
         assertTrue(colour.contains("0.94 * (0.82 * lin.r + 0.24 * lin.g - 0.06 * lin.b)"))
+        assertTrue(colour.contains("0.94 * (0.125 * lin.r + 0.665 * lin.g + 0.21 * lin.b)"))
+        assertTrue(colour.contains("0.94 * (0.195 * lin.r + 0.075 * lin.g + 0.73 * lin.b)"))
+    }
+
+    private fun countOccurrences(haystack: String, needle: String): Int {
+        var count = 0
+        var from = 0
+        while (true) {
+            val at = haystack.indexOf(needle, from)
+            if (at < 0) return count
+            count++
+            from = at + needle.length
+        }
     }
 
     @Test
@@ -449,7 +467,7 @@ class DisplayShadersTest {
     fun reconA1ClassifiesThe3x3AndOutputsThePatternMap() {
         // Task 6 — Pass A, first half: the 3x3 detectors
         // run on the colour-corrected samples (the fold
-        // copied from the edge pass), and the pass outputs
+        // copied from the colour pass), and the pass outputs
         // the corrected centre colour with the pattern flag
         // in alpha — the map A2 reads back as the field.
         val src = DisplayShaders.RECON_A1_FRAGMENT

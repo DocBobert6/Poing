@@ -67,13 +67,13 @@ class EdgeRenderGeometryTest {
         Rgb(mix(a.r, b.r, t), mix(a.g, b.g, t), mix(a.b, b.b, t))
 
     /**
-     * The colour-fold, mirrored from EDGE_FRAGMENT's
-     * colourCorrect (which is COLOUR_FRAGMENT's mode logic
-     * as a function): mode 0 is Jade's FSTN ramp, mode 1
-     * passes through, modes 2 / 3 are the SameBoy response
-     * ramp (LUT row 0 CGB / row 1 AGB) then the mGBA matrix
-     * in linear light (x0.94). The LUT values come from
-     * DisplayShaders itself, so a LUT change moves both.
+     * The colour-fold, mirrored from COLOUR_FRAGMENT's
+     * mode logic (the colour pass): mode 0 is Jade's FSTN
+     * ramp, mode 1 passes through, modes 2 / 3 are the
+     * SameBoy response ramp (LUT row 0 CGB / row 1 AGB)
+     * then the mGBA matrix in linear light (x0.94). The
+     * LUT values come from DisplayShaders itself, so a
+     * LUT change moves both.
      */
     private fun colourCorrect(c: Rgb, mode: Int): Rgb {
         if (mode == 1) return c
@@ -116,42 +116,58 @@ class EdgeRenderGeometryTest {
     }
 
     /**
+     * Performance fix 7 — the colour pass, mirrored in
+     * Kotlin: the fold applied once per texel, before the
+     * edge work runs. The real pass writes through an
+     * 8-bit framebuffer (~0.002 a channel — far inside
+     * every detector tolerance; the recon pass's A1 notes
+     * the same), which this mirror does not model: it pins
+     * the formula and the geometry, not the round trip.
+     */
+    private fun colourPass(frame: Array<Rgb>, mode: Int): Array<Rgb> {
+        return Array(frame.size) { colourCorrect(frame[it], mode) }
+    }
+
+    /**
      * DisplayShaders.EDGE_FRAGMENT, mirrored in Kotlin
      * (reworked 2026-11-14: dither blends flat, no GB
      * snap, no motion, no taper, per-system text
      * threshold, colour-fold in item 4; Fix 3: the text
      * ratio is evaluated over the 5x5 outer ring, RAW
      * luma, so staircased diagonals no longer read as
-     * text). Must be kept in step with the shader;
+     * text; performance fix 7: the fold moved into its
+     * own native-size colour pass, so the 3x3 reads the
+     * already-corrected frame and the ring reads the raw
+     * frame). Must be kept in step with the shader;
      * sim3.py (~/workspace/poing/verify/edge-rework/
      * sim3.py) mirrors the same shader in Python and
      * cross-checks these numbers at full device
      * resolution.
      */
     private fun edgeFragment(
-        frame: Array<Rgb>,
+        corrected: Array<Rgb>,
+        raw: Array<Rgb>,
         w: Int,
         h: Int,
         u: Float,
         v: Float,
         params: EdgeParams,
-        mode: Int,
     ): Rgb {
         val tx = 1f / w
         val ty = 1f / h
-        // The colour-fold runs first: all nine samples are
-        // corrected before any edge work, so the dither
-        // averages, the gradients and the blends all work
-        // in the corrected colours.
-        val c0 = colourCorrect(sample(frame, w, h, u, v), mode)
-        val cN = colourCorrect(sample(frame, w, h, u, v + ty), mode)
-        val cS = colourCorrect(sample(frame, w, h, u, v - ty), mode)
-        val cE = colourCorrect(sample(frame, w, h, u + tx, v), mode)
-        val cW = colourCorrect(sample(frame, w, h, u - tx, v), mode)
-        val cNE = colourCorrect(sample(frame, w, h, u + tx, v + ty), mode)
-        val cNW = colourCorrect(sample(frame, w, h, u - tx, v + ty), mode)
-        val cSE = colourCorrect(sample(frame, w, h, u + tx, v - ty), mode)
-        val cSW = colourCorrect(sample(frame, w, h, u - tx, v - ty), mode)
+        // The 3x3 reads the already-corrected frame (the
+        // colour pass ran first — see colourPass), so the
+        // dither averages, the gradients and the blends all
+        // work in the corrected colours with plain taps.
+        val c0 = sample(corrected, w, h, u, v)
+        val cN = sample(corrected, w, h, u, v + ty)
+        val cS = sample(corrected, w, h, u, v - ty)
+        val cE = sample(corrected, w, h, u + tx, v)
+        val cW = sample(corrected, w, h, u - tx, v)
+        val cNE = sample(corrected, w, h, u + tx, v + ty)
+        val cNW = sample(corrected, w, h, u - tx, v + ty)
+        val cSE = sample(corrected, w, h, u + tx, v - ty)
+        val cSW = sample(corrected, w, h, u - tx, v - ty)
         val tol = params.ditherTol
         val dDiag = c0.dist(cSE)
         val dE = c0.dist(cE)
@@ -226,18 +242,18 @@ class EdgeRenderGeometryTest {
         // evaluated over the outer ring, on RAW luma — see
         // the shader's comment and sim3.py
         // (~/workspace/poing/verify/edge-rework/sim3.py).
-        val rE2 = sample(frame, w, h, u + 2f * tx, v).luma()
-        val rNE2 = sample(frame, w, h, u + 2f * tx, v + ty).luma()
-        val rSE2 = sample(frame, w, h, u + 2f * tx, v - ty).luma()
-        val rW2 = sample(frame, w, h, u - 2f * tx, v).luma()
-        val rNW2 = sample(frame, w, h, u - 2f * tx, v + ty).luma()
-        val rSW2 = sample(frame, w, h, u - 2f * tx, v - ty).luma()
-        val rN2 = sample(frame, w, h, u, v + 2f * ty).luma()
-        val rN2E = sample(frame, w, h, u + tx, v + 2f * ty).luma()
-        val rN2W = sample(frame, w, h, u - tx, v + 2f * ty).luma()
-        val rS2 = sample(frame, w, h, u, v - 2f * ty).luma()
-        val rS2E = sample(frame, w, h, u + tx, v - 2f * ty).luma()
-        val rS2W = sample(frame, w, h, u - tx, v - 2f * ty).luma()
+        val rE2 = sample(raw, w, h, u + 2f * tx, v).luma()
+        val rNE2 = sample(raw, w, h, u + 2f * tx, v + ty).luma()
+        val rSE2 = sample(raw, w, h, u + 2f * tx, v - ty).luma()
+        val rW2 = sample(raw, w, h, u - 2f * tx, v).luma()
+        val rNW2 = sample(raw, w, h, u - 2f * tx, v + ty).luma()
+        val rSW2 = sample(raw, w, h, u - 2f * tx, v - ty).luma()
+        val rN2 = sample(raw, w, h, u, v + 2f * ty).luma()
+        val rN2E = sample(raw, w, h, u + tx, v + 2f * ty).luma()
+        val rN2W = sample(raw, w, h, u - tx, v + 2f * ty).luma()
+        val rS2 = sample(raw, w, h, u, v - 2f * ty).luma()
+        val rS2E = sample(raw, w, h, u + tx, v - 2f * ty).luma()
+        val rS2W = sample(raw, w, h, u - tx, v - 2f * ty).luma()
         val gx5 = (rE2 + rNE2 + rSE2) - (rW2 + rNW2 + rSW2)
         val gy5 = (rN2 + rN2E + rN2W) - (rS2 + rS2E + rS2W)
         val axisAligned = step(
@@ -256,15 +272,15 @@ class EdgeRenderGeometryTest {
         val rMax = max(max(max(rE2, rNE2), max(rSE2, rW2)), max(max(rNW2, rSW2), max(max(rN2, rN2E), max(rN2W, max(rS2, max(rS2E, rS2W))))))
         val rMin = min(min(min(rE2, rNE2), min(rSE2, rW2)), min(min(rNW2, rSW2), min(min(rN2, rN2E), min(rN2W, min(rS2, min(rS2E, rS2W))))))
         val gateScale = 0.5f * (rMax - rMin)
-        val l0r = sample(frame, w, h, u, v).luma()
+        val l0r = sample(raw, w, h, u, v).luma()
         val lF2: Float
         val lB2: Float
         if (abs(gx5) > abs(gy5)) {
-            lF2 = sample(frame, w, h, u, v + 2f * ty).luma()
-            lB2 = sample(frame, w, h, u, v - 2f * ty).luma()
+            lF2 = sample(raw, w, h, u, v + 2f * ty).luma()
+            lB2 = sample(raw, w, h, u, v - 2f * ty).luma()
         } else {
-            lF2 = sample(frame, w, h, u + 2f * tx, v).luma()
-            lB2 = sample(frame, w, h, u - 2f * tx, v).luma()
+            lF2 = sample(raw, w, h, u + 2f * tx, v).luma()
+            lB2 = sample(raw, w, h, u - 2f * tx, v).luma()
         }
         val gate = max(step(gateScale, abs(lF2 - l0r)), step(gateScale, abs(lB2 - l0r)))
         val textGated = text * gate
@@ -364,12 +380,17 @@ class EdgeRenderGeometryTest {
         params: EdgeParams,
         mode: Int,
     ): Array<Rgb> {
+        // Performance fix 7 — the two-stage pipeline: the
+        // colour pass first (one fold per texel), then the
+        // edge pass over the corrected frame with the raw
+        // frame alongside for the ring.
+        val corrected = colourPass(frame, mode)
         val out = Array(viewW * viewH) { Rgb(0f, 0f, 0f) }
         for (j in 0 until viewH) {
             val v = (j + 0.5f) / viewH
             for (i in 0 until viewW) {
                 val u = (i + 0.5f) / viewW
-                out[j * viewW + i] = edgeFragment(frame, w, h, u, v, params, mode)
+                out[j * viewW + i] = edgeFragment(corrected, frame, w, h, u, v, params)
             }
         }
         return out
@@ -404,8 +425,11 @@ class EdgeRenderGeometryTest {
         viewH: Int,
         mode: Int,
     ): Array<Rgb> {
-        val base = nearest(frame, w, h, viewW, viewH)
-        return Array(base.size) { colourCorrect(base[it], mode) }
+        // Performance fix 7 — the base is the colour pass
+        // output, nearest-upscaled: the same corrected frame
+        // the edge pass reads, so an untouched texel compares
+        // exactly equal.
+        return nearest(colourPass(frame, mode), w, h, viewW, viewH)
     }
 
     /**
@@ -588,6 +612,28 @@ class EdgeRenderGeometryTest {
         // palettes as the core rendered them).
         val passthrough = Rgb(0.3f, 0.5f, 0.7f)
         assertTrue(close(colourCorrect(passthrough, 1), passthrough, 0.0001f))
+    }
+
+    @Test
+    fun colourPassCorrectsEachTexelOnce() {
+        // Performance fix 7 — the colour pass is the fold
+        // applied once per texel: its output is exactly
+        // colourCorrect per texel, and a pass-through mode
+        // leaves the frame untouched.
+        val frame = arrayOf(
+            Rgb(1f, 1f, 1f),
+            Rgb(0f, 0f, 0f),
+            Rgb(0.5f, 0.1f, 0.6f),
+            Rgb(0.3f, 0.5f, 0.7f),
+        )
+        val corrected = colourPass(frame, 2)
+        for (i in frame.indices) {
+            assertTrue(close(corrected[i], colourCorrect(frame[i], 2), 0.0001f))
+        }
+        val passthrough = colourPass(frame, 1)
+        for (i in frame.indices) {
+            assertTrue(close(passthrough[i], frame[i], 0.0001f))
+        }
     }
 
     @Test

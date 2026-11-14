@@ -87,7 +87,7 @@ class ReconGeometryTest {
      * The colour-fold, mode 2 only (GBC / Prism): the
      * SameBoy response ramp (LUT row 0) then the mGBA
      * matrix in linear light (x0.94). Mirrors
-     * EDGE_FRAGMENT's colourCorrect for mode 2 (and
+     * RECON_A1_FRAGMENT's colourCorrect for mode 2 (and
      * EdgeRenderGeometryTest's mirror of it); the LUT
      * values come from DisplayShaders itself, so a LUT
      * change moves both.

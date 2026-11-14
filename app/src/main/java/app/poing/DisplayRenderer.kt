@@ -133,6 +133,20 @@ class DisplayRenderer : GLSurfaceView.Renderer {
     private var gammaLutTextureId = 0
     private var fboId = 0
     /**
+     * Performance fix 7 — the edge pass's own colour
+     * framebuffer: the colour-fold runs once at the native
+     * size into this FBO, and the edge pass reads it. A
+     * separate pair from the chain / edge FBO on purpose,
+     * same as the recon path: the edge pass needs both
+     * framebuffers live in one frame (colour in, edge out),
+     * so it can never share the one the edge output lands
+     * in.
+     */
+    private var edgeColourFboId = 0
+    private var edgeColourTextureId = 0
+    private var edgeColourW = 0
+    private var edgeColourH = 0
+    /**
      * Task 6 — the reconstruction's own framebuffer and
      * its two textures (A1 -> texA, A2 -> texB, B reads
      * texB). Separate from the chain / edge FBO on
@@ -300,6 +314,17 @@ class DisplayRenderer : GLSurfaceView.Renderer {
         val fbo = IntArray(1)
         GLES20.glGenFramebuffers(1, fbo, 0)
         fboId = fbo[0]
+        // Performance fix 7 — the edge colour framebuffer
+        // (see the field note): created here like the rest,
+        // storage allocated on first use at the frame's
+        // native size (see ensureEdgeColourFbo).
+        val edgeColourFbo = IntArray(1)
+        GLES20.glGenFramebuffers(1, edgeColourFbo, 0)
+        edgeColourFboId = edgeColourFbo[0]
+        val edgeColourTex = IntArray(1)
+        GLES20.glGenTextures(1, edgeColourTex, 0)
+        edgeColourTextureId = edgeColourTex[0]
+        setupTexture(edgeColourTextureId)
         // Task 6 — the reconstruction's own framebuffer
         // and its two ping-pong textures (A1 -> texA,
         // A2 -> texB). Created here (and re-created if the
@@ -320,6 +345,8 @@ class DisplayRenderer : GLSurfaceView.Renderer {
         uploadedH = 0
         fboW = 0
         fboH = 0
+        edgeColourW = 0
+        edgeColourH = 0
         reconW = 0
         reconH = 0
         frameW = 0
@@ -647,16 +674,22 @@ class DisplayRenderer : GLSurfaceView.Renderer {
     }
 
     /**
-     * Phase 9 — edge smoothing, two passes. Pass 1 runs the
-     * edge shader at the DISPLAY size into the offscreen
-     * framebuffer — the fix for the 2026-11-14 no-op
-     * (Robert's V-Rally 3 screenshots): at the frame's
-     * native size every fragment sat at a texel centre
-     * (sub 0.5, 0.5), so the boundary weight wAlong was
-     * exactly 0 everywhere and the shader output its input
-     * unchanged on any game. At display size each screen
-     * pixel lands at a real sub-texel position, so the
-     * weight grows toward the texel boundary and the
+     * Phase 9 — edge smoothing, three passes (performance
+     * fix 7 added pass 0). Pass 0 runs the colour-fold once
+     * at the native size into the edge colour framebuffer —
+     * the 9 colourCorrect calls left the edge shader, so the
+     * detectors, the dither averages, the gradients and the
+     * blends still work in the corrected colours, at one
+     * correction per texel instead of one per display
+     * fragment. Pass 1 runs the edge shader at the DISPLAY
+     * size into the offscreen framebuffer — the fix for the
+     * 2026-11-14 no-op (Robert's V-Rally 3 screenshots): at
+     * the frame's native size every fragment sat at a texel
+     * centre (sub 0.5, 0.5), so the boundary weight wAlong
+     * was exactly 0 everywhere and the shader output its
+     * input unchanged on any game. At display size each
+     * screen pixel lands at a real sub-texel position, so
+     * the weight grows toward the texel boundary and the
      * smoothing actually happens — while the centre of a
      * texel still stays its own colour (wAlong 0 at sub
      * 0.5), so flat areas stay crisp. Pass 2 is the plain
@@ -672,6 +705,70 @@ class DisplayRenderer : GLSurfaceView.Renderer {
      * pass 1 runs at display size.
      */
     private fun drawEdge() {
+        val params = EdgeSmoothing.edgeParamsFor(edgeSystem)
+        // Pass 0 — colour, at the native size, into the edge
+        // colour framebuffer (performance fix 7): the fold
+        // runs once per texel here, not once per display
+        // fragment in the edge shader. Exactly the chain's
+        // pass 1, with the mode from the system (GB Jade
+        // FSTN 0 / pass-through 1, GBC Prism 2, GBA Dusk 3)
+        // and the LUT row from the system. The source is the
+        // frame Bitmap — but the pass renders with uFlipV 1:
+        // a framebuffer texture sampled with the same t reads
+        // vertically flipped, and the edge pass samples this
+        // texture AND the raw frame with the one varying, so
+        // the colour framebuffer must store the image
+        // UNFLIPPED (the same orientation as the raw Bitmap
+        // texture) or the edge pass's two inputs would be
+        // vertically mirrored. The recon pass's A2 renders
+        // its colour pass with uFlipV 0 and lives with
+        // exactly that mirror (its two inputs disagree by a
+        // vertical flip — flagged to the parent, not fixed
+        // here; the edge pass does not repeat it). A failed
+        // colour program or framebuffer falls back to plain,
+        // so the game stays visible.
+        if (colourProgram == 0 || !ensureEdgeColourFbo(frameW, frameH)) {
+            drawPlain()
+            return
+        }
+        GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, edgeColourFboId)
+        GLES20.glViewport(0, 0, frameW, frameH)
+        GLES20.glUseProgram(colourProgram)
+        GLES20.glUniform1f(uniform(colourProgram, "uFlipV"), 1f)
+        GLES20.glUniform1i(uniform(colourProgram, "uTex"), 0)
+        GLES20.glUniform1i(
+            uniform(colourProgram, "uMode"),
+            when (edgeSystem) {
+                GameSystem.GB -> if (jadeMode == JadeMode.FSTN) 0 else 1
+                GameSystem.GBC -> 2
+                GameSystem.GBA -> 3
+            },
+        )
+        if (gammaLutTextureId != 0) {
+            GLES20.glActiveTexture(GLES20.GL_TEXTURE1)
+            GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, gammaLutTextureId)
+            GLES20.glUniform1i(uniform(colourProgram, "uGammaLut"), 1)
+            GLES20.glUniform1f(
+                uniform(colourProgram, "uGammaRow"),
+                when (edgeSystem) {
+                    GameSystem.GBC -> 0f
+                    GameSystem.GBA -> 1f
+                    else -> 0f
+                },
+            )
+        }
+        GLES20.glActiveTexture(GLES20.GL_TEXTURE0)
+        GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, frameTextureId)
+        drawQuad(colourProgram)
+        // Pass 1 — edge, at the display size, into the
+        // offscreen framebuffer. The source is the pass-0
+        // framebuffer (unit 0: the corrected colours, plain
+        // taps) and the raw frame (unit 1: the 5x5 ring, the
+        // stroke-gate taps and the centre reference, all raw
+        // luma — direction is a property of the source art).
+        // V stays unflipped (uFlipV 0): pass 0 stored the
+        // corrected image unflipped, so both textures share
+        // the Bitmap orientation and one varying serves both.
         if (!ensureFbo(viewW, viewH)) {
             drawPlain()
             return
@@ -680,12 +777,12 @@ class DisplayRenderer : GLSurfaceView.Renderer {
             viewW.toFloat() / frameW,
             viewH.toFloat() / frameH,
         )
-        val params = EdgeSmoothing.edgeParamsFor(edgeSystem)
         GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, fboId)
         GLES20.glViewport(0, 0, viewW, viewH)
         GLES20.glUseProgram(edgeProgram)
         GLES20.glUniform1f(uniform(edgeProgram, "uFlipV"), 0f)
         GLES20.glUniform1i(uniform(edgeProgram, "uTex"), 0)
+        GLES20.glUniform1i(uniform(edgeProgram, "uRawTex"), 1)
         GLES20.glUniform2f(
             uniform(edgeProgram, "uTexSize"),
             frameW.toFloat(),
@@ -701,39 +798,9 @@ class DisplayRenderer : GLSurfaceView.Renderer {
             if (params.snap15) 1f else 0f,
         )
         GLES20.glUniform1f(uniform(edgeProgram, "uTextAlign"), params.textAlign)
-        // Colour-fold (item 4 of the 2026-11-14 edge
-        // rework): the edge pass carries the chains'
-        // researched colour model, so edge mode does not
-        // lose it — before this, edge-on meant chain CLEAN
-        // and the core's generic correction showed instead
-        // of Jade / Prism / Dusk. uMode follows the system,
-        // not the chain: GB is Jade FSTN (0) or
-        // pass-through (1, DMG-green / SGB as rendered),
-        // GBC is Prism (2), GBA is Dusk (3); the LUT row
-        // follows the system too (0 = CGB, 1 = AGB). The
-        // LUT is already uploaded on unit 1 for the chains.
-        GLES20.glUniform1i(
-            uniform(edgeProgram, "uMode"),
-            when (edgeSystem) {
-                GameSystem.GB -> if (jadeMode == JadeMode.FSTN) 0 else 1
-                GameSystem.GBC -> 2
-                GameSystem.GBA -> 3
-            },
-        )
-        if (gammaLutTextureId != 0) {
-            GLES20.glActiveTexture(GLES20.GL_TEXTURE1)
-            GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, gammaLutTextureId)
-            GLES20.glUniform1i(uniform(edgeProgram, "uGammaLut"), 1)
-            GLES20.glUniform1f(
-                uniform(edgeProgram, "uGammaRow"),
-                when (edgeSystem) {
-                    GameSystem.GBC -> 0f
-                    GameSystem.GBA -> 1f
-                    else -> 0f
-                },
-            )
-        }
         GLES20.glActiveTexture(GLES20.GL_TEXTURE0)
+        GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, edgeColourTextureId)
+        GLES20.glActiveTexture(GLES20.GL_TEXTURE1)
         GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, frameTextureId)
         drawQuad(edgeProgram)
         if (edgeMode == EdgeMode.EDGE_GRID && gridProgram != 0) {
@@ -849,6 +916,39 @@ class DisplayRenderer : GLSurfaceView.Renderer {
         }
         fboW = w
         fboH = h
+        return true
+    }
+
+    /**
+     * Performance fix 7 — the edge colour framebuffer at
+     * the frame's native size, rebuilt only when the size
+     * changes. The mirror of ensureFbo for the second pair:
+     * the colour pass renders into it, the edge pass reads
+     * it. False when the framebuffer is incomplete — the
+     * caller falls back to plain instead of drawing into it.
+     */
+    private fun ensureEdgeColourFbo(w: Int, h: Int): Boolean {
+        if (w == edgeColourW && h == edgeColourH) return true
+        GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, edgeColourTextureId)
+        GLES20.glTexImage2D(
+            GLES20.GL_TEXTURE_2D, 0, GLES20.GL_RGBA, w, h, 0,
+            GLES20.GL_RGBA, GLES20.GL_UNSIGNED_BYTE, null,
+        )
+        GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, edgeColourFboId)
+        GLES20.glFramebufferTexture2D(
+            GLES20.GL_FRAMEBUFFER, GLES20.GL_COLOR_ATTACHMENT0,
+            GLES20.GL_TEXTURE_2D, edgeColourTextureId, 0,
+        )
+        val status = GLES20.glCheckFramebufferStatus(GLES20.GL_FRAMEBUFFER)
+        GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, 0)
+        if (status != GLES20.GL_FRAMEBUFFER_COMPLETE) {
+            Log.e(TAG, "Edge colour framebuffer incomplete: $status; edge smoothing falls back to plain")
+            edgeColourW = 0
+            edgeColourH = 0
+            return false
+        }
+        edgeColourW = w
+        edgeColourH = h
         return true
     }
 
