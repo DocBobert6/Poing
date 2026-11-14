@@ -120,6 +120,11 @@ class WormLightOverlayTest {
         // straight down (~1.57 rad) while its centre stays at
         // the top-centre — the head never moves. The angle is
         // a direction, so it holds at any density or window.
+        // (A tap ends the gesture in onDragCancel, not
+        // onDragEnd — detectDragGestures only calls onDragEnd
+        // after the touch slop is exceeded — so this test is
+        // also the regression test for the toggle living on
+        // both ends.)
         var reported: WormLightPool? = null
         composeRule.setContent {
             PoingTheme {

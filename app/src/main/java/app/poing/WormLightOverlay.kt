@@ -890,6 +890,32 @@ fun WormLightOverlay(
             modifier = Modifier
                 .fillMaxSize()
                 .pointerInput(width, height) {
+                    // A tap ends in onDragCancel, not onDragEnd:
+                    // detectDragGestures only calls onDragEnd
+                    // after the touch slop is exceeded, and a
+                    // tap never exceeds it. So the tap-to-aim
+                    // toggle lives here, where both ends reach
+                    // it; the settle wobble stays onDragEnd-only
+                    // (a cancelled drag does not wobble).
+                    fun toggleAimIfTap() {
+                        if (pressOnHead &&
+                            dragDistancePx <= WORM_LIGHT_TAP_MAX_DP * density
+                        ) {
+                            if (!aimMode) {
+                                // Entering aim mode: start from
+                                // where the lens already points,
+                                // so it does not jump — computed
+                                // fresh from the live position,
+                                // never the g captured by this
+                                // closure.
+                                aimAngleRad = wormLightGeometry(
+                                    width, height, position, density,
+                                    gameAspect, WORM_LIGHT_STRIP_DP, 0f,
+                                ).pool.rotationRad
+                            }
+                            aimMode = !aimMode
+                        }
+                    }
                     detectDragGestures(
                         onDragStart = { press ->
                             // A fresh grab cancels any settle
@@ -920,27 +946,12 @@ fun WormLightOverlay(
                         },
                         onDragEnd = {
                             // A tap on the head toggles aim
-                            // mode; a real move drag settles
-                            // with a wobble. An aim-mode drag
-                            // neither toggles nor wobbles.
-                            if (pressOnHead &&
-                                dragDistancePx <= WORM_LIGHT_TAP_MAX_DP * density
-                            ) {
-                                if (!aimMode) {
-                                    // Entering aim mode: start
-                                    // from where the lens
-                                    // already points, so it
-                                    // does not jump — computed
-                                    // fresh from the live
-                                    // position, never the g
-                                    // captured by this closure.
-                                    aimAngleRad = wormLightGeometry(
-                                        width, height, position, density,
-                                        gameAspect, WORM_LIGHT_STRIP_DP, 0f,
-                                    ).pool.rotationRad
-                                }
-                                aimMode = !aimMode
-                            } else if (!aimMode &&
+                            // mode (see toggleAimIfTap above);
+                            // a real move drag settles with a
+                            // wobble. An aim-mode drag neither
+                            // toggles nor wobbles.
+                            toggleAimIfTap()
+                            if (!aimMode &&
                                 dragDistancePx > WORM_LIGHT_TAP_MAX_DP * density
                             ) {
                                 // The coil trails the head; on
@@ -964,6 +975,7 @@ fun WormLightOverlay(
                             onDragHeadChange(null)
                         },
                         onDragCancel = {
+                            toggleAimIfTap()
                             wobbleJob?.cancel()
                             sway = 0f
                             onDragHeadChange(null)
