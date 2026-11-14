@@ -16,7 +16,8 @@
 //     hands the video callback 16-bit frames. The bridge converts
 //     RGB565 -> ARGB_8888 while copying. A bridge that assumed
 //     XRGB8888 here would show garbage.
-//   - Max frame is 240x160 (GBA); GB/GBC are 160x144.
+//   - Max frame is 256x224 (Super Game Boy with borders on); GBA is
+//     240x160, GB/GBC are 160x144.
 //   - Audio is resampled to 48 kHz in the bridge with a linear
 //     interpolator (spike-only, same as HowlingDog): the core's
 //     native rates are 32768 Hz (GBA) and 44100 Hz (GB), read from
@@ -101,14 +102,14 @@ static bool g_loaded = false;
 // Video: the core hands us a framebuffer pointer that is only valid
 // for the duration of the video callback, so we copy it here, converting
 // RGB565 -> ARGB_8888 as we go.
-static uint32_t *g_frame = NULL; // ARGB, max GBA size (240x160)
+static uint32_t *g_frame = NULL; // ARGB, max SGB size (256x224)
 static int g_frame_w = 0;
 static int g_frame_h = 0;
 static volatile bool g_frame_ready = false;
 static pthread_mutex_t g_frame_mutex = PTHREAD_MUTEX_INITIALIZER;
 
-#define FRAME_MAX_W 240
-#define FRAME_MAX_H 160
+#define FRAME_MAX_W 256
+#define FRAME_MAX_H 224
 
 // Audio: the core delivers batches at its own sample rate; we resample
 // to 48 kHz (spike-only linear resampler, see header comment) into a
