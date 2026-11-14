@@ -47,7 +47,6 @@ import androidx.compose.ui.viewinterop.AndroidView
 fun GameDisplayView(
     glView: GameGlView?,
     bitmap: Bitmap?,
-    stats: PlayerStats?,
     gameName: String,
     paused: Boolean,
     // Phase 8 — Screen Optics: the Virtual Worm Light, an
@@ -76,7 +75,18 @@ fun GameDisplayView(
         contentAlignment = Alignment.Center,
     ) {
         val frame = bitmap
-        val s = stats
+        // Black screen on launch (Robert, 2026-11-14): the view
+        // used to compose only once the once-a-second stats had
+        // arrived (frame != null && stats != null), so the game
+        // launched black with audio for ~1s behind a small
+        // "Loading…" line — and the picture appearing after a
+        // button press was only a timing coincidence inside that
+        // window (no button handler touches the GL view or the
+        // render loop). The view now composes on the first
+        // frame alone; the aspect comes from the frame Bitmap
+        // itself, and only the dev-stats diagnostic line (in the
+        // top bar, which already tolerates null stats) waits
+        // for the stats.
         // Worm Light realism (Robert, 2026-11-12): when the
         // lamp goes off, the pool resets to intensity 0 so it
         // never lingers on the picture. (While it is on, the
@@ -84,7 +94,16 @@ fun GameDisplayView(
         LaunchedEffect(wormLight) {
             if (!wormLight) glView?.setWormLight(WormLightPool.OFF)
         }
-        if (frame != null && s != null) {
+        // Belt & braces for the same launch: one explicit render
+        // request once the view is composed, so the first draw
+        // cannot be lost if the initial WHEN_DIRTY render is
+        // consumed before the surface exists. The mode stays
+        // RENDERMODE_WHEN_DIRTY (battery) — this is one request,
+        // not a continuous loop.
+        LaunchedEffect(glView) {
+            glView?.requestRender()
+        }
+        if (frame != null) {
             // No bezel (Robert, 2026-11-12): the silver 2dp
             // border, the dark surround and the 4dp inner padding
             // are gone, so the frame fills the aspect box
@@ -126,7 +145,7 @@ fun GameDisplayView(
                 ) {
                     Box(
                         modifier = Modifier
-                            .aspectRatio(s.width.toFloat() / s.height.toFloat())
+                            .aspectRatio(frame.width.toFloat() / frame.height.toFloat())
                             .fillMaxSize(),
                         contentAlignment = Alignment.Center,
                     ) {
@@ -165,7 +184,7 @@ fun GameDisplayView(
             WormLightOverlay(
                 enabled = wormLight,
                 hardwareColor = wormLightColor,
-                gameAspect = s.width.toFloat() / s.height.toFloat(),
+                gameAspect = frame.width.toFloat() / frame.height.toFloat(),
                 drawPool = glView == null,
                 onPoolChange = { pool -> glView?.setWormLight(pool) },
                 onDragHeadChange = onWormLightDragHeadChange,

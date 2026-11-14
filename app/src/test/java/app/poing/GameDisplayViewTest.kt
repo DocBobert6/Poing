@@ -10,6 +10,7 @@ import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithTag
+import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onRoot
@@ -56,21 +57,12 @@ class GameDisplayViewTest {
     @Test
     fun gameViewFillsItsSlotAtNativeAspect() {
         val bitmap = Bitmap.createBitmap(240, 160, Bitmap.Config.ARGB_8888)
-        val stats = PlayerStats(
-            width = 240,
-            height = 160,
-            coreFps = 59.7,
-            measuredFps = 59.0,
-            framesDrawn = 165,
-            sampleRate = 48000,
-        )
         composeRule.setContent {
             PoingTheme {
                 Box(Modifier.size(300.dp, 200.dp).testTag("slot")) {
                     GameDisplayView(
                         glView = null,
                         bitmap = bitmap,
-                        stats = stats,
                         gameName = "TEST",
                         paused = false,
                         modifier = Modifier.fillMaxSize(),
@@ -112,21 +104,12 @@ class GameDisplayViewTest {
     @Test
     fun gameGivesUpATopStripWhileTheLampIsOn() {
         val bitmap = Bitmap.createBitmap(240, 160, Bitmap.Config.ARGB_8888)
-        val stats = PlayerStats(
-            width = 240,
-            height = 160,
-            coreFps = 59.7,
-            measuredFps = 59.0,
-            framesDrawn = 165,
-            sampleRate = 48000,
-        )
         composeRule.setContent {
             PoingTheme {
                 Box(Modifier.size(300.dp, 200.dp).testTag("slot")) {
                     GameDisplayView(
                         glView = null,
                         bitmap = bitmap,
-                        stats = stats,
                         gameName = "TEST",
                         paused = false,
                         wormLight = true,
@@ -157,21 +140,12 @@ class GameDisplayViewTest {
     @Test
     fun gameTakesTheFullHeightWhenTheLampIsOff() {
         val bitmap = Bitmap.createBitmap(240, 160, Bitmap.Config.ARGB_8888)
-        val stats = PlayerStats(
-            width = 240,
-            height = 160,
-            coreFps = 59.7,
-            measuredFps = 59.0,
-            framesDrawn = 165,
-            sampleRate = 48000,
-        )
         composeRule.setContent {
             PoingTheme {
                 Box(Modifier.size(300.dp, 200.dp).testTag("slot")) {
                     GameDisplayView(
                         glView = null,
                         bitmap = bitmap,
-                        stats = stats,
                         gameName = "TEST",
                         paused = false,
                         wormLight = false,
@@ -194,6 +168,69 @@ class GameDisplayViewTest {
         assertEquals(slot.left + (slot.width - boxW) / 2f, game.left, 1f * d)
         assertEquals(game.width, game.height * 1.5f, 1f * d)
         composeRule.onAllNodesWithTag("worm-light").assertCountEquals(0)
+    }
+
+    /**
+     * Black screen on launch (Robert, 2026-11-14): the view
+     * used to compose only once the once-a-second stats had
+     * arrived, so the game launched black with audio for ~1s
+     * behind a small "Loading…" line. The view now composes
+     * on the first frame alone — no stats anywhere in this
+     * test, and the game image is displayed, not the loading
+     * line. (With the stats parameter gone, stats arrival
+     * cannot change the composition at all — there is nothing
+     * left for it to gate.)
+     */
+    @Test
+    fun gameShowsWithFrameBeforeStatsArrive() {
+        val bitmap = Bitmap.createBitmap(240, 160, Bitmap.Config.ARGB_8888)
+        composeRule.setContent {
+            PoingTheme {
+                Box(Modifier.size(300.dp, 200.dp).testTag("slot")) {
+                    GameDisplayView(
+                        glView = null,
+                        bitmap = bitmap,
+                        gameName = "TEST",
+                        paused = false,
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                }
+            }
+        }
+        composeRule.onNodeWithContentDescription("Game: TEST").assertIsDisplayed()
+        composeRule.onAllNodesWithText("Loading", substring = true).assertCountEquals(0)
+    }
+
+    /**
+     * The aspect now comes from the frame Bitmap itself (it
+     * used to come from the stats): a 160x144 frame fills its
+     * slot at 10:9, whatever the stats would have said.
+     */
+    @Test
+    fun gameAspectComesFromTheFrameBitmap() {
+        val bitmap = Bitmap.createBitmap(160, 144, Bitmap.Config.ARGB_8888)
+        composeRule.setContent {
+            PoingTheme {
+                Box(Modifier.size(300.dp, 200.dp).testTag("slot")) {
+                    GameDisplayView(
+                        glView = null,
+                        bitmap = bitmap,
+                        gameName = "TEST",
+                        paused = false,
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                }
+            }
+        }
+        val d = composeRule.density.density
+        val slot = composeRule.onNodeWithTag("slot").fetchSemanticsNode().boundsInRoot
+        val game = composeRule.onNodeWithContentDescription("Game: TEST").fetchSemanticsNode().boundsInRoot
+        composeRule.onNodeWithContentDescription("Game: TEST").assertIsDisplayed()
+        val boxW = minOf(slot.width, slot.height * 10f / 9f)
+        val boxH = boxW * 9f / 10f
+        assertEquals(boxW, game.width, 1f * d)
+        assertEquals(boxH, game.height, 1f * d)
+        assertEquals(game.width, game.height * 10f / 9f, 1f * d)
     }
 
     /**

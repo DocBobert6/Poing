@@ -449,10 +449,20 @@ fun GameScreen(
     // Auto-pause when the player loses focus (Home, lock, incoming
     // call): a game left running in the background would keep
     // playing unheard and unwatched.
+    // Black screen on launch (Robert, 2026-11-14): after an
+    // activity pause/resume the GL surface is recreated, and
+    // nothing restarted the GL thread — the view was only
+    // resumed once, at game start (see the gamePath effect).
+    // ON_RESUME restarts it, so a game left paused behind a
+    // phone call still shows its picture when the player
+    // comes back. This does NOT resume the session itself:
+    // the game stays paused until the player resumes it from
+    // the pause menu, as the auto-pause design intends.
     DisposableEffect(activity) {
         if (activity == null) return@DisposableEffect onDispose {}
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_PAUSE) doPause()
+            if (event == Lifecycle.Event.ON_RESUME) glView?.onResume()
         }
         activity.lifecycle.addObserver(observer)
         onDispose { activity.lifecycle.removeObserver(observer) }
@@ -639,7 +649,6 @@ fun GameScreen(
                 GameDisplayView(
                     glView = glView,
                     bitmap = bitmap,
-                    stats = stats,
                     gameName = gameName,
                     paused = paused,
                     wormLight = wormLight,
