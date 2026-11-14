@@ -6,13 +6,20 @@ import android.net.NetworkCapabilities
 import java.io.File
 
 /**
- * Cover art, Wi-Fi only, cached. No art source is wired in Phase 3:
- * no API-key-free source with reliable per-title matching was
- * chosen — libretro-thumbnails names art by No-Intro title, which
- * our ROM internal titles do not reliably match — so the fetcher
- * is a no-op and tiles render a clean placeholder (system badge +
- * title). The cache and the Wi-Fi gate are real, so a source plugs
- * in later through [CoverArtFetcher] without touching the UI.
+ * Cover art, Wi-Fi only, cached. The source is the
+ * libretro-thumbnails collection ([Thumbnails]): one file per game,
+ * fetched on demand when its tile is shown, then cached on the
+ * device. Never a silent bulk download of the library, never
+ * bundled in the repo or the APK. Offline, no match, or a bad
+ * download means the placeholder stays, with no error and no
+ * blocking.
+ *
+ * The filename index is fetched once per system and cached
+ * (art-index-gb/gbc/gba.txt); the art itself is only ever fetched
+ * one file at a time, per game. No API key: the public git-trees
+ * listing is unauthenticated, same as HowlingDog — the
+ * unauthenticated limit is 60/hr, and the cache means the call
+ * happens once per system, ever.
  */
 fun interface CoverArtFetcher {
     /** Returns PNG/JPEG bytes for the game, or null when unavailable. Only ever called on Wi-Fi. */
@@ -21,6 +28,100 @@ fun interface CoverArtFetcher {
 
 object NoOpCoverArtFetcher : CoverArtFetcher {
     override fun fetch(game: LibraryGame): ByteArray? = null
+}
+
+/**
+ * The real fetcher: the libretro-thumbnails collection for the
+ * game's system. The filename stem is tried first (usually the
+ * full No-Intro name), then the ROM header title (abbreviated by
+ * the hardware) — see [Thumbnails.resolveArtFile]. Any failure at
+ * any step returns null and the caller keeps the placeholder.
+ *
+ * The HTTP layer is injectable so the index cache, the match and
+ * the download are testable on the plain JVM without a network.
+ */
+class LibretroThumbnailsFetcher(
+    private val root: File,
+    private val httpGet: (String, Int) -> ByteArray? = ::defaultHttpGet,
+) : CoverArtFetcher {
+    override fun fetch(game: LibraryGame): ByteArray? {
+        return try {
+            val index = loadIndex(game.system) ?: return null
+            val stem = game.sourceName.substringBeforeLast('.', game.sourceName)
+            val fileName = Thumbnails.resolveArtFile(stem, game.title, index) ?: return null
+            httpGet(Thumbnails.artUrl(game.system, fileName), MAX_ART_BYTES)
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    /** The cached index for the system, or fetch it once and cache it. Null on any failure. */
+    fun loadIndex(system: GameSystem): List<Thumbnails.IndexedArt>? {
+        val file = indexFile(system)
+        if (file.isFile) {
+            try {
+                val names = file.readLines().map { it.trim() }
+                    .filter { it.endsWith(".png", ignoreCase = true) }
+                if (names.isNotEmpty()) return Thumbnails.normalizeIndex(names)
+            } catch (_: Exception) {
+                // Fall through to a fresh fetch.
+            }
+        }
+        val json = httpGet(Thumbnails.indexUrl(system), MAX_TREE_BYTES)
+            ?.decodeToString() ?: return null
+        val names = Thumbnails.parseTreeJson(json)
+        if (names.isEmpty()) return null
+        try {
+            file.writeText(names.joinToString("\n") + "\n")
+        } catch (_: Exception) {
+            // The in-memory list is still usable this run.
+        }
+        return Thumbnails.normalizeIndex(names)
+    }
+
+    private fun indexFile(system: GameSystem): File =
+        File(root, "art-index-${system.name.lowercase()}.txt")
+
+    companion object {
+        /** Box art is a few hundred KB; the index JSON is the git tree. */
+        const val MAX_ART_BYTES: Int = 2 * 1024 * 1024
+
+        /**
+         * The GBA tree JSON measured 7.2 MB on 2026-11-14 — the
+         * cap sits just above it. A tree that grows past the cap
+         * fails the fetch (placeholder, no crash) instead of
+         * downloading without a bound.
+         */
+        const val MAX_TREE_BYTES: Int = 8 * 1024 * 1024
+    }
+}
+
+/** A capped GET: null on any non-200 response, any over-cap body, or any failure. */
+private fun defaultHttpGet(url: String, maxBytes: Int): ByteArray? {
+    val conn = (java.net.URL(url).openConnection() as java.net.HttpURLConnection).apply {
+        connectTimeout = 10_000
+        readTimeout = 15_000
+        setRequestProperty("User-Agent", "Poing")
+        setRequestProperty("Accept", "application/vnd.github+json")
+    }
+    try {
+        if (conn.responseCode != java.net.HttpURLConnection.HTTP_OK) return null
+        val out = java.io.ByteArrayOutputStream()
+        conn.inputStream.use { input ->
+            val buf = ByteArray(8192)
+            while (true) {
+                val n = input.read(buf)
+                if (n < 0) break
+                out.write(buf, 0, n)
+                if (out.size() > maxBytes) return null // over the cap
+            }
+        }
+        return out.toByteArray()
+    } catch (_: Exception) {
+        null
+    } finally {
+        conn.disconnect()
+    }
 }
 
 class CoverArtStore(

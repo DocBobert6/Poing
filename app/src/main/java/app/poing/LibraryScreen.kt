@@ -70,7 +70,7 @@ fun LibraryScreen(
     val context = LocalContext.current
     val store = remember { LibraryStore(context.filesDir) }
     val bios = remember { BiosStore(context.filesDir) }
-    val art = remember { CoverArtStore(context.filesDir) }
+    val art = remember { CoverArtStore(context.filesDir, LibretroThumbnailsFetcher(context.filesDir)) }
     // Phase 6 (item 5) — playtime totals for the rows; the store
     // is re-read on refresh so a finished session's banked time
     // shows when the player quits back here.
@@ -96,8 +96,9 @@ fun LibraryScreen(
     }
 
     // Cover art: Wi-Fi-only fetch for games with no cached cover.
-    // With the Phase 3 no-op fetcher this does nothing; when a real
-    // source plugs in, covers appear without touching this screen.
+    // The fetcher is the libretro-thumbnails collection (see
+    // CoverArt.kt): one file per game, cached on the device, so
+    // covers appear as their tiles are shown.
     LaunchedEffect(games) {
         withContext(Dispatchers.IO) {
             val wifi = isWifiConnected(context)
