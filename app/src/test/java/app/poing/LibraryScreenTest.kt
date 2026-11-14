@@ -76,6 +76,11 @@ class LibraryScreenTest {
         // badge on the GBC row also reads "GBC", so a text lookup
         // would match two nodes.
         composeRule.onNodeWithTag("filter-GBC").performClick()
+        // Diagnostic (2026-11-14): the filter state is observable
+        // through the shoulders row's tag. If the click fired, the
+        // state reads GBC here, whatever the list below does —
+        // that bisects a dead click from a stale list.
+        composeRule.onNodeWithTag("filter-state-GBC").assertExists()
         composeRule.onNodeWithText("POKEMON").assertIsDisplayed()
         // No single-node assertDoesNotExist on this classpath —
         // count the matches instead: zero TETRIS rows after the
@@ -152,6 +157,9 @@ class LibraryScreenTest {
         // Only one cell survives the GBC filter, so it is the
         // first item after the header and always composed.
         composeRule.onNodeWithTag("filter-GBC").performClick()
+        // Diagnostic (2026-11-14): the filter state is observable
+        // through the shoulders row's tag — see the list test.
+        composeRule.onNodeWithTag("filter-state-GBC").assertExists()
         // The cell sits below the fold in the narrow Robolectric
         // window: scroll it into view first. Grid items are
         // 0 top bar, 1 buttons, 2 shoulders, 3 POKEMON (the only
