@@ -135,20 +135,27 @@ class LayoutEditorTest {
     fun sizeStepperChangesTheSelectedSizeOneDpAtATime() {
         setContent()
         // A drag selects the control (Mariner's model), so the
-        // size stepper appears. 40px, not 20: 20px sits below
-        // touch slop and selects nothing.
+        // size stepper appears.
         composeRule.onNodeWithTag("editor-a").performTouchInput {
             val start = aDragStart(center, width)
-            swipe(start = start, end = start + Offset(40f, 0f), durationMillis = 300)
+            swipe(start = start, end = start + Offset(200f, 0f), durationMillis = 300)
         }
-        // The stepper pill, by tag: the selected control shows
-        // its size inside itself too, so a bare text lookup
-        // would find two "64dp" nodes.
-        composeRule.onNodeWithTag("editor-size-value").assertTextEquals("64dp")
+        // The tag sits on the pill's wrapper Box and the text in
+        // its child Text, so the assertion reads the child: a
+        // bare text lookup would find two "64dp" nodes (the
+        // pill, and the size shown inside the selected control).
+        assertSizeValue("64dp")
         composeRule.onNodeWithTag("editor-size-plus").performClick()
-        composeRule.onNodeWithTag("editor-size-value").assertTextEquals("65dp")
+        assertSizeValue("65dp")
         composeRule.onNodeWithTag("editor-size-minus").performClick()
-        composeRule.onNodeWithTag("editor-size-value").assertTextEquals("64dp")
+        assertSizeValue("64dp")
+    }
+
+    private fun assertSizeValue(expected: String) {
+        composeRule.onNodeWithTag("editor-size-value")
+            .onChildren()
+            .onFirst()
+            .assertTextEquals(expected)
     }
 
     @Test
