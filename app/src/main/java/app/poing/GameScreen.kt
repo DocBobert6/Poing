@@ -177,10 +177,21 @@ fun GameScreen(
     // change on the Settings screen, never while the player
     // is open. The GB palette is read live (it can change in
     // Core Options while paused — doResume re-reads it).
-    val displayChain = remember {
+    //
+    // Phase 9 — edge smoothing wins over the chain
+    // (EdgeSmoothing.resolve): when it is on, the chain is
+    // off and the edge pass draws instead. The two are never
+    // stacked.
+    val display = remember {
         val wanted = DisplayChain.forSystem(system)
-        if (appSettings.chainEnabled(wanted)) wanted else DisplayChain.CLEAN
+        EdgeSmoothing.resolve(
+            wanted,
+            appSettings.chainEnabled(wanted),
+            appSettings.edgeMode(),
+        )
     }
+    val displayChain = display.chain
+    val edgeMode = display.edge
     var palette by remember { mutableStateOf(optionsStore.get("mgba_gb_colors")) }
 
     // Screen Optics dim fix (Robert, 2026-11-12): the live lux
@@ -278,9 +289,17 @@ fun GameScreen(
 
     // Phase 8 — apply the chain whenever it or the palette
     // changes: at game start, and on resume after the palette
-    // was changed in Core Options.
-    LaunchedEffect(displayChain, palette) {
-        glView?.setChain(displayChain, DisplayChain.jadeModeForPalette(palette))
+    // was changed in Core Options. Phase 9 carries the edge
+    // mode and the system with it, so the renderer knows
+    // what to smooth and which palette key to watch.
+    LaunchedEffect(displayChain, edgeMode, palette) {
+        glView?.setDisplay(
+            displayChain,
+            DisplayChain.jadeModeForPalette(palette),
+            edgeMode,
+            system,
+            palette,
+        )
     }
 
     val session = remember(gamePath) {

@@ -385,6 +385,198 @@ object DisplayShaders {
     """
 
     /**
+     * Phase 9 — edge smoothing, pass 1: HowlingDog's
+     * dither-aware edge shader, retuned for handhelds. It
+     * detects hard sprite edges and fills intermediate
+     * anti-aliased pixels along them, so a diagonal reads as
+     * a clean line instead of a staircase — and it runs at
+     * the frame's native size into the offscreen framebuffer
+     * (the renderer binds the FBO for this pass), so every
+     * sample is texel-aligned and the smoothing never blurs
+     * across the grid. Pass 2 is the plain blit (edge only)
+     * or the light grid (the combined mode).
+     *
+     * The result is very clean, sharp pixel art — NOT
+     * hand-drawn vector art. It does not turn pixel art into
+     * a painting, and the code does not claim it does.
+     *
+     * uSubpixel is 1 for GBA only (the AGB panel is BGR);
+     * uSnapGb is 1 for GB only (snap to the game's 4 shades
+     * — GBC / GBA quantize to the 15-bit grid instead);
+     * uMotion is the renderer's frame-differencing factor
+     * (0 still, 1 scrolling fast). The combined mode's grid
+     * lives in pass 2, not here: this pass never draws a
+     * grid, and it never draws a line-based overlay of any
+     * kind. No curvature anywhere — every handheld LCD here
+     * is flat.
+     */
+    const val EDGE_FRAGMENT = """
+        precision mediump float;
+        varying vec2 vTex;
+        uniform sampler2D uTex;
+        uniform vec2 uTexSize;
+        uniform float uDitherTol;
+        uniform float uEdgeLo;
+        uniform float uEdgeHi;
+        uniform float uBlendMax;
+        uniform float uSubpixel;
+        uniform float uMotion;
+        uniform float uSnapGb;
+        uniform vec3 uPal0;
+        uniform vec3 uPal1;
+        uniform vec3 uPal2;
+        uniform vec3 uPal3;
+        float edgeLuma(vec3 c) {
+          return dot(c, vec3(0.299, 0.587, 0.114));
+        }
+        void main() {
+          vec2 texel = vec2(1.0 / uTexSize.x, 1.0 / uTexSize.y);
+          vec3 c0 = texture2D(uTex, vTex).rgb;
+          vec3 cN = texture2D(uTex, vTex + vec2(0.0, texel.y)).rgb;
+          vec3 cS = texture2D(uTex, vTex - vec2(0.0, texel.y)).rgb;
+          vec3 cE = texture2D(uTex, vTex + vec2(texel.x, 0.0)).rgb;
+          vec3 cW = texture2D(uTex, vTex - vec2(texel.x, 0.0)).rgb;
+          vec3 cNE = texture2D(uTex, vTex + vec2(texel.x, texel.y)).rgb;
+          vec3 cNW = texture2D(uTex, vTex + vec2(-texel.x, texel.y)).rgb;
+          vec3 cSE = texture2D(uTex, vTex + vec2(texel.x, -texel.y)).rgb;
+          vec3 cSW = texture2D(uTex, vTex + vec2(-texel.x, -texel.y)).rgb;
+          float tol = uDitherTol;
+          // Patterned dither: regular alternation is shading,
+          // not an edge, so the centre is preserved.
+          // Checkerboard: the centre matches its diagonal
+          // neighbour and differs from BOTH orthogonal
+          // neighbours — requiring both is what keeps a
+          // diagonal edge from reading as dither (a diagonal
+          // differs from only one orthogonal neighbour).
+          // Stripes: the centre matches along the stripe and
+          // differs across it. Bayer 2x2: the ordered 2x2
+          // pattern repeats every two texels, so the east and
+          // west neighbours match each other, the north and
+          // south match each other, and all four diagonals
+          // match each other, while the three groups differ
+          // from the centre and from each other. Bayer 4x4:
+          // a 3x3 window cannot see a 4-texel period, so the
+          // local proxy is the pattern's non-monotonic steps
+          // — the luma on both sides of the centre sits on
+          // the SAME side of it AND differs from it, in both
+          // axes. Both conditions matter: a diagonal edge has
+          // one neighbour equal to the centre on each axis,
+          // so requiring both sides to differ is what keeps a
+          // diagonal from reading as a pattern. A real edge or
+          // gradient is monotonic across the edge, so it never
+          // trips this either.
+          float dDiag = distance(c0, cSE);
+          float dE = distance(c0, cE);
+          float dS = distance(c0, cS);
+          float checker = step(dDiag * 3.0 + tol * 0.2, dE + dS) * step(tol, dE) * step(tol, dS);
+          float stripeV = step(distance(c0, cN) + distance(c0, cS), tol) * step(tol, distance(c0, cE)) * step(tol, distance(c0, cW));
+          float stripeH = step(distance(c0, cE) + distance(c0, cW), tol) * step(tol, distance(c0, cN)) * step(tol, distance(c0, cS));
+          float bayer2 = step(distance(cE, cW), tol) * step(distance(cN, cS), tol) * step(distance(cNE, cSE), tol) * step(distance(cNE, cNW), tol) * step(tol, distance(c0, cE)) * step(tol, distance(c0, cN)) * step(tol, distance(cE, cN));
+          float l0 = edgeLuma(c0);
+          float lN = edgeLuma(cN);
+          float lS = edgeLuma(cS);
+          float lE = edgeLuma(cE);
+          float lW = edgeLuma(cW);
+          float lNE = edgeLuma(cNE);
+          float lNW = edgeLuma(cNW);
+          float lSE = edgeLuma(cSE);
+          float lSW = edgeLuma(cSW);
+          float bayer4 = step(0.0, (lE - l0) * (lW - l0)) * step(0.0, (lN - l0) * (lS - l0)) * step(0.03, abs(lE - l0)) * step(0.03, abs(lW - l0)) * step(0.03, abs(lN - l0)) * step(0.03, abs(lS - l0));
+          float pattern = max(max(checker, max(stripeV, stripeH)), max(bayer2, bayer4));
+          // 1-pixel detail: the eight neighbours all agree
+          // with each other and the centre stands apart — an
+          // eye, an outline dot, a single bright pixel.
+          // Output it untouched.
+          vec3 nMean = (cN + cS + cE + cW + cNE + cNW + cSE + cSW) / 8.0;
+          float spread = max(max(distance(cN, nMean), distance(cS, nMean)), max(distance(cE, nMean), distance(cW, nMean)));
+          spread = max(spread, max(max(distance(cNE, nMean), distance(cNW, nMean)), max(distance(cSE, nMean), distance(cSW, nMean))));
+          float isolated = step(spread, 0.05) * step(0.15, distance(c0, nMean));
+          // Edge: a Sobel-like luma gradient over the 3x3.
+          float gx = (lE + lNE + lSE) - (lW + lNW + lSW);
+          float gy = (lN + lNE + lNW) - (lS + lSE + lSW);
+          float edgeStrength = abs(gx) + abs(gy);
+          // Text: a high-contrast edge that runs straight
+          // along one axis — a glyph stroke, a text-box
+          // border, HUD numbers. Diagonals have a strong
+          // gradient in BOTH directions, so they never trip
+          // this; a straight sprite edge trips it too, and
+          // it needs no smoothing either — a staircase only
+          // exists on a diagonal.
+          float lMax = max(l0, max(max(lN, lS), max(max(lE, lW), max(max(lNE, lNW), max(lSE, lSW)))));
+          float lMin = min(l0, min(min(lN, lS), min(min(lE, lW), min(min(lNE, lNW), min(lSE, lSW)))));
+          float axisAligned = step(min(abs(gx), abs(gy)), 0.15 * max(abs(gx), abs(gy)) + 0.001);
+          float text = step(0.5, lMax - lMin) * axisAligned;
+          // Corner: both diagonal pairs match. A diagonal
+          // edge has a strong gradient in BOTH directions,
+          // but its two diagonal pairs do not both match —
+          // one pair straddles the edge. A true corner has
+          // all four diagonal neighbours on the same side, so
+          // both pairs match. Keep it sharp.
+          float corner = step(distance(cNW, cSE), 0.1) * step(distance(cNE, cSW), 0.1) * step(0.05, edgeStrength);
+          // Directional blend: along the edge, not across it.
+          // The weight grows toward the texel boundary, so
+          // the centre of a texel stays its own colour and
+          // the boundary pixel is the anti-aliased mix.
+          // GBA only: on a vertical edge the blend runs
+          // horizontally, and each channel blends at its own
+          // subpixel offset — the AGB panel is BGR, blue
+          // first from the left — so a vertical edge does not
+          // fringe.
+          vec2 sub = fract(vTex * uTexSize);
+          float wAlong;
+          vec3 along;
+          vec3 lo;
+          vec3 hi;
+          if (abs(gx) > abs(gy)) {
+            along = mix(cS, cN, sub.y);
+            wAlong = abs(sub.y - 0.5) * 2.0;
+            lo = min(min(c0, cS), cN);
+            hi = max(max(c0, cS), cN);
+          } else {
+            along = mix(cW, cE, sub.x);
+            wAlong = abs(sub.x - 0.5) * 2.0;
+            lo = min(min(c0, cW), cE);
+            hi = max(max(c0, cW), cE);
+            if (uSubpixel > 0.5) {
+              along = vec3(
+                mix(cW.r, cE.r, clamp(sub.x + 0.3333, 0.0, 1.0)),
+                mix(cW.g, cE.g, sub.x),
+                mix(cW.b, cE.b, clamp(sub.x - 0.3333, 0.0, 1.0)));
+            }
+          }
+          float edge = smoothstep(uEdgeLo, uEdgeHi, edgeStrength);
+          float w = edge * wAlong * (1.0 - pattern) * (1.0 - isolated) * (1.0 - text) * (1.0 - corner) * (1.0 - uMotion);
+          w = clamp(w, 0.0, uBlendMax);
+          vec3 col = mix(c0, along, w);
+          col = clamp(col, lo, hi);
+          // Palette snap-back: the blend's intermediates are
+          // never left as they fall. GB snaps to the nearest
+          // of the game's 4 shades (uPal0..3, scanned from
+          // the frame itself). GBC / GBA quantize to the
+          // 15-bit grid — 5 bits a channel — which IS their
+          // palette space. A texel that was not blended
+          // (w == 0) keeps its own colour exactly: the snap
+          // only ever applies to a blend.
+          vec3 snapped;
+          if (uSnapGb > 0.5) {
+            float d0 = distance(col, uPal0);
+            float d1 = distance(col, uPal1);
+            float d2 = distance(col, uPal2);
+            float d3 = distance(col, uPal3);
+            snapped = uPal0;
+            float best = d0;
+            if (d1 < best) { snapped = uPal1; best = d1; }
+            if (d2 < best) { snapped = uPal2; best = d2; }
+            if (d3 < best) { snapped = uPal3; }
+          } else {
+            snapped = floor(col * 31.0 + 0.5) / 31.0;
+          }
+          col = mix(c0, snapped, step(0.001, w));
+          gl_FragColor = vec4(col, 1.0);
+        }
+    """
+
+    /**
      * The grid's base strength (see the grid pass above).
      * The renderer scales it down with the display scale,
      * so the grid stays subtle as the game grows. Rebuilt
@@ -460,13 +652,19 @@ object DisplayShaders {
         uniform vec2 uWlRadii;
         uniform float uWlRot;
         uniform float uWlIntensity;
+        uniform float uWlFlip;
         void main() {
           vec3 col = texture2D(uTex, vTex).rgb;
           // Worm Light realism: the lamp's pool, the same
           // add as the grid pass (see GRID_FRAGMENT) — the
           // lamp works with the chain off too. Intensity 0
           // adds exactly 0.0, so clean stays clean.
-          vec2 wlD = vTex - uWlCenter;
+          // uWlFlip is 1 when the source is the pass-1
+          // framebuffer (the edge pass's blit, Phase 9): V
+          // is flipped there, so the centre's y flips too —
+          // the same flip the grid pass does inline. 0 is
+          // the direct Bitmap source, y = 0 at the top.
+          vec2 wlD = vTex - vec2(uWlCenter.x, mix(uWlCenter.y, 1.0 - uWlCenter.y, uWlFlip));
           float wlC = cos(uWlRot);
           float wlS = sin(uWlRot);
           vec2 wlR = vec2(wlD.x * wlC - wlD.y * wlS, wlD.x * wlS + wlD.y * wlC);

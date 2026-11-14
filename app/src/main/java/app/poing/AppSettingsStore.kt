@@ -27,6 +27,8 @@ class AppSettingsStore(private val root: File) {
         const val KEY_JADE_CHAIN = "display_jade"
         const val KEY_PRISM_CHAIN = "display_prism"
         const val KEY_DUSK_CHAIN = "display_dusk"
+        const val KEY_EDGE_SMOOTHING = "display_edge_smoothing"
+        const val KEY_EDGE_GRID = "display_edge_grid"
         const val KEY_WORM_LIGHT = "display_worm_light"
         const val KEY_WORM_LIGHT_COLOR = "display_worm_light_color"
         const val KEY_OPTICS_DIMMING = "display_optics_dimming"
@@ -69,6 +71,30 @@ class AppSettingsStore(private val root: File) {
     /** Phase 8 — the Dusk display chain (GBA): on by default, same rule as Jade. */
     fun duskEnabled(): Boolean = readBoolean(KEY_DUSK_CHAIN, true)
     fun setDuskEnabled(enabled: Boolean) = write(KEY_DUSK_CHAIN, enabled.toString())
+
+    /**
+     * Phase 9 — edge smoothing: off by default. When on, the
+     * display chain turns off (see EdgeSmoothing.resolve) —
+     * the two are alternatives, never stacked.
+     */
+    fun edgeSmoothingEnabled(): Boolean = readBoolean(KEY_EDGE_SMOOTHING, false)
+    fun setEdgeSmoothingEnabled(enabled: Boolean) = write(KEY_EDGE_SMOOTHING, enabled.toString())
+
+    /**
+     * Phase 9 — the combined mode: edge smoothing with a
+     * light LCD grid over it, one tap. Only in effect while
+     * edge smoothing itself is on — on its own it is
+     * nothing (the grid belongs to the chains, and the
+     * chains are off while edge is on).
+     */
+    fun edgeGridEnabled(): Boolean = readBoolean(KEY_EDGE_GRID, false)
+    fun setEdgeGridEnabled(enabled: Boolean) = write(KEY_EDGE_GRID, enabled.toString())
+
+    /** Phase 9 — the edge mode in effect: OFF, EDGE, or EDGE_GRID (the combined mode). */
+    fun edgeMode(): EdgeMode {
+        if (!edgeSmoothingEnabled()) return EdgeMode.OFF
+        return if (edgeGridEnabled()) EdgeMode.EDGE_GRID else EdgeMode.EDGE
+    }
 
     /**
      * Phase 8 — the Virtual Worm Light: off by default. A

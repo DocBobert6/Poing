@@ -41,9 +41,21 @@ class GameGlView @JvmOverloads constructor(
         requestRender()
     }
 
-    /** Apply a chain (called at game start, and when the chain or the GB palette changes). */
-    fun setChain(chain: DisplayChain, jadeMode: JadeMode) {
-        renderer.setChain(chain, jadeMode)
+    /**
+     * Apply a chain and the edge mode (called at game start,
+     * and when the chain or the GB palette changes). The
+     * palette key is only a change detector for the GB
+     * palette scan — the shades themselves are read from
+     * the frame.
+     */
+    fun setDisplay(
+        chain: DisplayChain,
+        jadeMode: JadeMode,
+        edge: EdgeMode,
+        system: GameSystem,
+        palette: String,
+    ) {
+        renderer.setDisplay(chain, jadeMode, edge, system, palette)
         requestRender()
     }
 

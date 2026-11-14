@@ -271,12 +271,82 @@ class DisplayShadersTest {
     }
 
     @Test
+    fun edgeFragmentHasTheEightImprovements() {
+        // Phase 9 — the edge pass: HowlingDog's dither-aware
+        // edge shader, retuned for handhelds. The eight
+        // improvements over HowlingDog are all in the text:
+        // (1) multi-pattern dither — checkerboard, stripes,
+        // Bayer 2x2 and the 4x4 local proxy; (2) 1-pixel
+        // detail preservation; (3) the text / UI bypass;
+        // (4) palette snap-back — the GB 4-shade snap and the
+        // 15-bit quantize; (5) motion-adaptive (uMotion);
+        // (6) grid-aligned — the pass samples texel-aligned
+        // (fract of vTex * uTexSize) at native size; (7)
+        // subpixel-aware for GBA (uSubpixel); (8) per-system
+        // parameters as uniforms (uDitherTol, uEdgeLo,
+        // uEdgeHi, uBlendMax).
+        val src = DisplayShaders.EDGE_FRAGMENT
+        assertTrue(src.contains("uTexSize"))
+        assertTrue(src.contains("uDitherTol"))
+        assertTrue(src.contains("uEdgeLo"))
+        assertTrue(src.contains("uEdgeHi"))
+        assertTrue(src.contains("uBlendMax"))
+        assertTrue(src.contains("uSubpixel"))
+        assertTrue(src.contains("uMotion"))
+        assertTrue(src.contains("uSnapGb"))
+        assertTrue(src.contains("uPal0"))
+        assertTrue(src.contains("uPal1"))
+        assertTrue(src.contains("uPal2"))
+        assertTrue(src.contains("uPal3"))
+        // Dither: checkerboard (diagonal match, both
+        // orthogonals differ), stripes (match along, differ
+        // across), Bayer 2x2 (opposite neighbours match),
+        // Bayer 4x4 (non-monotonic steps in both axes).
+        assertTrue(src.contains("checker"))
+        assertTrue(src.contains("stripeV"))
+        assertTrue(src.contains("stripeH"))
+        assertTrue(src.contains("bayer2"))
+        assertTrue(src.contains("bayer4"))
+        // 1-pixel detail and text bypass.
+        assertTrue(src.contains("isolated"))
+        assertTrue(src.contains("float text = step(0.5, lMax - lMin) * axisAligned"))
+        // Directional blend along the edge, weight growing
+        // toward the texel boundary.
+        assertTrue(src.contains("fract(vTex * uTexSize)"))
+        assertTrue(src.contains("float w = edge * wAlong * (1.0 - pattern) * (1.0 - isolated) * (1.0 - text) * (1.0 - corner) * (1.0 - uMotion)"))
+        // Palette snap-back: GB snaps to its 4 shades, GBC /
+        // GBA quantize to the 15-bit grid — and only a blend
+        // is ever snapped (w == 0 keeps its own colour).
+        assertTrue(src.contains("floor(col * 31.0 + 0.5) / 31.0"))
+        assertTrue(src.contains("col = mix(c0, snapped, step(0.001, w))"))
+        // The subpixel blend only runs on the horizontal
+        // (vertical-edge) branch, GBA only.
+        assertTrue(src.contains("mix(cW.r, cE.r, clamp(sub.x + 0.3333, 0.0, 1.0))"))
+        assertTrue(src.contains("mix(cW.b, cE.b, clamp(sub.x - 0.3333, 0.0, 1.0))"))
+        // The corner test survives from HowlingDog.
+        assertTrue(src.contains("float corner = step(distance(cNW, cSE), 0.1)"))
+    }
+
+    @Test
+    fun plainPassHasTheWlFlipUniform() {
+        // Phase 9 — the edge pass's blit runs the plain
+        // program on the pass-1 framebuffer, where V is
+        // flipped: the pool centre's y flips with it (the
+        // same flip the grid pass does inline). The direct
+        // Bitmap path is unchanged (uWlFlip 0).
+        val src = DisplayShaders.PLAIN_FRAGMENT
+        assertTrue(src.contains("uWlFlip"))
+        assertTrue(src.contains("mix(uWlCenter.y, 1.0 - uWlCenter.y, uWlFlip)"))
+    }
+
+    @Test
     fun noCurvatureOrCrtGeometryAnywhere() {
         // Every handheld LCD here is flat. If a curve ever
         // creeps into a chain, this fails first.
         val all = DisplayShaders.VERTEX +
             DisplayShaders.COLOUR_FRAGMENT +
             DisplayShaders.GRID_FRAGMENT +
+            DisplayShaders.EDGE_FRAGMENT +
             DisplayShaders.PLAIN_FRAGMENT
         val lower = all.lowercase()
         for (word in listOf("curve", "barrel", "pincushion", "distort", "scanline", "grille", "vignette")) {

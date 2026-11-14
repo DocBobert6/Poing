@@ -219,6 +219,38 @@ class AppSettingsStoreTest {
     }
 
     @Test
+    fun edgeSmoothingDefaultsOffAndRoundTrips() {
+        // Phase 9 — off by default: edge smoothing is an
+        // alternative to the chains, never the default look.
+        val s = store()
+        assertFalse(s.edgeSmoothingEnabled())
+        assertEquals(EdgeMode.OFF, s.edgeMode())
+        s.setEdgeSmoothingEnabled(true)
+        assertTrue(s.edgeSmoothingEnabled())
+        assertEquals(EdgeMode.EDGE, s.edgeMode())
+        assertTrue(AppSettingsStore(temp.root).edgeSmoothingEnabled())
+        s.setEdgeSmoothingEnabled(false)
+        assertFalse(s.edgeSmoothingEnabled())
+        assertEquals(EdgeMode.OFF, s.edgeMode())
+    }
+
+    @Test
+    fun edgeGridIsTheCombinedModeOnlyWhileEdgeIsOn() {
+        // The combined mode is edge + light grid, one tap —
+        // and nothing on its own: the grid switch without
+        // edge smoothing is OFF, not a grid by itself.
+        val s = store()
+        assertFalse(s.edgeGridEnabled())
+        s.setEdgeGridEnabled(true)
+        assertEquals(EdgeMode.OFF, s.edgeMode())
+        s.setEdgeSmoothingEnabled(true)
+        assertEquals(EdgeMode.EDGE_GRID, s.edgeMode())
+        assertTrue(AppSettingsStore(temp.root).edgeGridEnabled())
+        s.setEdgeSmoothingEnabled(false)
+        assertEquals(EdgeMode.OFF, s.edgeMode())
+    }
+
+    @Test
     fun wormLightColorUnknownStoredNameFallsBackToDefault() {
         // A hand-edited file can never leave the lamp without
         // a colour: anything the app does not know reads as
