@@ -152,6 +152,24 @@ fun LibraryScreen(
         }
     }
 
+    val pickBiosFolder = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocumentTree(),
+    ) { uri: Uri? ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        scope.launch {
+            val result = withContext(Dispatchers.IO) {
+                runCatching { importBiosFolder(context, bios, uri) }.getOrNull()
+            }
+            message = if (result == null) {
+                "Could not read that folder."
+            } else {
+                val (imported, unreadable, missing) = result
+                biosFolderResultMessage(imported, unreadable, missing)
+            }
+            refresh()
+        }
+    }
+
     val pickBios = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocument(),
     ) { uri: Uri? ->
@@ -359,6 +377,7 @@ fun LibraryScreen(
                     bios.delete(kind)
                     refresh()
                 },
+                onImportFolder = { pickBiosFolder.launch(null) },
             )
             Spacer(Modifier.height(16.dp))
         }

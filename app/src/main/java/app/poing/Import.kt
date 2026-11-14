@@ -1,6 +1,7 @@
 package app.poing
 
 import android.content.Context
+import android.content.Intent
 import android.net.Uri
 import android.provider.OpenableColumns
 import androidx.documentfile.provider.DocumentFile
@@ -69,4 +70,56 @@ fun importFolder(context: Context, store: LibraryStore, treeUri: Uri): ImportRes
 
     walk(root, 0)
     return ImportResult(imported, skipped, failed)
+}
+
+/**
+ * Import the BIOS files in a picked folder: the three expected
+ * filenames (gb_bios.bin / gbc_bios.bin / gba_bios.bin,
+ * case-insensitive), each replacing an already-installed one —
+ * the same as the per-file Replace. Only the folder's top level
+ * is scanned, and only those three names count; every other file
+ * is ignored, never an error. Returns which kinds landed, which
+ * were in the folder but could not be read, and which were not
+ * in the folder at all. The folder's URI permission is taken as
+ * persistable when the grant allows it (the scan itself runs at
+ * once, on the transient grant, so a refused persist still
+ * imports); BIOS is never gated and nothing is ever downloaded.
+ */
+fun importBiosFolder(
+    context: Context,
+    bios: BiosStore,
+    treeUri: Uri,
+): Triple<List<BiosKind>, List<BiosKind>, List<BiosKind>> {
+    val root = DocumentFile.fromTreeUri(context, treeUri)
+        ?: return Triple(emptyList(), emptyList(), BiosKind.entries.toList())
+    try {
+        context.contentResolver.takePersistableUriPermission(
+            treeUri, Intent.FLAG_GRANT_READ_URI_PERMISSION,
+        )
+    } catch (_: Exception) {
+        // The transient grant still covers the immediate scan.
+    }
+    val imported = mutableListOf<BiosKind>()
+    val unreadable = mutableListOf<BiosKind>()
+    val found = mutableSetOf<BiosKind>()
+    for (child in root.listFiles()) {
+        if (child.isDirectory) continue
+        val kind = child.name?.let { biosKindForFileName(it) } ?: continue
+        if (kind in found) continue // First match wins per kind.
+        found += kind
+        try {
+            val bytes = context.contentResolver.openInputStream(child.uri)
+                ?.use { it.readBytes() }
+            if (bytes == null) {
+                unreadable += kind
+                continue
+            }
+            bios.import(kind, bytes)
+            imported += kind
+        } catch (_: Exception) {
+            unreadable += kind
+        }
+    }
+    val missing = BiosKind.entries.filter { it !in found }
+    return Triple(imported, unreadable, missing)
 }

@@ -29,3 +29,41 @@ class BiosStore(private val root: File) {
 
     fun delete(kind: BiosKind): Boolean = file(kind).delete()
 }
+
+/**
+ * Match a filename to its BIOS kind, case-insensitively — the
+ * folder import's matcher. Null for anything else: a BIOS file
+ * with a different name, a ROM, a readme. Pure, so it runs
+ * under plain JVM unit tests.
+ */
+fun biosKindForFileName(name: String): BiosKind? =
+    BiosKind.entries.firstOrNull { it.fileName.equals(name, ignoreCase = true) }
+
+/**
+ * The result line for a folder import: which BIOS files landed,
+ * which were in the folder but could not be read, which were
+ * not in the folder at all. Nothing found at all reads as one
+ * line, not a list of three missing files. Pure, so it runs
+ * under plain JVM unit tests.
+ */
+fun biosFolderResultMessage(
+    imported: List<BiosKind>,
+    unreadable: List<BiosKind>,
+    missing: List<BiosKind>,
+): String {
+    val imp = imported.sortedBy { it.ordinal }
+    val un = unreadable.sortedBy { it.ordinal }
+    val miss = missing.sortedBy { it.ordinal }
+    if (imp.isEmpty() && un.isEmpty()) return "No BIOS files found in that folder."
+    fun join(kinds: List<BiosKind>): String = when (kinds.size) {
+        1 -> kinds[0].label
+        2 -> "${kinds[0].label} and ${kinds[1].label}"
+        else -> kinds.dropLast(1).joinToString(", ") { it.label } +
+            " and " + kinds.last().label
+    }
+    val parts = mutableListOf<String>()
+    if (imp.isNotEmpty()) parts += "Imported ${join(imp)} BIOS."
+    if (un.isNotEmpty()) parts += "${join(un)} BIOS could not be read."
+    if (miss.isNotEmpty()) parts += "${join(miss)} BIOS not found in that folder."
+    return parts.joinToString(" ")
+}

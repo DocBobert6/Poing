@@ -1,5 +1,6 @@
 package app.poing
 
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -13,19 +14,22 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 
 /**
  * The BIOS status card. Each of the three optional BIOS files
- * shows Installed / Missing with Import (or Replace) and Delete.
- * BIOS is never gated — a missing BIOS never blocks starting a
- * game, and this card says so.
+ * shows Installed / Missing with Import (or Replace) and Delete,
+ * plus an Import folder button that takes all three at once
+ * from one folder. BIOS is never gated — a missing BIOS never
+ * blocks starting a game, and this card says so.
  */
 @Composable
 fun BiosCard(
     installed: Map<BiosKind, Boolean>,
     onImport: (BiosKind) -> Unit,
     onDelete: (BiosKind) -> Unit,
+    onImportFolder: () -> Unit,
 ) {
     // The BIOS card is a settings sheet, so it gets the Atomic
     // translucent purple panel (with the faint sheen) — the library
@@ -44,6 +48,21 @@ fun BiosCard(
         Spacer(Modifier.height(12.dp))
         for (kind in BiosKind.entries) {
             BiosRow(kind, installed[kind] == true, onImport, onDelete)
+        }
+        // Import folder (Robert, 2026-11-14): one tap takes
+        // all three BIOS files from a folder, instead of three
+        // separate imports. Additional to the per-file buttons
+        // above, never a replacement for them.
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.End,
+        ) {
+            Button(
+                onClick = onImportFolder,
+                modifier = Modifier.testTag("bios-import-folder"),
+            ) {
+                Text("Import folder")
+            }
         }
     }
 }
