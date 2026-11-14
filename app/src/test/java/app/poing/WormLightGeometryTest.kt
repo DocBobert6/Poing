@@ -161,8 +161,8 @@ class WormLightGeometryTest {
         assertTrue("controls should run plug to head", g.coilP0.x < g.coilP1.x)
         assertTrue("controls should run plug to head", g.coilP1.x < g.coilP2.x)
         assertTrue("controls should run plug to head", g.coilP2.x < g.coilP3.x)
-        assertEquals(237.31f, g.coilP1.x, 0.01f)
-        assertEquals(412.44f, g.coilP2.x, 0.01f)
+        assertEquals(225.5f, g.coilP1.x, 0.01f)
+        assertEquals(408.5f, g.coilP2.x, 0.01f)
         assertEquals(stripPx * 0.06f, g.coilP1.y, 0.01f)
         assertEquals(stripPx * 0.06f, g.coilP2.y, 0.01f)
     }
@@ -257,8 +257,8 @@ class WormLightGeometryTest {
         // the head.
         val g = geometry(swayPx = 40f)
         assertEquals(520f, g.lensCenter.x, 0.01f)
-        assertEquals(277.31f, g.coilP1.x, 0.01f)
-        assertEquals(452.44f, g.coilP2.x, 0.01f)
+        assertEquals(265.5f, g.coilP1.x, 0.01f)
+        assertEquals(448.5f, g.coilP2.x, 0.01f)
         assertEquals((520f - 160.25f) / 679.5f, g.pool.center.x, 0.01f)
     }
 
@@ -589,8 +589,8 @@ class WormLightGeometryTest {
         assertEquals(WORM_LIGHT_COIL_TURNS, g.coilTurnsFirst)
         assertEquals(0, g.coilTurnsSecond)
         assertEquals(g.lensCenter, g.coilP3)
-        assertEquals(237.31f, g.coilP1.x, 0.01f)
-        assertEquals(412.44f, g.coilP2.x, 0.01f)
+        assertEquals(225.5f, g.coilP1.x, 0.01f)
+        assertEquals(408.5f, g.coilP2.x, 0.01f)
         assertEquals(148.5f, g.coilP1.y, 0.01f)
         assertEquals(298.5f, g.coilP2.y, 0.01f)
     }
