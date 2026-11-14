@@ -124,16 +124,19 @@ class WormLightOverlayTest {
         // onDragEnd — detectDragGestures only calls onDragEnd
         // after the touch slop is exceeded — so this test is
         // also the regression test for the toggle living on
-        // both ends.) The drag head's aimMode flag is probed
-        // directly: it proves the tap toggled aim mode, so a
-        // rotation miss reads as a swipe-angle miss, not a
-        // toggle miss. The rotation tolerance is 0.15, not
-        // exact: the swipe's final move lands within a few px
-        // of straight down, and near straight down a few px
-        // sideways swings the angle — the exact angle is
-        // pinned by the pure geometry test instead
-        // (aimAngleSetsTheLensAndThePool).
+        // both ends.) Two probes separate the failure modes:
+        // sawAnyHead proves the swipe produced a drag at all
+        // (its down must land inside the node — so the swipe
+        // starts ON the head, not beside it, where a small
+        // measured node could put the start outside); sawAimHead
+        // proves the tap toggled aim mode. The rotation
+        // tolerance is 0.15, not exact: the swipe's final move
+        // lands within a few px of straight down, and near
+        // straight down a few px sideways swings the angle —
+        // the exact angle is pinned by the pure geometry test
+        // instead (aimAngleSetsTheLensAndThePool).
         var reported: WormLightPool? = null
+        var sawAnyHead = false
         var sawAimHead = false
         composeRule.setContent {
             PoingTheme {
@@ -142,6 +145,7 @@ class WormLightOverlayTest {
                         enabled = true,
                         onPoolChange = { reported = it },
                         onDragHeadChange = {
+                            if (it != null) sawAnyHead = true
                             if (it?.aimMode == true) sawAimHead = true
                         },
                     )
@@ -155,14 +159,16 @@ class WormLightOverlayTest {
             click(head)
         }
         composeRule.waitForIdle()
-        // Drag down from beside the head: in aim mode the
-        // press need not start on the head. The drag runs
-        // 90px down, so a few px of endpoint slack still
-        // leaves the angle near straight down.
+        // Drag straight down from the head: in aim mode this
+        // rotates the pool toward straight down (~1.57 rad)
+        // while the head stays put. Starting on the head
+        // keeps the down inside the node however small it
+        // measures; in aim mode the press may start anywhere.
         composeRule.onNodeWithTag("worm-light").performTouchInput {
-            swipe(head + Offset(60f, 0f), head + Offset(0f, 90f))
+            swipe(head, head + Offset(0f, 90f))
         }
         composeRule.waitForIdle()
+        assertTrue("the swipe should have produced a drag", sawAnyHead)
         assertTrue("the tap should have toggled aim mode", sawAimHead)
         val pool = reported
         assertTrue("the overlay should report its pool", pool != null)
