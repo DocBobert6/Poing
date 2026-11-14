@@ -790,6 +790,33 @@ fun DrawScope.drawWormLightHead(head: WormLightDragHead) {
     }
 }
 
+/**
+ * Builds the drag head from a geometry: the same numbers
+ * the overlay's own Canvas draws, so the drag layer in
+ * GameScreen can never drift from it. One builder serves
+ * both the composable body and the gesture handler (which
+ * reports synchronously from the live position — see
+ * below).
+ */
+private fun wormLightDragHead(
+    g: WormLightGeometry,
+    density: Float,
+    hardwareColor: WormLightColor,
+    aimMode: Boolean,
+) = WormLightDragHead(
+    lensCenter = g.lensCenter,
+    lensRadii = g.lensRadii,
+    lensRotationDeg = g.lensRotationDeg,
+    bulbCenter = g.bulbCenter,
+    bulbRadii = g.bulbRadii,
+    glowRadiusPx = g.lensRadii.x * 1.8f,
+    rimStrokePx = 2f * density,
+    aimTickPx = g.lensRadii.x * 0.55f,
+    hardwareColorArgb = hardwareColor.argb,
+    hardwareTranslucent = hardwareColor.translucent,
+    aimMode = aimMode,
+)
+
 @Composable
 fun WormLightOverlay(
     enabled: Boolean,
@@ -829,7 +856,6 @@ fun WormLightOverlay(
     // the direction from the head to the finger.
     var aimMode by remember { mutableStateOf(false) }
     var aimAngleRad by remember { mutableStateOf(0f) }
-    var dragging by remember { mutableStateOf(false) }
     var pressOnHead by remember { mutableStateOf(false) }
     var dragDistancePx by remember { mutableStateOf(0f) }
     val scope = rememberCoroutineScope()
@@ -851,27 +877,15 @@ fun WormLightOverlay(
         // header); the overlay only draws the pool itself on
         // the fallback path.
         LaunchedEffect(g.pool) { onPoolChange(g.pool) }
-        // The head, for the drag layer: while a drag is in
-        // progress the player draws it above the controls.
-        // Outside a drag it reports null and the overlay's
-        // own head drawing (below the controls) is the only
-        // one — the two never double.
-        val dragHead = WormLightDragHead(
-            lensCenter = g.lensCenter,
-            lensRadii = g.lensRadii,
-            lensRotationDeg = g.lensRotationDeg,
-            bulbCenter = g.bulbCenter,
-            bulbRadii = g.bulbRadii,
-            glowRadiusPx = g.lensRadii.x * 1.8f,
-            rimStrokePx = 2f * density,
-            aimTickPx = g.lensRadii.x * 0.55f,
-            hardwareColorArgb = hardwareColor.argb,
-            hardwareTranslucent = hardwareColor.translucent,
-            aimMode = aimMode,
-        )
-        LaunchedEffect(dragging, dragHead) {
-            onDragHeadChange(if (dragging) dragHead else null)
-        }
+        // The head, for the drag layer and for this Canvas:
+        // the same numbers both places (see
+        // wormLightDragHead). It is reported to the player
+        // SYNCHRONOUSLY from the gesture callbacks below, not
+        // through a LaunchedEffect on a dragging flag — a fast
+        // drag can end before such an effect runs, and the
+        // non-null report would be swallowed. A tap never
+        // calls onDrag, so it never reports — no flash.
+        val dragHead = wormLightDragHead(g, density, hardwareColor, aimMode)
         Canvas(
             modifier = Modifier
                 .fillMaxSize()
@@ -943,12 +957,16 @@ fun WormLightOverlay(
                                     ) { sway = value }
                                 }
                             }
-                            dragging = false
+                            // The drag is over: the player
+                            // clears its drag-layer head, so
+                            // the overlay's own head (below
+                            // the controls) is the only one.
+                            onDragHeadChange(null)
                         },
                         onDragCancel = {
                             wobbleJob?.cancel()
                             sway = 0f
-                            dragging = false
+                            onDragHeadChange(null)
                         },
                         onDrag = { change, dragAmount ->
                             change.consume()
@@ -989,10 +1007,24 @@ fun WormLightOverlay(
                                 position = Offset(x / width, y / height)
                                 sway = (x - dragStartX) * WORM_LIGHT_SWAY_DRAG_FACTOR
                             }
-                            // Set on the first real movement,
-                            // not in onDragStart — so a tap
-                            // never flashes the drag layer.
-                            dragging = true
+                            // Report the head synchronously, on
+                            // the first real movement — not in
+                            // onDragStart, so a tap never flashes
+                            // the drag layer, and not through a
+                            // LaunchedEffect, which a fast drag
+                            // can outrun. The geometry is
+                            // computed fresh from the live
+                            // position and the new aim angle, so
+                            // the reported head is the head as
+                            // drawn after this movement.
+                            val geom = wormLightGeometry(
+                                width, height, position, density,
+                                gameAspect, WORM_LIGHT_STRIP_DP, sway,
+                                aimAngleRad = if (aimMode) aimAngleRad else null,
+                            )
+                            onDragHeadChange(
+                                wormLightDragHead(geom, density, hardwareColor, aimMode),
+                            )
                         },
                     )
                 },

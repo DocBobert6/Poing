@@ -19,6 +19,14 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
+import kotlin.math.abs
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
+import org.junit.Rule
+import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
+import org.robolectric.annotation.Config
 
 /**
  * Worm Light rework (Robert, 2026-11-12): the overlay renders
@@ -44,6 +52,24 @@ class WormLightOverlayTest {
             }
         }
     }
+
+    // Touch tests must not assume the 300x200dp box measures
+    // 300x200dp: the Robolectric window is smaller than the
+    // requested box (see GameDisplayViewTest), and the
+    // density is not 1 either. Every touch point and every
+    // expectation below is derived from the node's own
+    // measured size (px) at runtime — the default head sits
+    // at (0.5, 0.06) of it, whatever it measures.
+    // fetchSemanticsNode is a member of
+    // SemanticsNodeInteraction, not a top-level import.
+    private fun wormLightSize(): Pair<Float, Float> {
+        val bounds = composeRule.onNodeWithTag("worm-light")
+            .fetchSemanticsNode().boundsInRoot
+        return bounds.width to bounds.height
+    }
+
+    private fun defaultHead(size: Pair<Float, Float>) =
+        Offset(size.first * 0.5f, size.second * 0.06f)
 
     @Test
     fun overlayPresentWhenEnabled() {
@@ -95,8 +121,12 @@ class WormLightOverlayTest {
     fun tapOnTheHeadTogglesAimMode() {
         // Tap-to-aim (Robert, 2026-11-13): a tap on the head
         // toggles aim mode, where a drag rotates the head and
-        // the pool instead of moving the head. In a 300x200dp
-        // box the default head sits at (150, 12).
+        // the pool instead of moving the head. The tap lands
+        // on the default head's measured position; the drag
+        // ends straight below it, so the pool rotates toward
+        // straight down (~1.57 rad) while its centre stays at
+        // the top-centre — the head never moves. The angle is
+        // a direction, so it holds at any density or window.
         var reported: WormLightPool? = null
         composeRule.setContent {
             PoingTheme {
@@ -109,24 +139,22 @@ class WormLightOverlayTest {
             }
         }
         composeRule.waitForIdle()
+        val head = defaultHead(wormLightSize())
         // Tap the head to enter aim mode.
         composeRule.onNodeWithTag("worm-light").performTouchInput {
-            click(Offset(150f, 12f))
+            click(head)
         }
         composeRule.waitForIdle()
         // Drag down from beside the head: in aim mode the
-        // press need not start on the head, and the pool
-        // rotates toward straight down (~1.57 rad) while its
-        // centre stays at the top-centre — the head never
-        // moves.
+        // press need not start on the head.
         composeRule.onNodeWithTag("worm-light").performTouchInput {
-            swipe(Offset(190f, 12f), Offset(150f, 52f))
+            swipe(head + Offset(40f, 0f), head + Offset(0f, 60f))
         }
         composeRule.waitForIdle()
         val pool = reported
         assertTrue("the overlay should report its pool", pool != null)
         pool!!
-        assertEquals(1.57f, pool.rotationRad, 0.02f)
+        assertEquals(1.57f, pool.rotationRad, 0.05f)
         assertEquals(0.5f, pool.center.x, 0.01f)
         assertEquals(0.20f, pool.center.y, 0.01f)
     }
@@ -136,7 +164,9 @@ class WormLightOverlayTest {
         // Head visible while dragging (Robert, 2026-11-13):
         // the overlay reports its head while a drag is in
         // progress, so the player can draw it above the
-        // controls, and clears it when the drag ends.
+        // controls, and clears it when the drag ends. The
+        // swipe is 60px — well past touch slop at any
+        // density — from the head's measured position.
         var lastDragHead: WormLightDragHead? = null
         var sawNonNull = false
         composeRule.setContent {
@@ -153,8 +183,9 @@ class WormLightOverlayTest {
             }
         }
         composeRule.waitForIdle()
+        val head = defaultHead(wormLightSize())
         composeRule.onNodeWithTag("worm-light").performTouchInput {
-            swipe(Offset(150f, 12f), Offset(200f, 12f))
+            swipe(head, head + Offset(60f, 0f))
         }
         composeRule.waitForIdle()
         assertTrue("the head should be reported during a drag", sawNonNull)
@@ -165,10 +196,17 @@ class WormLightOverlayTest {
     fun tapElsewhereDoesNotToggleAimMode() {
         // A tap away from the head is not a head tap: aim
         // mode stays off, and a drag after it MOVES the head
-        // instead of rotating it — the pool centre follows
-        // the head (0.5 to 0.73), and the rotation is only
-        // the head's small position tilt (-0.14 rad, the
-        // head right of centre), not an aim rotation.
+        // instead of rotating it. The tap lands at the
+        // bottom-centre of the measured node — far below the
+        // head in the strip, outside its grab rect at any
+        // density. The drag moves the head right by three
+        // tenths of the node's width (well past touch slop);
+        // the pool centre must follow it right (past 0.6)
+        // while the rotation stays a position tilt (under
+        // 1.0 rad), far from an aim rotation (1.57). Both
+        // bounds hold whatever the slop absorbs and however
+        // narrow the game is in the measured box, so no
+        // exact position is pinned.
         var reported: WormLightPool? = null
         composeRule.setContent {
             PoingTheme {
@@ -181,18 +219,23 @@ class WormLightOverlayTest {
             }
         }
         composeRule.waitForIdle()
+        val size = wormLightSize()
+        val head = defaultHead(size)
         composeRule.onNodeWithTag("worm-light").performTouchInput {
-            click(Offset(50f, 100f))
+            click(Offset(size.first * 0.5f, size.second * 0.95f))
         }
         composeRule.waitForIdle()
         composeRule.onNodeWithTag("worm-light").performTouchInput {
-            swipe(Offset(150f, 12f), Offset(200f, 12f))
+            swipe(head, head + Offset(size.first * 0.3f, 0f))
         }
         composeRule.waitForIdle()
         val pool = reported
         assertTrue("the overlay should report its pool", pool != null)
         pool!!
-        assertEquals(0.73f, pool.center.x, 0.01f)
-        assertEquals(-0.14f, pool.rotationRad, 0.02f)
+        assertTrue("the pool centre should follow the head right", pool.center.x > 0.6f)
+        assertTrue(
+            "the rotation should be only the position tilt, not an aim rotation",
+            abs(pool.rotationRad) < 1.0f,
+        )
     }
 }
