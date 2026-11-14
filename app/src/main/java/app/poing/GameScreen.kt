@@ -13,15 +13,12 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.width
-import androidx.compose.material3.Button
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -29,11 +26,12 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.drawscope.translate
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
@@ -118,15 +116,22 @@ fun GameScreen(
     val held = remember { HeldInput() }
 
     // Phase 6 (item 4) — per-game saved control positions. The
-    // layout is loaded with the game and saved on every drag end
-    // (and on Done); editing is entered from the pause menu while
-    // the game stays paused. The stored ROM file is
-    // <sha256>.<ext>: its stem is the stable per-game key.
+    // layout is loaded with the game and saved on Done in the
+    // editor (and on every drag end there); editing is entered
+    // from the pause menu while the game stays paused. The
+    // stored ROM file is <sha256>.<ext>: its stem is the stable
+    // per-game key.
     val saveBase = java.io.File(gamePath).nameWithoutExtension
     val layoutStore = remember { ControlLayoutStore(context.filesDir.resolve("control-layouts").apply { mkdirs() }) }
     var layout by remember(gamePath) { mutableStateOf(layoutStore.load(saveBase)) }
-    val latestLayout by rememberUpdatedState(layout)
     var editingLayout by remember { mutableStateOf(false) }
+    // Overlay rework (Robert, 2026-11-13): the controls are
+    // fractions of the full screen, so the overlay lives in the
+    // root Box — but the Worm Light's drag head is drawn in the
+    // player area's coordinates, so the player area's top offset
+    // (the bar's height, when the bar is showing) translates it
+    // into root coordinates. Zero while playing: the bar hides.
+    var playerTopPx by remember { mutableStateOf(0f) }
 
     // Phase 6 (item 1) — fast-forward / slow motion. The settings
     // are snapshotted here: they can only change on the Settings
@@ -209,12 +214,13 @@ fun GameScreen(
     var barPeeked by remember { mutableStateOf(false) }
     var peekNonce by remember { mutableStateOf(0) }
     // The bar shows while paused (the Resume button), while
-    // editing the layout (the Done button lives in it), while
     // dev stats are on, or for a few seconds after a back
-    // swipe (see the BackHandler below). The power light never
-    // hides — it is detached from the bar (FloatingPlayerStatus,
-    // below).
-    val barVisible = paused || editingLayout || devStats || barPeeked
+    // swipe (see the BackHandler below) — but NEVER while
+    // editing the layout: the editor owns the top then, with
+    // its own Done pill (overlay rework, Robert, 2026-11-13).
+    // The power light never hides — it is detached from the
+    // bar (FloatingPlayerStatus, below).
+    val barVisible = (paused || devStats || barPeeked) && !editingLayout
     fun peekBar() {
         // Already showing (paused, editing, dev stats):
         // nothing to time — the bar stays until that state ends.
@@ -236,20 +242,23 @@ fun GameScreen(
     // ONLY reachable by a back swipe — the system back gesture
     // (the game-area tap peek is gone). A back swipe shows the
     // bar and NEVER exits the player: the only way out is the
-    // bar / pause menu's own exit control. While a sub-screen
-    // is open (Core Options, Cheats, Cartridge Surgery,
-    // Achievements, Leaderboards), back closes it, like any
-    // other screen; while the bar is already visible (paused,
-    // editing, dev stats) it does nothing — no exit, no
-    // resume; the bar's controls are the way out.
+    // bar / pause menu's own exit control. While editing the
+    // layout, back exits the editor and discards the draft —
+    // the editor's Done is the commit — like Mariner's Back.
+    // While a sub-screen is open (Core Options, Cheats,
+    // Cartridge Surgery, Achievements, Leaderboards), back
+    // closes it, like any other screen; while the bar is
+    // already visible (paused, dev stats) it does nothing —
+    // no exit, no resume; the bar's controls are the way out.
     BackHandler {
         when {
+            editingLayout -> editingLayout = false
             showSettings -> showSettings = false
             showCheats -> showCheats = false
             showCartridge -> showCartridge = false
             showAchievements -> showAchievements = false
             showLeaderboards -> showLeaderboards = false
-            paused || editingLayout || devStats -> Unit
+            paused || devStats -> Unit
             else -> peekBar()
         }
     }
@@ -528,11 +537,16 @@ fun GameScreen(
         }
     }
 
-    Box(
+    BoxWithConstraints(
         modifier = Modifier
             .fillMaxSize()
             .background(Color.Black),
     ) {
+        // Overlay rework (Robert, 2026-11-13): the canvas the
+        // controls are fractions of — the full screen, so the
+        // buttons never jump when the top bar hides and shows.
+        val canvasWidthDp = maxWidth.value
+        val canvasHeightDp = maxHeight.value
         Column(modifier = Modifier.fillMaxSize()) {
             // Player chrome (Robert, 2026-11-12): the top bar
             // hides during active gameplay unless dev stats
@@ -552,19 +566,9 @@ fun GameScreen(
                     lux = if (devStats) latestLux else null,
                     recording = recording,
                     recordingElapsed = recordingElapsed,
-                    buttonLabel = if (editingLayout) "Done" else if (paused) "Resume" else "Pause",
-                    // While editing the layout the top-bar button is
-                    // Done: it saves the layout and returns to the pause
-                    // menu (the game stays paused throughout editing).
+                    buttonLabel = if (paused) "Resume" else "Pause",
                     onButtonClick = {
-                        when {
-                            editingLayout -> {
-                                layoutStore.save(saveBase, latestLayout)
-                                editingLayout = false
-                            }
-                            paused -> doResume()
-                            else -> doPause()
-                        }
+                        if (paused) doResume() else doPause()
                     },
                 )
             }
@@ -592,6 +596,7 @@ fun GameScreen(
                 modifier = Modifier
                     .weight(1f)
                     .fillMaxWidth()
+                    .onGloballyPositioned { playerTopPx = it.positionInRoot().y }
                     .testTag("player-area"),
             ) {
                 GameDisplayView(
@@ -608,38 +613,6 @@ fun GameScreen(
                     // does nothing to the bar; only a back
                     // swipe brings it back (see peekBar).
                     modifier = Modifier.fillMaxSize(),
-                )
-                // The four movable groups, overlaid (see
-                // PlayerOverlay): D-pad left flank, A/B right
-                // flank, L/R top corners (GBA only), Start/Select
-                // bottom centre.
-                ControlOverlay(
-                    isGba = isGba,
-                    system = system,
-                    layout = layout,
-                    editingLayout = editingLayout,
-                    // Player chrome (Robert, 2026-11-12): when
-                    // the bar hides, the floating light sits at
-                    // the player area's top-left corner, where
-                    // the L/R tabs also sit — the tabs drop to
-                    // clear it (see PlayerOverlay).
-                    barVisible = barVisible,
-                    held = held,
-                    paused = paused,
-                    onInputChanged = ::pushInput,
-                    onControlDown = {
-                        // Phase 6 (item 10b): a click is a fresh
-                        // vibrate, which would kill a running
-                        // rumble waveform — the game's rumble wins
-                        // while it is active, so the click is
-                        // skipped then (the motor is already
-                        // vibrating).
-                        if (cartridgeRumble.currentStrength == 0) hapticsImpl.click()
-                    },
-                    onMove = { group, position ->
-                        layout = layout.with(group, position)
-                    },
-                    onMoveEnd = { layoutStore.save(saveBase, latestLayout) },
                 )
                 // Fast-forward / slow motion (Phase 6, item 1) and
                 // rewind (Phase 6, item 9): shown only when their
@@ -699,50 +672,48 @@ fun GameScreen(
                         }
                     }
                 }
-                // Worm Light improvements (Robert, 2026-11-13):
-                // while a drag is in progress, the lamp's head
-                // draws ABOVE the controls (the overlay's own
-                // head sits below them), so it never disappears
-                // behind the D-pad mid-drag. No pointer input
-                // here — this layer is transparent to input,
-                // and it sits inside the player Box after the
-                // FF/RW Row, so its coordinates match the
-                // overlay's exactly. Outside a drag nothing is
-                // drawn and the existing draw order stays.
-                wormLightDragHead?.let { dragHead ->
-                    Canvas(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .testTag("worm-light-drag-head"),
-                    ) {
-                        drawWormLightHead(dragHead)
-                    }
-                }
             }
-            // Layout editing (Phase 6, item 4): drag any group to
-            // move it; Reset puts every group back at its default
-            // spot and saves. Done lives in the top bar. The hint
-            // sits below the player area while editing — the game
-            // is paused then, so the lost height costs nothing.
-            if (editingLayout) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 8.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text(
-                        text = "Drag the controls to move them",
-                        modifier = Modifier.weight(1f),
-                        color = Color.White,
-                    )
-                    Button(onClick = {
-                        layout = ControlLayout.DEFAULT
-                        layoutStore.save(saveBase, layout)
-                    }) {
-                        Text("Reset")
-                    }
+        }
+        // Overlay rework (Robert, 2026-11-13): the controls live
+        // in the root Box now, placed by fractions of the full
+        // screen — above the game, below the pause overlay, so
+        // the pause dim covers them like before. The Worm Light's
+        // drag head draws above them, translated from the player
+        // area's coordinates into root coordinates.
+        ControlOverlay(
+            isGba = isGba,
+            system = system,
+            layout = layout,
+            canvasWidthDp = canvasWidthDp,
+            canvasHeightDp = canvasHeightDp,
+            held = held,
+            paused = paused,
+            onInputChanged = ::pushInput,
+            onControlDown = {
+                // Phase 6 (item 10b): a click is a fresh
+                // vibrate, which would kill a running
+                // rumble waveform — the game's rumble wins
+                // while it is active, so the click is
+                // skipped then (the motor is already
+                // vibrating).
+                if (cartridgeRumble.currentStrength == 0) hapticsImpl.click()
+            },
+        )
+        // Worm Light improvements (Robert, 2026-11-13):
+        // while a drag is in progress, the lamp's head
+        // draws ABOVE the controls, so it never disappears
+        // behind the D-pad mid-drag. No pointer input
+        // here — this layer is transparent to input.
+        // Outside a drag nothing is drawn and the existing
+        // draw order stays.
+        wormLightDragHead?.let { dragHead ->
+            Canvas(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .testTag("worm-light-drag-head"),
+            ) {
+                translate(top = playerTopPx) {
+                    drawWormLightHead(dragHead)
                 }
             }
         }
@@ -976,6 +947,28 @@ fun GameScreen(
                     onBack = { showLeaderboards = false },
                 )
             }
+        }
+        // Overlay rework (Robert, 2026-11-13): the full-screen
+        // layout editor over the paused game. Done commits the
+        // draft and saves it; Back (or a back swipe) discards
+        // it. The game stays paused throughout editing.
+        if (editingLayout) {
+            LayoutEditor(
+                initial = layout,
+                isGba = isGba,
+                system = system,
+                held = held,
+                onInputChanged = ::pushInput,
+                onControlDown = {
+                    if (cartridgeRumble.currentStrength == 0) hapticsImpl.click()
+                },
+                onDone = { draft ->
+                    layout = draft
+                    layoutStore.save(saveBase, draft)
+                    editingLayout = false
+                },
+                onBack = { editingLayout = false },
+            )
         }
     }
 }

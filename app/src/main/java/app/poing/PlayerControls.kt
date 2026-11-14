@@ -4,7 +4,6 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
-import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.size
@@ -15,19 +14,17 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.PointerId
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.Dp
-import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 
 /**
@@ -50,60 +47,37 @@ import androidx.compose.ui.unit.dp
  */
 
 /**
- * Phase 6 (item 4) — a control group that can be dragged to a new
- * spot while the layout is being edited. Outside edit mode it is a
- * plain positioned Box; in edit mode a drag moves the group (the
- * offset is clamped by ControlPosition) and the end of the drag
- * saves through [onMoveEnd].
- *
- * The drag detector sits on the wrapper while the buttons inside
- * keep their own press handling: while editing the game is paused,
- * so a press that also lands on a button is inert — it sets a held
- * bit the paused session never reads, and the button clears it on
- * lift. [position] is read through rememberUpdatedState so the
- * gesture block (keyed once per edit session) always sees the
- * latest offset instead of the one from the first composition.
- * [modifier] is the group's placement in its parent — the
- * overlay passes an align() there, so the offset is a delta from
- * the aligned default spot.
+ * Overlay rework (Robert, 2026-11-13) — a control placed by
+ * its centre as a fraction of the screen (see ControlLayout),
+ * at its own size. Outside the editor it is a plain positioned
+ * Box: all dragging, resizing and grouping live in the editor
+ * (LayoutEditor), so play mode has no drag wiring at all.
+ * [widthDp]/[heightDp] are the control's own size in dp (a
+ * circle's diameter, a pill's width/height); [alpha] is the
+ * layout's control opacity.
  */
 @Composable
-fun MovableControl(
-    position: ControlPosition,
-    editing: Boolean,
+fun PlacedControl(
+    cx: Float,
+    cy: Float,
+    widthDp: Float,
+    heightDp: Float,
+    canvasWidthDp: Float,
+    canvasHeightDp: Float,
+    alpha: Float,
     testTag: String,
-    onMove: (ControlPosition) -> Unit,
-    onMoveEnd: () -> Unit,
-    modifier: Modifier = Modifier,
     content: @Composable () -> Unit,
 ) {
-    val density = LocalDensity.current
-    val latestPosition by rememberUpdatedState(position)
     Box(
-        modifier = modifier
-            .offset {
-                with(density) {
-                    IntOffset(position.xDp.dp.roundToPx(), position.yDp.dp.roundToPx())
-                }
-            }
-            .testTag(testTag)
-            .then(
-                if (editing) {
-                    Modifier.pointerInput(Unit) {
-                        detectDragGestures(
-                            onDragEnd = { onMoveEnd() },
-                            onDragCancel = { onMoveEnd() },
-                        ) { change, dragAmount ->
-                            change.consume()
-                            val dx = with(density) { dragAmount.x.toDp().value }
-                            val dy = with(density) { dragAmount.y.toDp().value }
-                            onMove(latestPosition.movedBy(dx, dy))
-                        }
-                    }
-                } else {
-                    Modifier
-                },
-            ),
+        modifier = Modifier
+            .offset(
+                x = (cx * canvasWidthDp - widthDp / 2f).dp,
+                y = (cy * canvasHeightDp - heightDp / 2f).dp,
+            )
+            .size(widthDp.dp, heightDp.dp)
+            .alpha(alpha)
+            .testTag(testTag),
+        contentAlignment = Alignment.Center,
     ) {
         content()
     }
@@ -147,9 +121,15 @@ fun HoldButton(
         pill -> RoundedCornerShape(16.dp)
         else -> CircleShape
     }
+    // Overlay rework (Robert, 2026-11-13): a shoulder or pill
+    // is [sizeDp] wide and half as tall — the editor's size is
+    // the control's size, so a resized L tab stays a wide pill
+    // and a resized Start pill stays a small one. The defaults
+    // keep the old spots: shoulders 96dp, pills 64dp, circles
+    // 64dp — callers that resize pass the layout's size.
     val buttonModifier = when {
-        shoulder -> Modifier.size(width = 96.dp, height = 48.dp)
-        pill -> Modifier.size(width = 64.dp, height = 32.dp)
+        shoulder -> Modifier.size(width = sizeDp, height = sizeDp / 2)
+        pill -> Modifier.size(width = sizeDp, height = sizeDp / 2)
         else -> Modifier.size(sizeDp)
     }
     Box(
@@ -277,6 +257,10 @@ fun ToggleActionButton(
  * every active pointer's direction OR-ed together (see
  * DpadInput). Multi-touch inside the pad works — a second thumb's
  * direction adds to the first's.
+ *
+ * Overlay rework (Robert, 2026-11-13): the pad's size is the
+ * layout's size for it ([sizeDp], 144dp by default) — the cross
+ * bars scale with it, a third as wide as the pad, spanning it.
  */
 @Composable
 fun DpadControl(
@@ -292,12 +276,13 @@ fun DpadControl(
     // Defaults are the Phase 5 silver cross on a dark well.
     crossColor: Color = PoingSilver,
     wellColor: Color = Color(0xFF1A1A1A),
+    sizeDp: Dp = 144.dp,
 ) {
     var sizePx by remember { mutableStateOf(0f) }
     Box(
         modifier = Modifier
             .testTag("dpad")
-            .size(144.dp)
+            .size(sizeDp)
             .clip(RoundedCornerShape(16.dp))
             .background(wellColor)
             .onSizeChanged { sizePx = it.width.toFloat() }
@@ -335,16 +320,17 @@ fun DpadControl(
     ) {
         // The cross: two bars in the theme's cross colour. Static —
         // the game itself shows the direction; the cross never needs
-        // a pressed state.
+        // a pressed state. Each bar is a third as wide as the pad
+        // and spans it.
         Box(
             Modifier
-                .size(width = 48.dp, height = 144.dp)
+                .size(width = sizeDp / 3, height = sizeDp)
                 .clip(RoundedCornerShape(8.dp))
                 .background(crossColor),
         )
         Box(
             Modifier
-                .size(width = 144.dp, height = 48.dp)
+                .size(width = sizeDp, height = sizeDp / 3)
                 .clip(RoundedCornerShape(8.dp))
                 .background(crossColor),
         )

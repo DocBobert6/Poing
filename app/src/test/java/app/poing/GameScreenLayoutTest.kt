@@ -28,9 +28,10 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 
 /**
- * Phase 6 (item 4) — per-game saved control positions, through
- * the player: pause, "Move controls", drag the D-pad, Done, and
- * the layout is in the game's file.
+ * Overlay rework (Robert, 2026-11-13) — per-game saved control
+ * layouts, through the player: pause, "Move controls", drag a
+ * control in the full-screen editor, Done, and the layout is in
+ * the game's file.
  *
  * The session is never started (no native code under Robolectric),
  * so the game itself never runs — the test pins the layout flow,
@@ -95,17 +96,17 @@ class GameScreenLayoutTest {
         setContent(game.absolutePath, devStats = true)
         composeRule.onNodeWithText("Pause").performClick()
         composeRule.onNodeWithText("Move controls").performScrollTo().performClick()
-        composeRule.onNodeWithText("Drag the controls to move them").assertIsDisplayed()
-        composeRule.onNodeWithTag("controls-dpad").performTouchInput {
+        composeRule.onNodeWithTag("editor-dpad").assertIsDisplayed()
+        composeRule.onNodeWithTag("editor-dpad").performTouchInput {
             swipe(start = center, end = center + Offset(0f, -200f), durationMillis = 300)
         }
-        composeRule.onNodeWithText("Done").performClick()
+        composeRule.onNodeWithTag("editor-done").performClick()
         val props = Properties().apply {
             layoutFile("game").inputStream().use { load(it) }
         }
-        val y = props.getProperty("dpad.y")?.toFloatOrNull()
-        assertNotNull("dpad.y should be saved after the drag", y)
-        assertTrue("dragging up should save a negative y, got $y", y!! < 0f)
+        val cy = props.getProperty("dpad.cy")?.toFloatOrNull()
+        assertNotNull("dpad.cy should be saved after the drag", cy)
+        assertTrue("dragging up should save a smaller cy than the 0.5 default, got $cy", cy!! < 0.5f)
     }
 
     @Test
@@ -114,14 +115,16 @@ class GameScreenLayoutTest {
         setContent(game.absolutePath, devStats = true)
         composeRule.onNodeWithText("Pause").performClick()
         composeRule.onNodeWithText("Move controls").performScrollTo().performClick()
-        composeRule.onNodeWithTag("controls-dpad").performTouchInput {
+        composeRule.onNodeWithTag("editor-dpad").performTouchInput {
             swipe(start = center, end = center + Offset(0f, -200f), durationMillis = 300)
         }
-        composeRule.onNodeWithText("Reset").performClick()
+        composeRule.onNodeWithTag("editor-reset").performClick()
+        composeRule.onNodeWithTag("editor-done").performClick()
         val props = Properties().apply {
             layoutFile("game").inputStream().use { load(it) }
         }
-        assertTrue(props.getProperty("dpad.y")?.toFloatOrNull() == 0f)
+        assertEquals(0.5f, props.getProperty("dpad.cy")?.toFloatOrNull() ?: -1f, 0.001f)
+        assertEquals(144, props.getProperty("dpad.size")?.toIntOrNull())
     }
 
     /**
@@ -156,13 +159,15 @@ class GameScreenLayoutTest {
      * pills side by side, overlaid at the bottom centre of the
      * player area, not stacked in the middle of a bottom row.
      * Pinned by their bounds: same top edge, Start entirely left
-     * of Select.
+     * of Select. Overlay rework (Robert, 2026-11-13): each is
+     * its own control now, placed by its own fraction.
      */
     @Test
     fun startSelectSitSideBySideAtBottomCentre() {
         val game = File(temp.root, "game.gb")
         setContent(game.absolutePath)
-        composeRule.onNodeWithTag("controls-startselect").assertIsDisplayed()
+        composeRule.onNodeWithTag("controls-start").assertIsDisplayed()
+        composeRule.onNodeWithTag("controls-select").assertIsDisplayed()
         composeRule.onNodeWithTag("hold-Start").assertIsDisplayed()
         composeRule.onNodeWithTag("hold-Select").assertIsDisplayed()
         val d = composeRule.density.density
@@ -185,7 +190,8 @@ class GameScreenLayoutTest {
         val game = File(temp.root, "game.gbc")
         setContent(game.absolutePath, system = GameSystem.GBC)
         composeRule.onNodeWithTag("controls-dpad").assertIsDisplayed()
-        composeRule.onNodeWithTag("controls-ab").assertIsDisplayed()
+        composeRule.onNodeWithTag("controls-a").assertIsDisplayed()
+        composeRule.onNodeWithTag("controls-b").assertIsDisplayed()
         composeRule.onNodeWithTag("hold-A").assertIsDisplayed()
         composeRule.onNodeWithTag("hold-B").assertIsDisplayed()
         composeRule.onNodeWithTag("controls-l").assertDoesNotExist()
@@ -206,10 +212,11 @@ class GameScreenLayoutTest {
         val game = File(temp.root, "game.gb")
         setContent(game.absolutePath)
         composeRule.onNodeWithTag("controls-dpad").assertIsDisplayed()
-        composeRule.onNodeWithTag("controls-ab").assertIsDisplayed()
+        composeRule.onNodeWithTag("controls-a").assertIsDisplayed()
+        composeRule.onNodeWithTag("controls-b").assertIsDisplayed()
         val dpad = composeRule.onNodeWithTag("controls-dpad").fetchSemanticsNode().boundsInRoot
-        val ab = composeRule.onNodeWithTag("controls-ab").fetchSemanticsNode().boundsInRoot
-        assertTrue("D-pad centre should sit left of the A/B centre", dpad.center.x < ab.center.x)
+        val a = composeRule.onNodeWithTag("controls-a").fetchSemanticsNode().boundsInRoot
+        assertTrue("D-pad centre should sit left of the A centre", dpad.center.x < a.center.x)
     }
 
     /**
@@ -375,19 +382,23 @@ class GameScreenLayoutTest {
     }
 
     /**
-     * Player chrome (Robert, 2026-11-12): while editing the
-     * layout the bar stays visible — the Done button lives
-     * in it — and it does not hide on the peek timer.
+     * Overlay rework (Robert, 2026-11-13): while editing the
+     * layout the top bar hides — the editor owns the top, with
+     * its own Done pill — even with dev stats on, and Done
+     * commits the layout and returns to the pause menu.
      */
     @Test
-    fun topBarStaysVisibleWhileEditingLayout() {
+    fun editorHidesTheTopBarAndDoneExitsEditing() {
         val game = File(temp.root, "game.gb")
         setContent(game.absolutePath, devStats = true)
         composeRule.onNodeWithText("Pause").performClick()
         composeRule.onNodeWithText("Move controls").performScrollTo().performClick()
-        composeRule.onNodeWithText("Done").assertIsDisplayed()
+        composeRule.onNodeWithTag("editor-done").assertIsDisplayed()
+        composeRule.onNodeWithTag("top-bar-button").assertDoesNotExist()
         composeRule.mainClock.advanceTimeBy(5000)
         composeRule.waitForIdle()
-        composeRule.onNodeWithText("Done").assertIsDisplayed()
+        composeRule.onNodeWithTag("editor-done").assertIsDisplayed()
+        composeRule.onNodeWithTag("editor-done").performClick()
+        composeRule.onNodeWithText("Move controls").performScrollTo().assertIsDisplayed()
     }
 }

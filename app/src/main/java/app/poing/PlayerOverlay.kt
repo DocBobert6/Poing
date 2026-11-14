@@ -1,40 +1,31 @@
 package app.poing
 
 import androidx.compose.foundation.layout.BoxScope
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.width
 import androidx.compose.runtime.Composable
-import androidx.compose.ui.Alignment
-import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 
 /**
- * Layout rework (Robert, 2026-11-12): the player is the
+ * Overlay rework (Robert, 2026-11-13): the player is the
  * HowlingDog landscape model — the game fills the player area
  * below the top bar at its native aspect, and the controls are
- * an overlay on that area, not stacked rows under it. D-pad
- * centred in the left flank bar, A/B centred in the right
- * flank bar, L/R shoulder tabs at the top-left / top-right
- * corners, Start/Select as small pills side by side at the
- * bottom centre. The agreed destinations from the stacked
- * moves (L/R up top, Start/Select side by side) are kept in
- * spirit — they now sit as overlay, since there is no row
- * below the game any more.
+ * an overlay on that area, not stacked rows under it.
  *
- * A BoxScope extension, so the groups align inside the player
+ * Every control sits by its centre as a fraction of the FULL
+ * screen (see ControlLayout) at its own size — anywhere on
+ * screen, including over the game. The fractions are of the
+ * full screen, not the player area, because the player area
+ * grows and shrinks as the top bar hides and shows; fractions
+ * of it would make the buttons jump every time the bar
+ * toggles. The overlay lives in the root Box for the same
+ * reason, and takes the canvas size ([canvasWidthDp] /
+ * [canvasHeightDp]) from it.
+ *
+ * A BoxScope extension, so the controls align inside the root
  * Box. Extracted from GameScreen so the player screen stays
- * under the dex guard (HowlingDog v1.3.0 lesson): the four
- * movable groups and their drag wiring live here, the game
- * view and the top bar stay in GameScreen.
- *
- * Per-game saved positions (Phase 6, item 4) apply exactly as
- * before: each group's offset is a delta from its default
- * spot (see ControlLayout), so the new defaults need no
- * migration — a saved offset still applies as the same delta,
- * and Reset returns to the new defaults.
+ * under the dex guard (HowlingDog v1.3.0 lesson). All dragging,
+ * resizing and grouping live in the editor (LayoutEditor) —
+ * play mode has no drag wiring at all.
  *
  * Per-system buttons + style (Robert, 2026-11-12): the theme
  * for [system] (see ControlThemes) is resolved once here and
@@ -46,129 +37,107 @@ fun BoxScope.ControlOverlay(
     isGba: Boolean,
     system: GameSystem,
     layout: ControlLayout,
-    editingLayout: Boolean,
-    // Player chrome (Robert, 2026-11-12): whether the top bar
-    // is showing. When it hides, the floating power light sits
-    // at the player area's top-left corner — the L/R tabs'
-    // corner too — so the tabs drop to clear it: the light's
-    // bottom edge is the status bar (~24dp) + 8dp padding +
-    // the 20dp light = 52dp, plus an 8dp gap. The offsets are
-    // deltas from the default (see ControlLayout), so a saved
-    // layout needs no migration — it still applies as the same
-    // delta from the new default.
-    barVisible: Boolean,
+    canvasWidthDp: Float,
+    canvasHeightDp: Float,
     held: HeldInput,
     paused: Boolean,
     onInputChanged: () -> Unit,
     // Haptics click for the D-pad and A/B, gated by the caller
     // (a running cartridge rumble wins over the click).
     onControlDown: () -> Unit,
-    onMove: (ControlGroup, ControlPosition) -> Unit,
-    onMoveEnd: () -> Unit,
 ) {
     val theme = ControlThemes.themeFor(system)
-    val pressed = Color(theme.pressed)
-    // L/R shoulder tabs (GBA only) at the top corners of the
-    // player area, like the icon's shoulders. One saved group:
-    // both pills share layout.lr, so dragging either moves both
-    // together, exactly as the old top-bar pair did.
-    if (isGba) {
-        MovableControl(
-            position = layout.lr,
-            editing = editingLayout,
-            testTag = "controls-l",
-            onMove = { onMove(ControlGroup.LR, it) },
-            onMoveEnd = onMoveEnd,
-            modifier = Modifier.align(Alignment.TopStart).padding(start = 16.dp, top = if (barVisible) 12.dp else 60.dp),
+    val alpha = layout.opacity / 100f
+    // One placed control per spec: the centre fraction and the
+    // size come from the layout, so a resized or moved control
+    // renders exactly where the editor put it. The D-pad is one
+    // cross; A and B are separate controls that happen to sit
+    // as a pair (the editor moves them together by default);
+    // L/R and Start/Select likewise.
+    for (spec in layout.controlsFor(isGba)) {
+        val size = spec.sizeDp.toFloat()
+        val height = if (spec.id == ControlId.L || spec.id == ControlId.R ||
+            spec.id == ControlId.START || spec.id == ControlId.SELECT
         ) {
-            HoldButton(
-                "L", InputMask.JOY_L, held, paused, onInputChanged, shoulder = true,
-                unpressedBackground = Color(theme.shoulder.background),
-                unpressedLabel = Color(theme.shoulder.label),
-                pressedBackground = pressed,
-            )
+            size / 2f
+        } else {
+            size
         }
-        MovableControl(
-            position = layout.lr,
-            editing = editingLayout,
-            testTag = "controls-r",
-            onMove = { onMove(ControlGroup.LR, it) },
-            onMoveEnd = onMoveEnd,
-            modifier = Modifier.align(Alignment.TopEnd).padding(end = 16.dp, top = if (barVisible) 12.dp else 60.dp),
+        PlacedControl(
+            cx = spec.cx, cy = spec.cy,
+            widthDp = size, heightDp = height,
+            canvasWidthDp = canvasWidthDp, canvasHeightDp = canvasHeightDp,
+            alpha = alpha, testTag = "controls-${spec.id.key}",
         ) {
-            HoldButton(
-                "R", InputMask.JOY_R, held, paused, onInputChanged, shoulder = true,
-                unpressedBackground = Color(theme.shoulder.background),
-                unpressedLabel = Color(theme.shoulder.label),
-                pressedBackground = pressed,
-            )
+            ControlButton(spec, theme, held, paused, onInputChanged, onControlDown)
         }
     }
-    // D-pad centred in the left flank bar, A/B centred in the
-    // right flank bar — the black bars left and right of the
-    // aspect-correct game. Sizes unchanged (D-pad 144dp, A/B
-    // 64dp circles), as ordered.
-    MovableControl(
-        position = layout.dpad,
-        editing = editingLayout,
-        testTag = "controls-dpad",
-        onMove = { onMove(ControlGroup.DPAD, it) },
-        onMoveEnd = onMoveEnd,
-        modifier = Modifier.align(Alignment.CenterStart).padding(start = 16.dp),
-    ) {
-        DpadControl(
+}
+
+/**
+ * One control's button, shared by the play overlay and the
+ * editor (LayoutEditor) so the two can never drift apart: the
+ * D-pad cross, a round A/B button, a wide L/R shoulder pill,
+ * or a small Start/Select pill, in the system's theme, at the
+ * spec's size.
+ */
+@Composable
+fun ControlButton(
+    spec: OverlayControl,
+    theme: ControlThemes.Theme,
+    held: HeldInput,
+    paused: Boolean,
+    onInputChanged: () -> Unit,
+    onControlDown: () -> Unit,
+) {
+    val pressed = Color(theme.pressed)
+    when (spec.id) {
+        ControlId.DPAD -> DpadControl(
             held, paused, onInputChanged, onDirectionChange = onControlDown,
             crossColor = Color(theme.dpadCross), wellColor = Color(theme.dpadWell),
+            sizeDp = spec.sizeDp.dp,
         )
-    }
-    MovableControl(
-        position = layout.ab,
-        editing = editingLayout,
-        testTag = "controls-ab",
-        onMove = { onMove(ControlGroup.AB, it) },
-        onMoveEnd = onMoveEnd,
-        modifier = Modifier.align(Alignment.CenterEnd).padding(end = 16.dp),
-    ) {
-        Row {
-            HoldButton(
-                "B", InputMask.JOY_B, held, paused, onInputChanged, onDown = onControlDown,
-                unpressedBackground = Color(theme.buttonB.background),
-                unpressedLabel = Color(theme.buttonB.label),
-                pressedBackground = pressed,
-            )
-            Spacer(Modifier.width(12.dp))
-            HoldButton(
-                "A", InputMask.JOY_A, held, paused, onInputChanged, onDown = onControlDown,
-                unpressedBackground = Color(theme.buttonA.background),
-                unpressedLabel = Color(theme.buttonA.label),
-                pressedBackground = pressed,
-            )
-        }
-    }
-    // Start/Select as small pills, side by side, centred,
-    // overlaid at the bottom centre of the player area.
-    MovableControl(
-        position = layout.startSelect,
-        editing = editingLayout,
-        testTag = "controls-startselect",
-        onMove = { onMove(ControlGroup.START_SELECT, it) },
-        onMoveEnd = onMoveEnd,
-        modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 16.dp),
-    ) {
-        Row {
-            HoldButton(
-                "Start", InputMask.JOY_START, held, paused, onInputChanged, pill = true,
-                unpressedBackground = Color(theme.startSelect.background),
-                unpressedLabel = Color(theme.startSelect.label),
-                pressedBackground = pressed,
-            )
-            Spacer(Modifier.width(12.dp))
-            HoldButton(
-                "Select", InputMask.JOY_SELECT, held, paused, onInputChanged, pill = true,
-                unpressedBackground = Color(theme.startSelect.background),
-                unpressedLabel = Color(theme.startSelect.label),
-                pressedBackground = pressed,
-            )
-        }
+        ControlId.A -> HoldButton(
+            "A", InputMask.JOY_A, held, paused, onInputChanged, onDown = onControlDown,
+            sizeDp = spec.sizeDp.dp,
+            unpressedBackground = Color(theme.buttonA.background),
+            unpressedLabel = Color(theme.buttonA.label),
+            pressedBackground = pressed,
+        )
+        ControlId.B -> HoldButton(
+            "B", InputMask.JOY_B, held, paused, onInputChanged, onDown = onControlDown,
+            sizeDp = spec.sizeDp.dp,
+            unpressedBackground = Color(theme.buttonB.background),
+            unpressedLabel = Color(theme.buttonB.label),
+            pressedBackground = pressed,
+        )
+        ControlId.L -> HoldButton(
+            "L", InputMask.JOY_L, held, paused, onInputChanged, shoulder = true,
+            sizeDp = spec.sizeDp.dp,
+            unpressedBackground = Color(theme.shoulder.background),
+            unpressedLabel = Color(theme.shoulder.label),
+            pressedBackground = pressed,
+        )
+        ControlId.R -> HoldButton(
+            "R", InputMask.JOY_R, held, paused, onInputChanged, shoulder = true,
+            sizeDp = spec.sizeDp.dp,
+            unpressedBackground = Color(theme.shoulder.background),
+            unpressedLabel = Color(theme.shoulder.label),
+            pressedBackground = pressed,
+        )
+        ControlId.START -> HoldButton(
+            "Start", InputMask.JOY_START, held, paused, onInputChanged, pill = true,
+            sizeDp = spec.sizeDp.dp,
+            unpressedBackground = Color(theme.startSelect.background),
+            unpressedLabel = Color(theme.startSelect.label),
+            pressedBackground = pressed,
+        )
+        ControlId.SELECT -> HoldButton(
+            "Select", InputMask.JOY_SELECT, held, paused, onInputChanged, pill = true,
+            sizeDp = spec.sizeDp.dp,
+            unpressedBackground = Color(theme.startSelect.background),
+            unpressedLabel = Color(theme.startSelect.label),
+            pressedBackground = pressed,
+        )
     }
 }
