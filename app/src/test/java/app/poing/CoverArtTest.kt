@@ -82,4 +82,32 @@ class CoverArtTest {
         assertEquals(0, calls)
         assertFalse(art.hasCover(game()))
     }
+
+    @Test
+    fun fetchMissingCoversCapsAPassAtTwelve() {
+        var calls = 0
+        val fetcher = CoverArtFetcher { calls++; "fresh".toByteArray() }
+        val art = CoverArtStore(temp.root, fetcher)
+        val games = (0 until 15).map { i -> game().copy(id = "game$i", title = "GAME $i") }
+        // The first pass lands twelve and stops; the second lands
+        // the remaining three; the third finds nothing to do.
+        assertTrue(fetchMissingCovers(art, games, networkAvailable = true))
+        assertEquals(12, calls)
+        assertTrue(fetchMissingCovers(art, games, networkAvailable = true))
+        assertEquals(15, calls)
+        assertFalse(fetchMissingCovers(art, games, networkAvailable = true))
+        assertEquals(15, calls)
+    }
+
+    @Test
+    fun decodeIntoCacheIgnoresAnUndecodableCover() {
+        val art = CoverArtStore(temp.root)
+        art.coverFile(game()).writeBytes("not an image".toByteArray())
+        art.decodeIntoCache(game())
+        assertTrue(art.coverBitmaps.isEmpty())
+        // A second attempt is a no-op (the failure is memoized),
+        // not a second decode — and nothing bogus was cached.
+        art.decodeIntoCache(game())
+        assertTrue(art.coverBitmaps.isEmpty())
+    }
 }

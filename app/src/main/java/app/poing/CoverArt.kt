@@ -1,10 +1,15 @@
 package app.poing
 
 import android.content.Context
+import android.graphics.Bitmap
 import android.net.ConnectivityManager
 import android.net.Network
 import android.net.NetworkCapabilities
 import android.net.NetworkRequest
+import android.os.Handler
+import android.os.Looper
+import androidx.compose.runtime.mutableStateMapOf
+import androidx.compose.runtime.snapshots.SnapshotStateMap
 import java.io.File
 
 /**
@@ -49,11 +54,31 @@ class LibretroThumbnailsFetcher(
     private val root: File,
     private val httpGet: (String, Int) -> ByteArray? = ::defaultHttpGet,
 ) : CoverArtFetcher {
+    // The parsed index, cached in memory for the fetcher's
+    // lifetime — loadIndex used to re-read art-index-<system>.txt
+    // and re-run normalizeIndex for every game, every pass (and
+    // re-download the 7.2 MB GBA tree when the file was absent).
+    // One library visit, one parse per system. Failures are not
+    // cached, so a transient failure retries on the next pass.
+    private val indexCache = mutableMapOf<GameSystem, List<Thumbnails.IndexedArt>>()
+    // Games whose titles match nothing in the index. The match is
+    // deterministic for a fixed index, so a miss is memoized for
+    // the fetcher's lifetime — the fetcher is remembered in
+    // LibraryScreen, so a fresh library visit starts clean.
+    // Download failures are NOT memoized: a transient failure
+    // may succeed on the next pass.
+    private val noMatchIds = mutableSetOf<String>()
+
     override fun fetch(game: LibraryGame): ByteArray? {
+        if (game.id in noMatchIds) return null
         return try {
             val index = loadIndex(game.system) ?: return null
             val stem = game.sourceName.substringBeforeLast('.', game.sourceName)
-            val fileName = Thumbnails.resolveArtFile(stem, game.title, index) ?: return null
+            val fileName = Thumbnails.resolveArtFile(stem, game.title, index)
+            if (fileName == null) {
+                noMatchIds += game.id
+                return null
+            }
             httpGet(Thumbnails.artUrl(game.system, fileName), MAX_ART_BYTES)
         } catch (_: Exception) {
             null
@@ -62,6 +87,13 @@ class LibretroThumbnailsFetcher(
 
     /** The cached index for the system, or fetch it once and cache it. Null on any failure. */
     fun loadIndex(system: GameSystem): List<Thumbnails.IndexedArt>? {
+        indexCache[system]?.let { return it }
+        val loaded = loadIndexUncached(system) ?: return null
+        indexCache[system] = loaded
+        return loaded
+    }
+
+    private fun loadIndexUncached(system: GameSystem): List<Thumbnails.IndexedArt>? {
         val file = indexFile(system)
         if (file.isFile) {
             try {
@@ -133,18 +165,54 @@ class CoverArtStore(
     private val root: File,
     private val fetcher: CoverArtFetcher = NoOpCoverArtFetcher,
 ) {
-    fun coversDir(): File = File(root, "covers").apply { mkdirs() }
+    // Resolved once — coversDir() used to mkdirs() on every call,
+    // including from tile composition.
+    private val coversDirFile: File by lazy { File(root, "covers").apply { mkdirs() } }
+
+    /**
+     * Decoded covers, keyed by game id. The tiles read this state
+     * map, so a landed cover redraws only its own row — the old
+     * tiles decoded in composition and keyed on a global version,
+     * so one landed cover recomposed every row. Populated by the
+     * library's IO fetch effect (see LibraryScreen), never from
+     * composition.
+     */
+    val coverBitmaps: SnapshotStateMap<String, Bitmap> = mutableStateMapOf()
+
+    // Decode failures are memoized for the store's lifetime, so a
+    // corrupt file is not re-decoded on every fetch pass. A newly
+    // fetched cover clears the entry (see coverOrFetch).
+    private val decodeFailedIds = mutableSetOf<String>()
+
+    fun coversDir(): File = coversDirFile
     fun coverFile(game: LibraryGame): File = File(coversDir(), "${game.id}.png")
     fun hasCover(game: LibraryGame): Boolean = coverFile(game).exists()
+
+    /**
+     * Decode the game's cover file into the state map. Call from
+     * IO — never from composition. No-op when there is no file,
+     * when it is already decoded, or when a past decode failed.
+     */
+    fun decodeIntoCache(game: LibraryGame) {
+        if (coverBitmaps.containsKey(game.id) || game.id in decodeFailedIds) return
+        val file = coverFile(game)
+        if (!file.exists()) return
+        val bitmap = decodeCoverFile(file)
+        if (bitmap != null) coverBitmaps[game.id] = bitmap else decodeFailedIds += game.id
+    }
 
     /** Cached cover, or a fetch cached for next time (when the network gate allows it). Null means: show the placeholder. */
     fun coverOrFetch(game: LibraryGame, networkAvailable: Boolean): File? {
         val file = coverFile(game)
-        if (file.exists()) return file
+        if (file.exists()) {
+            decodeFailedIds -= game.id
+            return file
+        }
         if (!networkAvailable) return null
         val bytes = fetcher.fetch(game) ?: return null
         return try {
             file.writeBytes(bytes)
+            decodeFailedIds -= game.id
             file
         } catch (_: Exception) {
             null
@@ -175,60 +243,100 @@ fun isCoverArtNetworkAvailable(context: Context, allowMobileData: Boolean): Bool
 /**
  * Fetches covers for the games that lack one. Returns true when at
  * least one cover landed on disk (the caller bumps its covers
- * version so the tiles recompose with the new art). Pure apart
- * from the store and fetcher it is given, so it is unit-testable
- * with a fake fetcher.
+ * version so the effect runs another pass — see LibraryScreen).
+ * Pure apart from the store and fetcher it is given, so it is
+ * unit-testable with a fake fetcher.
+ *
+ * A pass fetches at most [maxNew] new covers: a library with
+ * twenty missing covers does not block one giant pass — the
+ * effect re-runs until a pass lands nothing.
  */
 fun fetchMissingCovers(
     art: CoverArtStore,
     games: List<LibraryGame>,
     networkAvailable: Boolean,
+    maxNew: Int = MAX_COVERS_PER_PASS,
 ): Boolean {
     var landed = false
+    var landedCount = 0
     for (game in games) {
+        if (landedCount >= maxNew) break
         if (!art.hasCover(game) && art.coverOrFetch(game, networkAvailable) != null) {
             landed = true
+            landedCount++
         }
     }
     return landed
 }
 
+/** A pass fetches at most this many new covers (see [fetchMissingCovers]). */
+const val MAX_COVERS_PER_PASS: Int = 12
+
 /**
- * Calls [onChanged] whenever connectivity changes — a network
- * becomes available or is lost, or its capabilities change. The
- * library uses it to re-trigger the cover-art fetch when Wi-Fi
- * appears while the library is open (2026-11-14: the old fetch
- * ran once, keyed on the game list, so switching to Wi-Fi while
- * the library was open never retried it — the first run on mobile
- * data fetched nothing, with no retry). Start/stop are the
- * caller's lifecycle (a DisposableEffect); stop tolerates an
+ * Calls [onChanged] when the cover-art gate opens — the network
+ * goes from unusable to usable for cover fetches. Three fixes
+ * over the old watcher, which fired on every network event:
+ * (1) debounce — a burst of onAvailable/onLost/onCapabilitiesChanged
+ * within [DEBOUNCE_MS] collapses to one gate check, so one network
+ * flap does not re-run the whole fetch pass several times;
+ * (2) gate transition — only closed→open fires, not every
+ * capability change (a metered→unmetered flap with the gate still
+ * closed is not a retry); (3) the request asks only for networks
+ * with internet capability. It deliberately does NOT filter to
+ * Wi-Fi: the mobile-data setting lets the gate open on cellular
+ * too, and a Wi-Fi-only request would never fire for that user.
+ * Start/stop are the caller's lifecycle (a DisposableEffect);
+ * stop cancels a pending debounced check and tolerates an
  * already-unregistered callback.
  */
 class ConnectivityWatcher(
     context: Context,
+    private val gateOpen: () -> Boolean,
     private val onChanged: () -> Unit,
 ) {
     private val manager =
         context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
+    private val mainHandler = Handler(Looper.getMainLooper())
+    private var lastGateOpen = false
+    private val check = Runnable {
+        val open = runCatching { gateOpen() }.getOrDefault(false)
+        if (open && !lastGateOpen) onChanged()
+        lastGateOpen = open
+    }
     private val callback = object : ConnectivityManager.NetworkCallback() {
         override fun onAvailable(network: Network) {
-            onChanged()
+            scheduleCheck()
         }
 
         override fun onLost(network: Network) {
-            onChanged()
+            scheduleCheck()
         }
 
         override fun onCapabilitiesChanged(network: Network, caps: NetworkCapabilities) {
-            onChanged()
+            scheduleCheck()
         }
     }
 
+    private fun scheduleCheck() {
+        mainHandler.removeCallbacks(check)
+        mainHandler.postDelayed(check, DEBOUNCE_MS)
+    }
+
     fun start() {
-        manager?.registerNetworkCallback(NetworkRequest.Builder().build(), callback)
+        lastGateOpen = runCatching { gateOpen() }.getOrDefault(false)
+        val request = NetworkRequest.Builder()
+            .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+            .build()
+        manager?.registerNetworkCallback(request, callback)
     }
 
     fun stop() {
+        mainHandler.removeCallbacks(check)
         manager?.let { runCatching { it.unregisterNetworkCallback(callback) } }
+    }
+
+    companion object {
+        /** Network events within one burst collapse to one gate check. */
+        const val DEBOUNCE_MS: Long = 3_000L
     }
 }

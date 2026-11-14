@@ -15,9 +15,19 @@ import java.util.Properties
 class PlaytimeStore(private val root: File) {
     private val file: File get() = File(root, "playtime.properties")
 
-    fun get(base: String): Long {
+    fun get(base: String): Long = all()[base] ?: 0L
+
+    /**
+     * All totals in one read — the library reads this once per
+     * refresh into state, instead of parsing the whole file per
+     * row per composition (the old rows called get() during
+     * composition).
+     */
+    fun all(): Map<String, Long> {
         val props = readAll()
-        return props.getProperty(base)?.toLongOrNull()?.takeIf { it >= 0 } ?: 0L
+        return props.stringPropertyNames().mapNotNull { key ->
+            props.getProperty(key)?.toLongOrNull()?.takeIf { it >= 0 }?.let { key to it }
+        }.toMap()
     }
 
     /** Add [seconds] to a game's total (ignored when <= 0). */

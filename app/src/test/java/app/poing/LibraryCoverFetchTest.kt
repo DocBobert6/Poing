@@ -4,12 +4,14 @@ import android.content.Context
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import android.net.NetworkInfo
+import android.os.Looper
 import android.util.Base64
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.test.core.app.ApplicationProvider
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -102,6 +104,10 @@ class LibraryCoverFetchTest {
         shadowCaps.addCapability(NetworkCapabilities.NET_CAPABILITY_NOT_METERED)
         shadow.setNetworkCapabilities(network, caps)
         shadow.networkCallbacks.single().onAvailable(network)
+        // The watcher debounces network events (3s) — advance
+        // the main looper past the debounce so the gate check runs.
+        Shadows.shadowOf(Looper.getMainLooper())
+            .idle(ConnectivityWatcher.DEBOUNCE_MS, TimeUnit.MILLISECONDS)
         // The fetch runs and the tile shows the cover — with no
         // scroll, tap or other interaction in between.
         composeRule.waitUntil(timeoutMillis = 10_000) {

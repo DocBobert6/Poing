@@ -51,7 +51,44 @@ class LibretroThumbnailsFetcherTest {
         assertTrue(temp.root.resolve("art-index-gb.txt").isFile)
         val second = fetcher.fetch(game("TETRIS", "tetris.gb", GameSystem.GB))
         assertEquals("art-bytes", second?.decodeToString())
-        assertEquals(3, calls) // index served from the cache file
+        assertEquals(2, calls) // the index came from the in-memory cache, not disk or network
+    }
+
+    @Test
+    fun indexIsCachedInMemory() {
+        var treeCalls = 0
+        val httpGet: (String, Int) -> ByteArray? = { url, _ ->
+            if (url.contains("git/trees")) {
+                treeCalls++
+                treeJson.toByteArray()
+            } else {
+                "art-bytes".toByteArray()
+            }
+        }
+        val fetcher = LibretroThumbnailsFetcher(temp.root, httpGet)
+        assertEquals(2, fetcher.loadIndex(GameSystem.GB)?.size)
+        assertEquals(2, fetcher.loadIndex(GameSystem.GB)?.size)
+        assertEquals(1, treeCalls) // the second load came from memory
+        fetcher.fetch(game("TETRIS", "tetris.gb", GameSystem.GB))
+        assertEquals(1, treeCalls) // the fetch reused the memory cache too
+    }
+
+    @Test
+    fun noMatchIsMemoizedForTheSession() {
+        var calls = 0
+        val httpGet: (String, Int) -> ByteArray? = { url, _ ->
+            calls++
+            if (url.contains("git/trees")) treeJson.toByteArray() else null
+        }
+        val fetcher = LibretroThumbnailsFetcher(temp.root, httpGet)
+        val unknown = game("ZZZ UNKNOWN", "zzz.gb", GameSystem.GB)
+        assertNull(fetcher.fetch(unknown))
+        val afterFirst = calls
+        assertNull(fetcher.fetch(unknown))
+        // The second fetch never reached the index or the network:
+        // the miss was memoized. (A download failure would NOT be
+        // memoized — only a no-match is deterministic.)
+        assertEquals(afterFirst, calls)
     }
 
     @Test

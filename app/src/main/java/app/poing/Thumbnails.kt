@@ -170,11 +170,18 @@ object Thumbnails {
      * title), lower-cased on words, leading "the" dropped, trailing
      * region/language/edition tags stripped.
      */
+    // The three patterns normalizeTitle used to build fresh on
+    // every call — one Regex construction per title, per index
+    // load, per game, per pass. Hoisted: compiled once.
+    private val COMMA_THE = Regex(",\\s*the\\b", RegexOption.IGNORE_CASE)
+    private val PARENS = Regex("\\([^)]*\\)")
+    private val BRACKETS = Regex("\\[[^\\]]*\\]")
+
     fun normalizeTitle(title: String): String {
         var s = title.replace('$', 's')
-        s = s.replace(Regex(",\\s*the\\b", RegexOption.IGNORE_CASE), "")
-        s = s.replace(Regex("\\([^)]*\\)"), " ")
-        s = s.replace(Regex("\\[[^\\]]*\\]"), " ")
+        s = s.replace(COMMA_THE, "")
+        s = s.replace(PARENS, " ")
+        s = s.replace(BRACKETS, " ")
         val words = s.lowercase()
             .map { c -> if (c.isLetterOrDigit()) c else ' ' }
             .joinToString("")

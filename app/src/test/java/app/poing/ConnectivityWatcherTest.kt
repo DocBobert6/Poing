@@ -2,7 +2,7 @@ package app.poing
 
 import android.content.Context
 import android.net.ConnectivityManager
-import android.net.NetworkCapabilities
+import android.os.Looper
 import androidx.test.core.app.ApplicationProvider
 import org.junit.Assert.assertEquals
 import org.junit.Test
@@ -10,15 +10,22 @@ import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.Shadows
 import org.robolectric.annotation.Config
-import org.robolectric.shadows.ShadowNetworkCapabilities
+import java.util.concurrent.TimeUnit
 
 /**
  * Cover-art fix, commit A (2026-11-14): the library re-triggers
  * the cover fetch when connectivity changes, via a
- * NetworkCallback. The watcher is the trigger mechanism — the
- * composable wires it to the fetch effect — so it is tested on
- * its own: start registers one callback, a network event fires
- * the handler, stop unregisters it.
+ * NetworkCallback. Performance fix 3 (2026-11-14): the watcher
+ * debounces bursts and fires only when the cover-art gate
+ * transitions closed→open, so one network flap does not re-run
+ * the whole fetch pass several times. It is tested on its own:
+ * start registers one callback, a gate-opening event fires the
+ * handler once after the debounce, stop unregisters it and
+ * cancels a pending check.
+ *
+ * The debounce runs on the main looper, so the test advances it
+ * past DEBOUNCE_MS explicitly — Robolectric's looper is paused,
+ * and idling it without a duration would not run a delayed task.
  */
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [35])
@@ -29,31 +36,62 @@ class ConnectivityWatcherTest {
         return context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
     }
 
-    @Test
-    fun firesOnNetworkEventsAndUnregistersOnStop() {
-        val context = ApplicationProvider.getApplicationContext<Context>()
-        var changes = 0
-        val watcher = ConnectivityWatcher(context) { changes++ }
-        watcher.start()
+    private fun fireOnAvailable() {
         val manager = manager()
-        val shadow = Shadows.shadowOf(manager)
-        assertEquals(1, shadow.networkCallbacks.size)
         val network = manager.activeNetwork ?: error("no active network under Robolectric")
-        shadow.networkCallbacks.single().onAvailable(network)
+        Shadows.shadowOf(manager).networkCallbacks.single().onAvailable(network)
+    }
+
+    private fun advancePastDebounce() {
+        Shadows.shadowOf(Looper.getMainLooper())
+            .idle(ConnectivityWatcher.DEBOUNCE_MS, TimeUnit.MILLISECONDS)
+    }
+
+    @Test
+    fun firesOnceWhenTheGateOpensAndUnregistersOnStop() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        var gateOpen = false
+        var changes = 0
+        val watcher = ConnectivityWatcher(context, gateOpen = { gateOpen }) { changes++ }
+        watcher.start()
+        val shadow = Shadows.shadowOf(manager())
+        assertEquals(1, shadow.networkCallbacks.size)
+        // The gate is closed: a network event is not a retry.
+        fireOnAvailable()
+        advancePastDebounce()
+        assertEquals(0, changes)
+        // The gate opens: one debounced check fires once, even
+        // though two events arrived in the burst.
+        gateOpen = true
+        fireOnAvailable()
+        fireOnAvailable()
+        advancePastDebounce()
         assertEquals(1, changes)
-        shadow.networkCallbacks.single().onLost(network)
-        assertEquals(2, changes)
-        // The watcher ignores the capabilities argument; the
-        // shadow builds the instance (NetworkCapabilities'
-        // Builder and mutators are @hide — not in the SDK
-        // stub — so tests build capabilities through the
-        // shadow, which is exactly what it is for).
-        val caps = ShadowNetworkCapabilities.newInstance()
-        val shadowCaps: ShadowNetworkCapabilities = Shadows.shadowOf(caps)
-        shadowCaps.addTransportType(NetworkCapabilities.TRANSPORT_WIFI)
-        shadow.networkCallbacks.single().onCapabilitiesChanged(network, caps)
-        assertEquals(3, changes)
+        // Still open: further events are not transitions.
+        fireOnAvailable()
+        advancePastDebounce()
+        assertEquals(1, changes)
+        // The gate closes again: no fire (open→closed is not a retry).
+        gateOpen = false
+        fireOnAvailable()
+        advancePastDebounce()
+        assertEquals(1, changes)
         watcher.stop()
         assertEquals(0, shadow.networkCallbacks.size)
+    }
+
+    @Test
+    fun stopCancelsAPendingDebouncedCheck() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        var gateOpen = false
+        var changes = 0
+        val watcher = ConnectivityWatcher(context, gateOpen = { gateOpen }) { changes++ }
+        watcher.start()
+        gateOpen = true
+        fireOnAvailable()
+        watcher.stop()
+        advancePastDebounce()
+        assertEquals(0, changes)
+        assertEquals(0, Shadows.shadowOf(manager()).networkCallbacks.size)
     }
 }

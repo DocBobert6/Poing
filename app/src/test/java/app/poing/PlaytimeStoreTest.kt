@@ -72,6 +72,13 @@ class PlaytimeStoreTest {
     }
 
     @Test
+    fun `all reads every total in one call`() {
+        store.add("abc123", 60)
+        store.add("def456", 90)
+        assertEquals(mapOf("abc123" to 60L, "def456" to 90L), store.all())
+    }
+
+    @Test
     fun `formatPlaytime cases`() {
         assertEquals("0s", formatPlaytime(0))
         assertEquals("45s", formatPlaytime(45))

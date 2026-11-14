@@ -43,7 +43,7 @@ class GameRowTest {
             PoingTheme {
                 GameRow(
                     game = game(),
-                    coverFile = null,
+                    coverBitmap = null,
                     onPlay = {},
                     onRemove = {},
                     playtimeSeconds = 7500,
@@ -60,7 +60,7 @@ class GameRowTest {
             PoingTheme {
                 GameRow(
                     game = game(),
-                    coverFile = null,
+                    coverBitmap = null,
                     onPlay = {},
                     onRemove = {},
                     playtimeSeconds = 0,
@@ -92,7 +92,7 @@ class GameRowTest {
             PoingTheme {
                 GameGridCell(
                     game = game(),
-                    coverFile = null,
+                    coverBitmap = null,
                     onPlay = {},
                     onRemove = {},
                     playtimeSeconds = 7500,
@@ -112,7 +112,7 @@ class GameRowTest {
             PoingTheme {
                 GameGridCell(
                     game = game(),
-                    coverFile = null,
+                    coverBitmap = null,
                     onPlay = {},
                     onRemove = {},
                     playtimeSeconds = 0,
@@ -130,7 +130,7 @@ class GameRowTest {
             PoingTheme {
                 GameGridCell(
                     game = game(),
-                    coverFile = null,
+                    coverBitmap = null,
                     onPlay = { played = true },
                     onRemove = {},
                 )

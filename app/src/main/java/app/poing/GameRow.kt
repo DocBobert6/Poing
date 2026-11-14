@@ -61,12 +61,12 @@ fun decodeCoverFile(file: File, maxDim: Int = 512): Bitmap? {
     }
 }
 
-/** One cover tile: the art when there is any, else the system badge on a dark tile. Shared by the row and the grid cell. */
+/** One cover tile: the art when there is any, else the system badge on a dark tile. Shared by the row and the grid cell. The bitmap comes decoded from the store's state map — the tile never decodes in composition. */
 @Composable
-private fun CoverTile(game: LibraryGame, coverFile: File?, size: Dp) {
-    val bitmap = remember(coverFile) {
-        coverFile?.takeIf { it.exists() }?.let { decodeCoverFile(it) }
-    }
+private fun CoverTile(game: LibraryGame, bitmap: Bitmap?, size: Dp) {
+    // The asImageBitmap wrap is remembered so a recomposition
+    // does not re-wrap the same bitmap.
+    val image = remember(bitmap) { bitmap?.asImageBitmap() }
     Box(
         modifier = Modifier
             .size(size)
@@ -74,9 +74,9 @@ private fun CoverTile(game: LibraryGame, coverFile: File?, size: Dp) {
             .background(Color(0xFF2A2A2A)),
         contentAlignment = Alignment.Center,
     ) {
-        if (bitmap != null) {
+        if (image != null) {
             Image(
-                bitmap = bitmap.asImageBitmap(),
+                bitmap = image,
                 contentDescription = "Cover art for ${game.title}",
                 modifier = Modifier.fillMaxSize(),
                 contentScale = ContentScale.Crop,
@@ -100,7 +100,7 @@ private fun CoverTile(game: LibraryGame, coverFile: File?, size: Dp) {
 @Composable
 fun GameRow(
     game: LibraryGame,
-    coverFile: File?,
+    coverBitmap: Bitmap?,
     onPlay: () -> Unit,
     onRemove: () -> Unit,
     // Phase 6 (item 5) — seconds played, shown as "Played 2h 5m"
@@ -117,7 +117,7 @@ fun GameRow(
             .padding(horizontal = 16.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        CoverTile(game, coverFile, 56.dp)
+        CoverTile(game, coverBitmap, 56.dp)
         Spacer(Modifier.width(12.dp))
         Column(modifier = Modifier.weight(1f)) {
             Text(game.title, style = MaterialTheme.typography.titleMedium)
@@ -154,7 +154,7 @@ fun GameRow(
 @Composable
 fun GameGridCell(
     game: LibraryGame,
-    coverFile: File?,
+    coverBitmap: Bitmap?,
     onPlay: () -> Unit,
     onRemove: () -> Unit,
     playtimeSeconds: Long = 0,
@@ -168,7 +168,7 @@ fun GameGridCell(
             .padding(8.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        CoverTile(game, coverFile, 120.dp)
+        CoverTile(game, coverBitmap, 120.dp)
         Spacer(Modifier.size(8.dp))
         Text(
             game.title,

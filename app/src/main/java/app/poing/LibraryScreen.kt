@@ -29,7 +29,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -44,6 +43,7 @@ import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * Phase 3 home screen: the library IS the home screen. Games are
@@ -104,8 +104,14 @@ fun LibraryScreen(
     var pendingBiosImport by remember { mutableStateOf<BiosKind?>(null) }
     val scope = rememberCoroutineScope()
 
+    // Playtimes, read once per refresh into state — the old rows
+    // called playtime.get() during composition, which parsed the
+    // whole playtime.properties per row.
+    var playtimes by remember { mutableStateOf(playtime.all()) }
+
     fun refresh() {
         games = store.list()
+        playtimes = playtime.all()
         biosInstalled = BiosKind.entries.associateWith { bios.isInstalled(it) }
     }
 
@@ -121,38 +127,77 @@ fun LibraryScreen(
     // libretro-thumbnails collection (see CoverArt.kt): one
     // file per game, cached on the device, so covers appear
     // as their tiles are shown.
+    //
     // Two states, one for each half of the 2026-11-14 fix:
-    // connectivityVersion bumps when connectivity changes (the
-    // watcher below), so the fetch re-runs when Wi-Fi appears
-    // while the library is open — the old effect keyed only on
-    // `games`, so the first run on mobile data fetched nothing
-    // and there was never a retry. coversVersion bumps when a
-    // fetch pass lands a cover, so the tiles recompose with the
-    // new art — the fetch writes files to disk but updates no
-    // state of its own, and the old tiles read coverFile.exists()
-    // during composition and never re-read it.
+    // connectivityVersion bumps when the gate opens (the watcher
+    // below), so the fetch re-runs when Wi-Fi appears while the
+    // library is open — the old effect keyed only on `games`, so
+    // the first run on mobile data fetched nothing and there was
+    // never a retry. coversVersion bumps when a fetch pass lands
+    // a cover, so the effect runs another pass — a pass fetches
+    // at most MAX_COVERS_PER_PASS new covers (see CoverArt.kt),
+    // and the loop continues until a pass lands nothing.
+    //
+    // The tiles themselves no longer key on coversVersion: each
+    // reads its decoded bitmap from the store's state map, so a
+    // landed cover redraws only its own row. The fetch effect
+    // decodes on IO (existing covers + newly landed ones), so no
+    // tile ever decodes on the main thread.
+    //
+    // The in-flight guard: the effect restarts when its keys
+    // change, but the old pass keeps running its blocking fetch
+    // loop (cancellation does not interrupt it), so two passes
+    // can overlap. The guard lets one run; a trigger that arrives
+    // while one is running sets fetchPending, and the finishing
+    // pass bumps connectivityVersion so the pending trigger is
+    // not lost.
     var coversVersion by remember { mutableStateOf(0) }
     var connectivityVersion by remember { mutableStateOf(0) }
+    val fetchGuard = remember { AtomicBoolean(false) }
+    val fetchPending = remember { AtomicBoolean(false) }
     DisposableEffect(Unit) {
-        val watcher = ConnectivityWatcher(context) { connectivityVersion++ }
+        val watcher = ConnectivityWatcher(
+            context,
+            gateOpen = {
+                isCoverArtNetworkAvailable(
+                    context,
+                    AppSettingsStore(context.filesDir).coverArtMobileDataAllowed(),
+                )
+            },
+        ) { connectivityVersion++ }
         watcher.start()
         onDispose { watcher.stop() }
     }
-    LaunchedEffect(games, connectivityVersion) {
-        val landed = withContext(Dispatchers.IO) {
-            // The setting is read fresh on every run, and the
-            // effect runs again when the library is re-entered
-            // (returning from Settings re-composes it), so a
-            // toggle change takes effect on the next entry.
-            val allowMobileData =
-                AppSettingsStore(context.filesDir).coverArtMobileDataAllowed()
-            fetchMissingCovers(
-                art,
-                games,
-                isCoverArtNetworkAvailable(context, allowMobileData),
-            )
+    LaunchedEffect(games, connectivityVersion, coversVersion) {
+        if (!fetchGuard.compareAndSet(false, true)) {
+            fetchPending.set(true)
+            return@LaunchedEffect
         }
-        if (landed) coversVersion++
+        try {
+            val landed = withContext(Dispatchers.IO) {
+                // The setting is read fresh on every run, and the
+                // effect runs again when the library is re-entered
+                // (returning from Settings re-composes it), so a
+                // toggle change takes effect on the next entry.
+                val allowMobileData =
+                    AppSettingsStore(context.filesDir).coverArtMobileDataAllowed()
+                val didLand = fetchMissingCovers(
+                    art,
+                    games,
+                    isCoverArtNetworkAvailable(context, allowMobileData),
+                )
+                // Decode on IO: existing covers + newly landed
+                // ones. Already-decoded and failed decodes are
+                // no-ops in the store, so a later pass costs
+                // nothing for the covers it already holds.
+                for (game in games) art.decodeIntoCache(game)
+                didLand
+            }
+            if (landed) coversVersion++
+        } finally {
+            fetchGuard.set(false)
+            if (fetchPending.compareAndSet(true, false)) connectivityVersion++
+        }
     }
 
     val pickGame = rememberLauncherForActivityResult(
@@ -380,35 +425,28 @@ fun LibraryScreen(
             // same in both views.
             if (libraryView == LibraryView.LIST) {
                 items(shown, key = { it.id }, span = { GridItemSpan(maxLineSpan) }) { game ->
-                    // key(coversVersion): the row re-reads
-                    // coverFile when a fetch lands a cover —
-                    // without this the row keeps the placeholder
-                    // it composed with, because the fetch writes
-                    // files to disk but updates no state of its
-                    // own (2026-11-14).
-                    key(coversVersion) {
-                        GameRow(
-                            game = game,
-                            coverFile = art.coverFile(game).takeIf { it.exists() },
-                            onPlay = { onPlay(game) },
-                            onRemove = { pendingRemove = game },
-                            playtimeSeconds = playtime.get(game.id),
-                            onSaveManager = { onSaveManager(game) },
-                        )
-                    }
+                    // The tile reads its decoded bitmap from the
+                    // store's state map, so a landed cover
+                    // redraws only this row — no global key.
+                    GameRow(
+                        game = game,
+                        coverBitmap = art.coverBitmaps[game.id],
+                        onPlay = { onPlay(game) },
+                        onRemove = { pendingRemove = game },
+                        playtimeSeconds = playtimes[game.id] ?: 0L,
+                        onSaveManager = { onSaveManager(game) },
+                    )
                 }
             } else {
                 items(shown, key = { it.id }) { game ->
-                    key(coversVersion) {
-                        GameGridCell(
-                            game = game,
-                            coverFile = art.coverFile(game).takeIf { it.exists() },
-                            onPlay = { onPlay(game) },
-                            onRemove = { pendingRemove = game },
-                            playtimeSeconds = playtime.get(game.id),
-                            onSaveManager = { onSaveManager(game) },
-                        )
-                    }
+                    GameGridCell(
+                        game = game,
+                        coverBitmap = art.coverBitmaps[game.id],
+                        onPlay = { onPlay(game) },
+                        onRemove = { pendingRemove = game },
+                        playtimeSeconds = playtimes[game.id] ?: 0L,
+                        onSaveManager = { onSaveManager(game) },
+                    )
                 }
             }
         }
