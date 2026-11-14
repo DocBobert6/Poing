@@ -187,11 +187,6 @@ fun LibraryScreen(
                 .testTag("library-grid"),
         ) {
         item(span = { GridItemSpan(maxLineSpan) }) {
-            // Two children in one lazy item do not stack on their
-            // own — the later one covers the earlier one (the
-            // filter tabs went dead this way, 2026-11-14). The
-            // Column makes the vertical stacking explicit.
-            Column(Modifier.fillMaxWidth()) {
             // Top bar: the power light. No game is loaded on the
             // library, so the light is off — it turns green in the
             // player and amber while paused (see GameScreen).
@@ -220,12 +215,8 @@ fun LibraryScreen(
                 Spacer(Modifier.height(8.dp))
                 Text("Game Boy · Game Boy Color · Game Boy Advance")
             }
-            }
         }
         item(span = { GridItemSpan(maxLineSpan) }) {
-            // See the top-bar item: the Column makes the two rows
-            // stack instead of the later one covering the earlier.
-            Column(Modifier.fillMaxWidth()) {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -250,15 +241,15 @@ fun LibraryScreen(
                     Text("Settings")
                 }
             }
-            }
         }
         item(span = { GridItemSpan(maxLineSpan) }) {
-            // See the top-bar item: the Column makes the two rows
-            // stack instead of the later one covering the earlier.
-            Column(Modifier.fillMaxWidth()) {
             // The L/R shoulders as the system filter (idea 5):
             // silver shoulder tabs at the top of the library. ALL
             // shows every system; a system tab shows only its games.
+            // This row is its own item: sharing one item with the
+            // view row below left the shoulder tabs unclickable
+            // (2026-11-14 — the later child covered the earlier
+            // one, and the filter state never changed).
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -271,6 +262,8 @@ fun LibraryScreen(
                     ShoulderTab(system.label, filter == system) { filter = system }
                 }
             }
+        }
+        item(span = { GridItemSpan(maxLineSpan) }) {
             // The view switch (Robert, 2026-11-14): list rows or a
             // grid of cover tiles. It sits directly under the
             // filter shoulders as its own small row: the top bar
@@ -290,7 +283,6 @@ fun LibraryScreen(
                     libraryView = LibraryView.GRID
                     AppSettingsStore(context.filesDir).setLibraryView(LibraryView.GRID)
                 }
-            }
             }
         }
         message?.let {

@@ -91,10 +91,11 @@ class LibraryScreenTest {
         // The second row sits below the fold in the narrow
         // Robolectric window now that the view switch adds a row
         // to the header: scroll it into view first. Grid items
-        // are 0 top bar, 1 buttons, 2 shoulders, 3 TETRIS,
-        // 4 POKEMON, 5 BIOS card. TETRIS is asserted before the
-        // scroll, since scrolling POKEMON in can push it out.
-        composeRule.onNodeWithTag("library-grid").performScrollToIndex(4)
+        // are 0 top bar, 1 buttons, 2 shoulders, 3 view,
+        // 4 TETRIS, 5 POKEMON, 6 BIOS card. TETRIS is asserted
+        // before the scroll, since scrolling POKEMON in can push
+        // it out.
+        composeRule.onNodeWithTag("library-grid").performScrollToIndex(5)
         composeRule.onNodeWithText("POKEMON").assertIsDisplayed()
     }
 
@@ -162,9 +163,9 @@ class LibraryScreenTest {
         composeRule.onNodeWithTag("filter-state-GBC").assertExists()
         // The cell sits below the fold in the narrow Robolectric
         // window: scroll it into view first. Grid items are
-        // 0 top bar, 1 buttons, 2 shoulders, 3 POKEMON (the only
-        // game under the GBC filter), 4 BIOS card.
-        composeRule.onNodeWithTag("library-grid").performScrollToIndex(3)
+        // 0 top bar, 1 buttons, 2 shoulders, 3 view, 4 POKEMON
+        // (the only game under the GBC filter), 5 BIOS card.
+        composeRule.onNodeWithTag("library-grid").performScrollToIndex(4)
         composeRule.onNodeWithText("POKEMON").assertIsDisplayed()
         composeRule.onAllNodesWithText("TETRIS").assertCountEquals(0)
         composeRule.onAllNodesWithTag("game-grid-cell").assertCountEquals(1)
