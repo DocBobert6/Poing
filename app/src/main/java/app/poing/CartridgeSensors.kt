@@ -180,9 +180,10 @@ data class SensorNeed(val tilt: Boolean, val gyro: Boolean, val light: Boolean) 
  *   hardware on either side). Tilt (accelerometer): KHPJ
  *   (Korokoro Puzzle Happy Panechu), KYGJ/KYGE/KYGP (Yoshi's
  *   Universal Gravitation). Gyro: RZWJ/RZWE/RZWP (WarioWare:
- *   Twisted!). (The Boktai solar codes — U3I*/U32*/U33J — are
- *   the same table, but light is decided by the caller from
- *   the solar option and Screen Optics, not here.)
+ *   Twisted!). (The Boktai solar codes — the U3I, U32 and
+ *   U33J families — are the same table, but light is decided
+ *   by the caller from the solar option and Screen Optics,
+ *   not here.)
  * The light flag is always false in the result: light is
  * decided by the caller (see GameScreen.sensorNeed), not by
  * the cartridge. Null when the header cannot be read — the
