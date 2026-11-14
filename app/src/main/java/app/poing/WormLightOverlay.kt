@@ -34,6 +34,8 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlin.math.PI
 import kotlin.math.cos
+import kotlin.math.hypot
+import kotlin.math.roundToInt
 import kotlin.math.sin
 import kotlin.math.sqrt
 
@@ -44,19 +46,22 @@ import kotlin.math.sqrt
  * The cord plugs in JUST LEFT of the display area (like
  * the real EXT port on the side of the device), coils up
  * the left side of the game, arches over the top, and the
- * head hangs ABOVE the screen in the strip
- * the game gives up while the lamp is on — angled down at
- * it. The head is a CLEAR OVAL LENS with the bulb visible
- * inside as a bright point, plus a soft glow around it; the
- * neck is a TIGHT HELIX COIL (a telephone cord), not a
- * straight line. The light is ADDITIVE: an ELLIPTICAL
- * warm-white pool, brightest at the top-centre, smooth
- * falloff to nothing at the edges, with a hotspot where the
- * beam lands most directly. When the head is dragged, the
- * pool moves and skews with it, and the coil flexes
- * (stretch on one side, bunch on the other — the cord has a
- * fixed number of coils, so a longer spine spreads them)
- * with a tiny settle wobble when released.
+ * head hangs above the screen — and, since full travel
+ * (Robert, 2026-11-13), the head can be pulled DOWN the
+ * left and right sides of the game too, to light any part
+ * of the picture: it travels the perimeter of the display
+ * area, never on top of the game itself, and stays where
+ * it is left. The head is a CLEAR OVAL LENS with the bulb
+ * visible inside as a bright point, plus a soft glow
+ * around it; the neck is a TIGHT HELIX COIL (a telephone
+ * cord), not a straight line. The light is ADDITIVE: an
+ * ELLIPTICAL warm-white pool, brightest at the head,
+ * smooth falloff to nothing at the edges, with a hotspot
+ * where the beam lands most directly. When the head is
+ * dragged, the pool moves and skews with it, and the coil
+ * flexes (stretch on one side, bunch on the other — the
+ * cord has a fixed number of coils, so a longer spine
+ * spreads them) with a tiny settle wobble when released.
  *
  * The hardware (cord coil, head plastic, plug) wears the
  * colour the player picked in Settings (dark medium gray
@@ -134,17 +139,34 @@ const val WORM_LIGHT_COIL_AMP_DP = 5f
 const val WORM_LIGHT_COIL_STROKE_DP = 3f
 const val WORM_LIGHT_COIL_SAMPLES = 64
 
+// The flank bow, in dp: on a flank the coil's control
+// points bow AWAY from the game by this much, so the cord
+// hangs beside the picture instead of hugging its edge.
+const val WORM_LIGHT_COIL_BOW_DP = 8f
+
 // The pool, in frame UV (y = 0 at the top of the game):
-// brightest at the top-centre, an ellipse wider than tall,
-// its long axis tilting toward the head's side as the head
-// is dragged. The centre's x is the head's x projected
-// onto the game, clamped so the pool stays on the picture.
+// brightest at the head, an ellipse wider than tall, its
+// centre the head's position projected onto the game —
+// clamped so the pool stays on the picture — and its long
+// axis tilting toward the head's side as the head is
+// dragged. Full travel (Robert, 2026-11-13): the head
+// travels the perimeter, so the centre tracks it in both
+// axes — down the flanks as well as across the strip.
 const val WORM_LIGHT_POOL_CENTER_Y = 0.20f
+const val WORM_LIGHT_POOL_CENTER_Y_MAX = 0.80f
 const val WORM_LIGHT_POOL_RX = 0.55f
 const val WORM_LIGHT_POOL_RY = 0.42f
 const val WORM_LIGHT_POOL_CENTER_X_MIN = 0.15f
 const val WORM_LIGHT_POOL_CENTER_X_MAX = 0.85f
 const val WORM_LIGHT_POOL_ROTATION_PER_OFFSET = 0.6f
+// The tilt's vertical blend (in game heights): the long
+// axis tilts toward the head's side while the head is
+// above the pool's centre, and mirrors when the head is
+// below it (a low head lights from below, so the slant
+// flips). The blend is 1 while the head is clearly above
+// the centre, -1 clearly below, 0 level with it — the
+// half-width is the smooth zone around level.
+const val WORM_LIGHT_POOL_TILT_BLEND = 0.10f
 
 // The settle wobble: while dragging, the coil trails the
 // head by a quarter of the drag (it lags behind the hand);
@@ -183,12 +205,25 @@ data class WormLightPool(
  * The lamp's geometry in the player area's px space, pure
  * so it is unit-testable without a Canvas: the game rect
  * (the largest aspect box in the row below the strip), the
- * plug, the coil's cubic spine, the lens and its bulb, and
- * the pool in frame UV (plus its px form, for the fallback
- * path). The head is clamped into the strip, so a stored
- * position from a taller or shorter player area still lands
- * in the strip.
+ * plug, the coil's spine (one cubic, or two when the head
+ * is on the right flank), the lens and its bulb, and the
+ * pool in frame UV (plus its px form, for the fallback
+ * path). The head is clamped to the perimeter of the
+ * display area (the strip plus both flanks), so a stored
+ * position from a taller or shorter player area still
+ * lands on it, never on the game itself.
  */
+/**
+ * One leg of the coil's spine: a cubic from the plug (or
+ * the previous leg's end) to the head (or the corner).
+ */
+data class CoilCubic(
+    val p0: Offset,
+    val p1: Offset,
+    val p2: Offset,
+    val p3: Offset,
+)
+
 data class WormLightGeometry(
     val gameRect: Rect,
     val plugRect: Rect,
@@ -209,7 +244,82 @@ data class WormLightGeometry(
     val poolCenterPx: Offset,
     val poolRadiiPx: Offset,
     val poolRotationDeg: Float,
+    // The coil's second leg (right-flank heads only): the
+    // cord routes over the top and down that flank, so the
+    // spine has a corner at the top of the flank. Null for
+    // strip and left-flank heads, whose cord is one cubic.
+    val coilSecond: CoilCubic? = null,
+    // The cord's 14 loops, split across the legs by length
+    // when there are two — so the loops stay evenly spaced
+    // however long each leg is.
+    val coilTurnsFirst: Int = WORM_LIGHT_COIL_TURNS,
+    val coilTurnsSecond: Int = 0,
 )
+
+/**
+ * Full travel (Robert, 2026-11-13): the head travels the
+ * perimeter of the display area — the strip above the
+ * game plus the flanks beside it — never on top of the
+ * game itself. The clamp is zone-based: a raw position
+ * at or above the strip's bottom edge stays in the strip;
+ * below it, the head drops into the flank under the
+ * finger, or sticks to the strip's bottom edge while the
+ * finger is over the game. (A nearest-point clamp would
+ * be wrong here: a low drag over the centre of the game
+ * is nearly equidistant to the strip bottom and a flank,
+ * and would jump the head sideways.) A flank that is too
+ * narrow to hold the lens never takes the head — it stays
+ * in the strip, exactly as before full travel.
+ */
+private fun clampHeadToPerimeter(
+    raw: Offset,
+    boxWidth: Float,
+    boxHeight: Float,
+    stripPx: Float,
+    gameRect: Rect,
+    halfW: Float,
+    halfH: Float,
+): Offset {
+    if (raw.y <= stripPx) {
+        return Offset(
+            raw.x.coerceIn(halfW, boxWidth - halfW),
+            raw.y.coerceIn(0f, stripPx),
+        )
+    }
+    val leftMaxX = gameRect.left - halfW
+    val rightMinX = gameRect.right + halfW
+    val flankBottom = boxHeight - halfH
+    return when {
+        raw.x <= leftMaxX && leftMaxX > halfW && flankBottom > stripPx -> Offset(
+            raw.x.coerceIn(halfW, leftMaxX),
+            raw.y.coerceIn(stripPx, flankBottom),
+        )
+        raw.x >= rightMinX && rightMinX < boxWidth - halfW && flankBottom > stripPx -> Offset(
+            raw.x.coerceIn(rightMinX, boxWidth - halfW),
+            raw.y.coerceIn(stripPx, flankBottom),
+        )
+        else -> Offset(raw.x.coerceIn(halfW, boxWidth - halfW), stripPx)
+    }
+}
+
+private fun coilCubicLength(c: CoilCubic): Float {
+    // Control-polygon length: an overestimate of the
+    // curve, but proportional — enough to split the loops
+    // evenly between the legs.
+    fun dist(a: Offset, b: Offset) = hypot(a.x - b.x, a.y - b.y)
+    return dist(c.p0, c.p1) + dist(c.p1, c.p2) + dist(c.p2, c.p3)
+}
+
+private fun coilTurnSplit(first: CoilCubic, second: CoilCubic?): Pair<Int, Int> {
+    if (second == null) return WORM_LIGHT_COIL_TURNS to 0
+    val len1 = coilCubicLength(first)
+    val len2 = coilCubicLength(second)
+    val total = len1 + len2
+    if (total <= 0f) return WORM_LIGHT_COIL_TURNS to 0
+    val t1 = (WORM_LIGHT_COIL_TURNS * len1 / total)
+        .roundToInt().coerceIn(1, WORM_LIGHT_COIL_TURNS - 1)
+    return t1 to (WORM_LIGHT_COIL_TURNS - t1)
+}
 
 fun wormLightGeometry(
     boxWidth: Float,
@@ -230,11 +340,12 @@ fun wormLightGeometry(
     val gameLeft = (boxWidth - gameW) / 2f
     val gameTop = stripPx + (rowH - gameH) / 2f
     val gameRect = Rect(gameLeft, gameTop, gameLeft + gameW, gameTop + gameH)
-    // The head, clamped into the strip: its centre stays in
-    // the strip, and the lens stays on screen. The sway
-    // trails the head — the coil's apex moves with the full
-    // sway, the head itself with half of it, so the lamp
-    // settles as one piece.
+    // The head, clamped to the perimeter of the display
+    // area (see clampHeadToPerimeter): its centre stays in
+    // the strip or on a flank, and the lens stays on
+    // screen. The sway trails the head — the coil's apex
+    // moves with the full sway, the head itself with half
+    // of it, so the lamp settles as one piece.
     val lensRx = WORM_LIGHT_LENS_RX_DP * density
     val lensRy = WORM_LIGHT_LENS_RY_DP * density
     val rot = WORM_LIGHT_LENS_ROTATION_DEG * PI.toFloat() / 180f
@@ -252,9 +363,15 @@ fun wormLightGeometry(
     // swayed head would double-count: the sway would reach
     // the apex through the interpolation too.
     val headBaseX = (head.x * boxWidth).coerceIn(halfW, boxWidth - halfW)
-    val headX = (headBaseX + swayPx * 0.5f).coerceIn(halfW, boxWidth - halfW)
-    val headY = (head.y * boxHeight).coerceIn(0f, stripPx)
-    val headPx = Offset(headX, headY)
+    // Full travel (Robert, 2026-11-13): the sway trails the
+    // head by half, as before — but the swayed position is
+    // clamped to the PERIMETER of the display area (the
+    // strip plus both flanks), so a fast drag's sway can
+    // never push the head onto the game itself.
+    val rawHead = Offset(headBaseX + swayPx * 0.5f, head.y * boxHeight)
+    val headPx = clampHeadToPerimeter(
+        rawHead, boxWidth, boxHeight, stripPx, gameRect, halfW, halfH,
+    )
     // The plug: just left of the display area — the game
     // rect's left edge minus a small gap — centred in the
     // strip. The old anchor was the player area's left edge
@@ -272,21 +389,87 @@ fun wormLightGeometry(
         plugRight - plugW, stripPx / 2f - plugH / 2f,
         plugRight, stripPx / 2f + plugH / 2f,
     )
-    // The coil's spine: a cubic from the plug's right edge
-    // to the head, both control points near the top of the
-    // strip, so the cord rises from the plug beside the
-    // game's left edge, arches over the top, and descends
-    // to the head. The sway moves the apex with the head's
-    // trail.
+    // The coil's spine, by the head's zone (full travel,
+    // Robert, 2026-11-13). A head in the strip keeps the
+    // arch over the top, exactly as before full travel (the
+    // earlier tests pin these control points). A head on
+    // the left flank gets one cubic down that flank, bowed
+    // away from the game. A head on the right flank needs
+    // TWO cubics — one arching over the top to the corner
+    // at the top of that flank, one dropping down it. A
+    // single cubic cannot hug the top-right corner: its x
+    // lags behind its y as it descends, so the cord would
+    // cut across the game's top-right corner. Both legs
+    // keep the cord out of the picture: the top leg stays
+    // in the strip, the drop stays in the flank (its
+    // control points are clamped there, so even a hard
+    // sway cannot push it over the game). The sway moves
+    // the apex with the head's trail, as before.
     val p0 = Offset(plugRight, stripPx / 2f)
-    val p1 = Offset(
-        p0.x + (headBaseX - p0.x) * 0.25f + swayPx,
-        stripPx * 0.06f,
-    )
-    val p2 = Offset(
-        p0.x + (headBaseX - p0.x) * 0.75f + swayPx,
-        stripPx * 0.06f,
-    )
+    val bowPx = WORM_LIGHT_COIL_BOW_DP * density
+    val ampPx = WORM_LIGHT_COIL_AMP_DP * density
+    val strokePx = WORM_LIGHT_COIL_STROKE_DP * density
+    val headInStrip = headPx.y <= stripPx
+    val headOnLeftFlank = !headInStrip && headPx.x < gameRect.left
+    val coilFirst: CoilCubic
+    val coilSecond: CoilCubic?
+    if (headInStrip) {
+        coilFirst = CoilCubic(
+            p0,
+            Offset(p0.x + (headBaseX - p0.x) * 0.25f + swayPx, stripPx * 0.06f),
+            Offset(p0.x + (headBaseX - p0.x) * 0.75f + swayPx, stripPx * 0.06f),
+            headPx,
+        )
+        coilSecond = null
+    } else if (headOnLeftFlank) {
+        coilFirst = CoilCubic(
+            p0,
+            Offset(
+                (p0.x + (headBaseX - p0.x) * 0.25f - bowPx + swayPx)
+                    .coerceIn(strokePx, gameRect.left - ampPx - strokePx),
+                p0.y + (headPx.y - p0.y) * 0.25f,
+            ),
+            Offset(
+                (p0.x + (headBaseX - p0.x) * 0.75f - bowPx + swayPx)
+                    .coerceIn(strokePx, gameRect.left - ampPx - strokePx),
+                p0.y + (headPx.y - p0.y) * 0.75f,
+            ),
+            headPx,
+        )
+        coilSecond = null
+    } else {
+        // The right flank: arch over the top to the corner
+        // at the top of that flank, then drop down it.
+        val cornerX = (headBaseX + swayPx)
+            .coerceIn(gameRect.right + halfW, boxWidth - halfW)
+        val corner = Offset(cornerX, stripPx / 2f)
+        coilFirst = CoilCubic(
+            p0,
+            Offset(p0.x + (headBaseX - p0.x) * 0.25f + swayPx, stripPx * 0.06f),
+            Offset(p0.x + (headBaseX - p0.x) * 0.75f + swayPx, stripPx * 0.06f),
+            corner,
+        )
+        coilSecond = CoilCubic(
+            corner,
+            Offset(
+                (corner.x + bowPx).coerceIn(
+                    gameRect.right + ampPx + strokePx, boxWidth - strokePx,
+                ),
+                corner.y + (headPx.y - corner.y) * 0.25f,
+            ),
+            Offset(
+                (headPx.x + bowPx).coerceIn(
+                    gameRect.right + ampPx + strokePx, boxWidth - strokePx,
+                ),
+                corner.y + (headPx.y - corner.y) * 0.75f,
+            ),
+            headPx,
+        )
+    }
+    // The cord's 14 loops, split across the two legs by
+    // length when there are two, so the loops stay evenly
+    // spaced however long each leg is.
+    val (turnsFirst, turnsSecond) = coilTurnSplit(coilFirst, coilSecond)
     // The bulb: inside the lens, toward its top — the bulb
     // sits at the back of the head, shining down. Its local
     // offset is rotated with the lens, so the bulb stays
@@ -296,16 +479,32 @@ fun wormLightGeometry(
         headPx.x + bulbLocal.x * cosR - bulbLocal.y * sinR,
         headPx.y + bulbLocal.x * sinR + bulbLocal.y * cosR,
     )
-    // The pool: the head's x projected onto the game,
-    // clamped so the pool stays on the picture, brightest
-    // at the top-centre; its long axis tilts toward the
-    // head's side (the beam slants down from the head).
+    // The pool: the head's position projected onto the
+    // game, clamped so the pool stays on the picture —
+    // full travel means the centre tracks the head in both
+    // axes now, not just across the strip: drag it low on
+    // a flank and the light pools low on that side. The
+    // centre's y is the head's height in the game, clamped
+    // to [0.20, 0.80] (the default head, above the game,
+    // still lands at 0.20, exactly as before). Its long
+    // axis tilts toward the head's side (the beam slants
+    // from the head) — and mirrors when the head is below
+    // the pool's centre, so a low head's slant reads the
+    // right way round; the blend is 1 while the head is
+    // clearly above the centre, -1 clearly below, 0 level
+    // with it.
     val gameCenterX = gameLeft + gameW / 2f
     val poolCenterX = ((headPx.x - gameLeft) / gameW)
         .coerceIn(WORM_LIGHT_POOL_CENTER_X_MIN, WORM_LIGHT_POOL_CENTER_X_MAX)
-    val poolRotation = (gameCenterX - headPx.x) / gameW * WORM_LIGHT_POOL_ROTATION_PER_OFFSET
+    val headYinGame = (headPx.y - gameTop) / gameH
+    val poolCenterY = headYinGame
+        .coerceIn(WORM_LIGHT_POOL_CENTER_Y, WORM_LIGHT_POOL_CENTER_Y_MAX)
+    val tiltBlend = ((poolCenterY - headYinGame) / WORM_LIGHT_POOL_TILT_BLEND)
+        .coerceIn(-1f, 1f)
+    val poolRotation = (gameCenterX - headPx.x) / gameW *
+        WORM_LIGHT_POOL_ROTATION_PER_OFFSET * tiltBlend
     val pool = WormLightPool(
-        center = Offset(poolCenterX, WORM_LIGHT_POOL_CENTER_Y),
+        center = Offset(poolCenterX, poolCenterY),
         radii = Offset(WORM_LIGHT_POOL_RX, WORM_LIGHT_POOL_RY),
         rotationRad = poolRotation,
         intensity = 1f,
@@ -313,10 +512,10 @@ fun wormLightGeometry(
     return WormLightGeometry(
         gameRect = gameRect,
         plugRect = plugRect,
-        coilP0 = p0,
-        coilP1 = p1,
-        coilP2 = p2,
-        coilP3 = headPx,
+        coilP0 = coilFirst.p0,
+        coilP1 = coilFirst.p1,
+        coilP2 = coilFirst.p2,
+        coilP3 = coilFirst.p3,
         coilAmplitudePx = WORM_LIGHT_COIL_AMP_DP * density,
         coilStrokePx = WORM_LIGHT_COIL_STROKE_DP * density,
         lensCenter = headPx,
@@ -333,6 +532,9 @@ fun wormLightGeometry(
         ),
         poolRadiiPx = Offset(pool.radii.x * gameW, pool.radii.y * gameH),
         poolRotationDeg = poolRotation * 180f / PI.toFloat(),
+        coilSecond = coilSecond,
+        coilTurnsFirst = turnsFirst,
+        coilTurnsSecond = turnsSecond,
     )
 }
 
@@ -499,12 +701,17 @@ fun WormLightOverlay(
                         },
                         onDrag = { change, dragAmount ->
                             change.consume()
-                            // The head stays in the strip, and
-                            // the lens stays on screen.
+                            // Full travel: the raw position is
+                            // only clamped to the box here — the
+                            // geometry clamps the head to the
+                            // perimeter of the display area (the
+                            // strip plus both flanks, never onto
+                            // the game itself), so the drag and
+                            // the clamp stay in one place.
                             val x = (position.x * width + dragAmount.x)
-                                .coerceIn(g.lensHalfWidthPx, width - g.lensHalfWidthPx)
+                                .coerceIn(0f, width)
                             val y = (position.y * height + dragAmount.y)
-                                .coerceIn(0f, WORM_LIGHT_STRIP_DP * density)
+                                .coerceIn(0f, height)
                             position = Offset(x / width, y / height)
                             sway = (x - dragStartX) * WORM_LIGHT_SWAY_DRAG_FACTOR
                         },
@@ -524,20 +731,31 @@ fun WormLightOverlay(
                 cornerRadius = CornerRadius(3f * density, 3f * density),
             )
             // The coil: the sine ribbon along the cubic spine
-            // — a telephone cord, not a straight line.
-            val ribbon = Path().apply {
-                val pts = coilRibbonPoints(
-                    g.coilP0, g.coilP1, g.coilP2, g.coilP3,
-                    WORM_LIGHT_COIL_TURNS, g.coilAmplitudePx,
+            // — a telephone cord, not a straight line. A head
+            // on the right flank routes over the top and down
+            // that flank, so the spine has a second cubic
+            // there (the loops split across the two by
+            // length, so they stay evenly spaced).
+            fun drawCoil(cubic: CoilCubic, turns: Int) {
+                val ribbon = Path().apply {
+                    val pts = coilRibbonPoints(
+                        cubic.p0, cubic.p1, cubic.p2, cubic.p3,
+                        turns, g.coilAmplitudePx,
+                    )
+                    moveTo(pts.first().x, pts.first().y)
+                    for (p in pts.drop(1)) lineTo(p.x, p.y)
+                }
+                drawPath(
+                    ribbon,
+                    hw,
+                    style = Stroke(width = g.coilStrokePx, cap = StrokeCap.Round),
                 )
-                moveTo(pts.first().x, pts.first().y)
-                for (p in pts.drop(1)) lineTo(p.x, p.y)
             }
-            drawPath(
-                ribbon,
-                hw,
-                style = Stroke(width = g.coilStrokePx, cap = StrokeCap.Round),
+            drawCoil(
+                CoilCubic(g.coilP0, g.coilP1, g.coilP2, g.coilP3),
+                g.coilTurnsFirst,
             )
+            g.coilSecond?.let { drawCoil(it, g.coilTurnsSecond) }
             // A soft glow around the head itself — the lens
             // spilling a little light where it sits.
             val glowRadius = g.lensRadii.x * 1.8f

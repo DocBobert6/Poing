@@ -309,4 +309,155 @@ class WormLightGeometryTest {
         assertEquals(0.229f, downRight, 0.01f)
         assertEquals(0.116f, upRight, 0.01f)
     }
+
+    @Test
+    fun headTravelsDownTheLeftFlank() {
+        // Full travel (Robert, 2026-11-13): the head can be
+        // pulled down the left flank to light the bottom of
+        // the game — the lens stays beside the picture,
+        // never on it, and the pool follows it low on the
+        // left.
+        val g = geometry(Offset(0.08f, 0.5f))
+        assertEquals(80f, g.lensCenter.x, 0.01f)
+        assertEquals(300f, g.lensCenter.y, 0.01f)
+        assertTrue(
+            "the lens should stay left of the game",
+            g.lensCenter.x + g.lensHalfWidthPx <= g.gameRect.left,
+        )
+        assertEquals(0.15f, g.pool.center.x, 0.01f)
+        assertEquals((300f - 147f) / 453f, g.pool.center.y, 0.01f)
+        assertEquals(1f, g.pool.intensity, 0.001f)
+    }
+
+    @Test
+    fun headTravelsDownTheRightFlank() {
+        // The same, on the right: the head drops down the
+        // right flank and the pool follows it low on the
+        // right.
+        val g = geometry(Offset(0.92f, 0.8f))
+        assertEquals(920f, g.lensCenter.x, 0.01f)
+        assertEquals(480f, g.lensCenter.y, 0.01f)
+        assertTrue(
+            "the lens should stay right of the game",
+            g.lensCenter.x - g.lensHalfWidthPx >= g.gameRect.right,
+        )
+        assertEquals(0.85f, g.pool.center.x, 0.01f)
+        assertEquals((480f - 147f) / 453f, g.pool.center.y, 0.01f)
+        assertEquals(1f, g.pool.intensity, 0.001f)
+    }
+
+    @Test
+    fun headCannotBeDraggedOntoTheGame() {
+        // A drag straight down over the game keeps the head
+        // on the strip's bottom edge — it never lands on
+        // the picture, and the pool stays at the top.
+        val mid = geometry(Offset(0.5f, 0.5f))
+        assertEquals(500f, mid.lensCenter.x, 0.01f)
+        assertEquals(stripPx, mid.lensCenter.y, 0.01f)
+        assertEquals(0.5f, mid.pool.center.x, 0.01f)
+        assertEquals(0.20f, mid.pool.center.y, 0.01f)
+        // ... and the same at the very bottom of the game.
+        val low = geometry(Offset(0.5f, 0.95f))
+        assertEquals(stripPx, low.lensCenter.y, 0.01f)
+        assertEquals(0.20f, low.pool.center.y, 0.01f)
+    }
+
+    @Test
+    fun poolRotationFlipsWhenTheHeadIsBelowThePool() {
+        // A head at the bottom-left corner lights from
+        // below, so its slant mirrors a head at the
+        // top-left (which tilts down-right): the bottom-left
+        // head tilts the pool the other way. A head level
+        // with the pool's centre lights from the side, so
+        // its pool is level.
+        val bottomLeft = geometry(Offset(0.08f, 0.95f))
+        assertTrue(
+            "a low left head should tilt the pool the other way",
+            bottomLeft.pool.rotationRad < 0f,
+        )
+        val bottomRight = geometry(Offset(0.92f, 0.95f))
+        assertTrue(
+            "a low right head should tilt the pool the other way",
+            bottomRight.pool.rotationRad > 0f,
+        )
+        val midLeft = geometry(Offset(0.08f, 0.5f))
+        assertEquals(0f, midLeft.pool.rotationRad, 0.001f)
+    }
+
+    @Test
+    fun rightFlankCoilRoutesOverTheTopAndDownTheSide() {
+        // A head low on the right flank gets a two-leg
+        // spine: the first leg arches over the top in the
+        // strip, the second drops down the right flank —
+        // and the loops split across the two legs by length.
+        val g = geometry(Offset(0.92f, 0.8f))
+        val second = g.coilSecond
+        assertTrue("a right-flank head should route the coil in two legs", second != null)
+        second!!
+        assertTrue("the top leg should stay in the strip", g.coilP1.y < stripPx)
+        assertTrue("the top leg should stay in the strip", g.coilP2.y < stripPx)
+        assertTrue("the drop should stay right of the game", second.p1.x > g.gameRect.right)
+        assertTrue("the drop should stay right of the game", second.p2.x > g.gameRect.right)
+        assertEquals(g.lensCenter, second.p3)
+        assertEquals(WORM_LIGHT_COIL_TURNS, g.coilTurnsFirst + g.coilTurnsSecond)
+        assertTrue("both legs should carry loops", g.coilTurnsFirst > 0)
+        assertTrue("both legs should carry loops", g.coilTurnsSecond > 0)
+        // A head in the strip has one leg, all 14 loops on it.
+        val strip = geometry()
+        assertTrue("a strip head should have one coil leg", strip.coilSecond == null)
+        assertEquals(WORM_LIGHT_COIL_TURNS, strip.coilTurnsFirst)
+        assertEquals(0, strip.coilTurnsSecond)
+    }
+
+    @Test
+    fun coilNeverCrossesTheGame() {
+        // The cord routes around the display area — left
+        // edge, top, right edge — never across the picture
+        // itself. Sampled over the ribbon (both legs when
+        // there are two), for heads in the strip and low on
+        // each flank.
+        val heads = listOf(
+            Offset(0.5f, 0.06f), Offset(0.1f, 0.06f), Offset(0.9f, 0.06f),
+            Offset(0.08f, 0.5f), Offset(0.08f, 0.95f),
+            Offset(0.92f, 0.5f), Offset(0.92f, 0.95f),
+        )
+        for (head in heads) {
+            val g = geometry(head)
+            val ribbons = mutableListOf<List<Offset>>()
+            ribbons.add(
+                coilRibbonPoints(
+                    g.coilP0, g.coilP1, g.coilP2, g.coilP3,
+                    g.coilTurnsFirst, g.coilAmplitudePx,
+                ),
+            )
+            g.coilSecond?.let {
+                ribbons.add(
+                    coilRibbonPoints(
+                        it.p0, it.p1, it.p2, it.p3,
+                        g.coilTurnsSecond, g.coilAmplitudePx,
+                    ),
+                )
+            }
+            for (pts in ribbons) {
+                for (p in pts) {
+                    val inside = p.x > g.gameRect.left && p.x < g.gameRect.right &&
+                        p.y > g.gameRect.top && p.y < g.gameRect.bottom
+                    assertTrue(
+                        "the coil should never cross the game (head $head, point $p)",
+                        !inside,
+                    )
+                }
+            }
+        }
+    }
+
+    @Test
+    fun headStaysInTheStripWhenTheFlanksAreTooNarrow() {
+        // A game nearly as wide as the player leaves no
+        // flank to hold the lens: the head stays in the
+        // strip, exactly as before full travel.
+        val g = geometry(Offset(0.1f, 0.9f), aspect = 3.0f)
+        assertEquals(stripPx, g.lensCenter.y, 0.01f)
+        assertEquals(0.20f, g.pool.center.y, 0.01f)
+    }
 }
