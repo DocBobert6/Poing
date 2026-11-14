@@ -182,7 +182,9 @@ fun LibraryScreen(
         // flow into adaptive columns. One scroll, one header.
         LazyVerticalGrid(
             columns = GridCells.Adaptive(minSize = 160.dp),
-            modifier = Modifier.fillMaxSize(),
+            modifier = Modifier
+                .fillMaxSize()
+                .testTag("library-grid"),
         ) {
         item(span = { GridItemSpan(maxLineSpan) }) {
             // Top bar: the power light. No game is loaded on the

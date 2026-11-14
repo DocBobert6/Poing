@@ -9,6 +9,7 @@ import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollToIndex
 import androidx.test.core.app.ApplicationProvider
 import org.junit.Rule
 import org.junit.Test
@@ -82,6 +83,13 @@ class LibraryScreenTest {
         composeRule.onAllNodesWithText("TETRIS").assertCountEquals(0)
         composeRule.onNodeWithTag("filter-ALL").performClick()
         composeRule.onNodeWithText("TETRIS").assertIsDisplayed()
+        // The second row sits below the fold in the narrow
+        // Robolectric window now that the view switch adds a row
+        // to the header: scroll it into view first. Grid items
+        // are 0 top bar, 1 buttons, 2 shoulders, 3 TETRIS,
+        // 4 POKEMON, 5 BIOS card. TETRIS is asserted before the
+        // scroll, since scrolling POKEMON in can push it out.
+        composeRule.onNodeWithTag("library-grid").performScrollToIndex(4)
         composeRule.onNodeWithText("POKEMON").assertIsDisplayed()
     }
 
@@ -144,9 +152,17 @@ class LibraryScreenTest {
         // Only one cell survives the GBC filter, so it is the
         // first item after the header and always composed.
         composeRule.onNodeWithTag("filter-GBC").performClick()
+        // The cell sits below the fold in the narrow Robolectric
+        // window: scroll it into view first. Grid items are
+        // 0 top bar, 1 buttons, 2 shoulders, 3 POKEMON (the only
+        // game under the GBC filter), 4 BIOS card.
+        composeRule.onNodeWithTag("library-grid").performScrollToIndex(3)
         composeRule.onNodeWithText("POKEMON").assertIsDisplayed()
         composeRule.onAllNodesWithText("TETRIS").assertCountEquals(0)
         composeRule.onAllNodesWithTag("game-grid-cell").assertCountEquals(1)
+        // Back to the top before touching the header again:
+        // the filter tabs scroll out of view with the grid.
+        composeRule.onNodeWithTag("library-grid").performScrollToIndex(0)
         composeRule.onNodeWithTag("filter-ALL").performClick()
         // ALL restores the first cell; the second cell's
         // visibility depends on the column count, so only the
