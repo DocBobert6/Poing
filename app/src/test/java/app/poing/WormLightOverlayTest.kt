@@ -138,6 +138,12 @@ class WormLightOverlayTest {
         var reported: WormLightPool? = null
         var sawAnyHead = false
         var sawAimHead = false
+        // Every onDragHeadChange call, null or not: the
+        // tap's onDragCancel calls it with null, so a count
+        // of 1 right after the tap proves the tap's gesture
+        // completed (and the toggle ran); 0 proves the tap
+        // never completed in the detector at all.
+        var dragHeadCalls = 0
         composeRule.setContent {
             PoingTheme {
                 Box(Modifier.size(300.dp, 200.dp)) {
@@ -145,6 +151,7 @@ class WormLightOverlayTest {
                         enabled = true,
                         onPoolChange = { reported = it },
                         onDragHeadChange = {
+                            dragHeadCalls++
                             if (it != null) sawAnyHead = true
                             if (it?.aimMode == true) sawAimHead = true
                         },
@@ -180,6 +187,10 @@ class WormLightOverlayTest {
             up()
         }
         composeRule.waitForIdle()
+        assertTrue(
+            "the tap should have completed (its onDragCancel reports null)",
+            dragHeadCalls >= 1,
+        )
         // Drag straight down from the head: in aim mode this
         // rotates the pool toward straight down (~1.57 rad)
         // while the head stays put. Starting on the head
