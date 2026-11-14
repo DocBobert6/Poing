@@ -47,9 +47,18 @@ dependencies {
     implementation("androidx.activity:activity-compose:1.11.0")
     implementation("androidx.compose.ui:ui")
     implementation("androidx.compose.ui:ui-graphics")
-    implementation("androidx.compose.ui:ui-tooling-preview")
+    // Performance fix 9 — ui-tooling-preview is a
+    // compile-time-only preview annotation library; it was in
+    // implementation, so it shipped in the APK. debug only.
+    debugImplementation("androidx.compose.ui:ui-tooling-preview")
     implementation("androidx.compose.material3:material3")
-    implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.9.4")
+    // Performance fix 9 — lifecycle-runtime-ktx REMOVED: no
+    // KTX API use anywhere in app/src (no lifecycleScope,
+    // repeatOnLifecycle, ProcessLifecycleOwner or
+    // flowWithLifecycle); GameScreen uses only Lifecycle /
+    // LifecycleEventObserver, which live in lifecycle-common
+    // and lifecycle-runtime, not -ktx. CI is the check that
+    // nothing else needed it.
     // Phase 3: folder import walks a picked document tree.
     implementation("androidx.documentfile:documentfile:1.0.1")
 

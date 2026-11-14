@@ -1,5 +1,6 @@
 package app.poing
 
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
@@ -109,5 +110,45 @@ class PlayerTopBarTest {
         composeRule.onAllNodesWithText("edge", substring = true).assertCountEquals(0)
         composeRule.onAllNodesWithText("chain", substring = true).assertCountEquals(0)
         composeRule.onAllNodesWithText("plain", substring = true).assertCountEquals(0)
+    }
+
+    @Test
+    fun floatingStatusRecClockFollowsTheState() {
+        // Performance fix 9 — the REC clock is a State, so
+        // the 1s tick recomposes only the tiny REC row, not
+        // the whole GameScreen scope. The text follows the
+        // state without the caller re-composing.
+        val elapsed = mutableStateOf(5L)
+        composeRule.setContent {
+            PoingTheme {
+                FloatingPlayerStatus(
+                    paused = false,
+                    recording = true,
+                    recordingElapsedState = elapsed,
+                    barVisible = false,
+                )
+            }
+        }
+        composeRule.onNodeWithText("● REC 0:05", substring = true).assertExists()
+        elapsed.value = 65L
+        composeRule.onNodeWithText("● REC 1:05", substring = true).assertExists()
+    }
+
+    @Test
+    fun floatingStatusRecClockHiddenWhileTheBarIsVisible() {
+        // The REC text lives in the bar Row while the bar is
+        // up; the floating copy only shows when it is down.
+        val elapsed = mutableStateOf(5L)
+        composeRule.setContent {
+            PoingTheme {
+                FloatingPlayerStatus(
+                    paused = false,
+                    recording = true,
+                    recordingElapsedState = elapsed,
+                    barVisible = true,
+                )
+            }
+        }
+        composeRule.onAllNodesWithText("REC", substring = true).assertCountEquals(0)
     }
 }

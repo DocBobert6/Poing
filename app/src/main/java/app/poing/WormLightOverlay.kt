@@ -657,6 +657,39 @@ fun wormLightGeometry(
 }
 
 /**
+ * Performance fix 9 — the coil's three Paths (ribbon,
+ * shadow, highlight), built once per geometry: the Canvas
+ * used to rebuild them — and recompute the ribbon points —
+ * on every draw. The caller caches the result with
+ * remember(g); the strokes stay at draw time (their widths
+ * come from the geometry, not the Paths).
+ */
+private fun coilPathsFor(
+    cubic: CoilCubic,
+    turns: Int,
+    amplitudePx: Float,
+    density: Float,
+): Triple<Path, Path, Path> {
+    val ribbon = Path().apply {
+        val pts = coilRibbonPoints(
+            cubic.p0, cubic.p1, cubic.p2, cubic.p3,
+            turns, amplitudePx,
+        )
+        moveTo(pts.first().x, pts.first().y)
+        for (p in pts.drop(1)) lineTo(p.x, p.y)
+    }
+    val shadow = Path().apply {
+        addPath(ribbon)
+        translate(Offset(0.5f * density, 0.75f * density))
+    }
+    val highlight = Path().apply {
+        addPath(ribbon)
+        translate(Offset(0f, -0.75f * density))
+    }
+    return Triple(ribbon, shadow, highlight)
+}
+
+/**
  * The coil as a sine ribbon along a cubic spine: the
  * telephone cord's helix, drawn as a wave straddling the
  * spine. The sine is zero at both ends, so the cord
@@ -984,6 +1017,25 @@ fun WormLightOverlay(
             WORM_LIGHT_STRIP_DP, sway,
             aimAngleRad = if (aimMode) aimAngleRad else null,
         )
+        // Performance fix 9 — the coil Paths, cached per
+        // geometry (see coilPathsFor): the Canvas used to
+        // rebuild all three Paths (ribbon + shadow +
+        // highlight) and recompute the ribbon points on
+        // every draw. The geometry is a data class, so
+        // remember(g) only rebuilds when the lamp actually
+        // moved; density is a second key (the shadow and
+        // highlight offsets are in density-scaled pixels).
+        val coilFirstPaths = remember(g, density) {
+            coilPathsFor(
+                CoilCubic(g.coilP0, g.coilP1, g.coilP2, g.coilP3),
+                g.coilTurnsFirst, g.coilAmplitudePx, density,
+            )
+        }
+        val coilSecondPaths = remember(g, density) {
+            g.coilSecond?.let {
+                coilPathsFor(it, g.coilTurnsSecond, g.coilAmplitudePx, density)
+            }
+        }
         // The pool reaches the GL view on every move — the
         // shader is what lights the picture (see the file
         // header); the overlay only draws the pool itself on
@@ -1260,25 +1312,16 @@ fun WormLightOverlay(
             // on the right flank routes over the top and down
             // that flank, so the spine has a second cubic
             // there (the loops split across the two by
-            // length, so they stay evenly spaced).
-            fun drawCoil(cubic: CoilCubic, turns: Int) {
-                val ribbon = Path().apply {
-                    val pts = coilRibbonPoints(
-                        cubic.p0, cubic.p1, cubic.p2, cubic.p3,
-                        turns, g.coilAmplitudePx,
-                    )
-                    moveTo(pts.first().x, pts.first().y)
-                    for (p in pts.drop(1)) lineTo(p.x, p.y)
-                }
+            // length, so they stay evenly spaced). The Paths
+            // are cached per geometry (see coilPathsFor, above
+            // the Canvas); onDraw only issues the three strokes.
+            fun drawCoil(paths: Triple<Path, Path, Path>) {
+                val (ribbon, shadow, highlight) = paths
                 // A real cord is a tube, not a line: a soft
                 // shadow under it, the hardware-coloured
                 // body, and a bright edge along its top —
                 // so the loops read as a coiled cable
                 // instead of a drawn squiggle.
-                val shadow = Path().apply {
-                    addPath(ribbon)
-                    translate(Offset(0.5f * density, 0.75f * density))
-                }
                 drawPath(
                     shadow,
                     Color.Black.copy(alpha = 0.35f),
@@ -1292,10 +1335,6 @@ fun WormLightOverlay(
                     hw,
                     style = Stroke(width = g.coilStrokePx, cap = StrokeCap.Round),
                 )
-                val highlight = Path().apply {
-                    addPath(ribbon)
-                    translate(Offset(0f, -0.75f * density))
-                }
                 drawPath(
                     highlight,
                     Color.White.copy(alpha = 0.30f),
@@ -1305,11 +1344,8 @@ fun WormLightOverlay(
                     ),
                 )
             }
-            drawCoil(
-                CoilCubic(g.coilP0, g.coilP1, g.coilP2, g.coilP3),
-                g.coilTurnsFirst,
-            )
-            g.coilSecond?.let { drawCoil(it, g.coilTurnsSecond) }
+            drawCoil(coilFirstPaths)
+            coilSecondPaths?.let { drawCoil(it) }
             // The head itself — drawn by the shared helper,
             // so the drag layer in GameScreen draws the same
             // head. The power light draws over the player

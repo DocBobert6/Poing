@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.material3.Button
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.State
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -110,7 +111,13 @@ fun TopBarRow(
 fun FloatingPlayerStatus(
     paused: Boolean,
     recording: Boolean,
-    recordingElapsed: Long,
+    // Performance fix 9 — the clock as a State, not a Long:
+    // this composable is always composed at the root Box, so
+    // a Long would re-execute the whole GameScreen scope on
+    // every 1s tick. Reading .value inside the REC Text scopes
+    // the recomposition to that tiny Row. (TopBarRow keeps its
+    // Long: it is composed only while the bar is visible.)
+    recordingElapsedState: State<Long>,
     barVisible: Boolean,
     modifier: Modifier = Modifier,
 ) {
@@ -127,7 +134,7 @@ fun FloatingPlayerStatus(
         if (recording && !barVisible) {
             Spacer(Modifier.width(8.dp))
             Text(
-                text = "● REC ${recordingElapsed / 60}:${"%02d".format(recordingElapsed % 60)}",
+                text = "● REC ${recordingElapsedState.value / 60}:${"%02d".format(recordingElapsedState.value % 60)}",
                 color = Color.Red,
             )
         }

@@ -50,6 +50,9 @@ object Bridge {
 
     /** Drains up to [maxFrames] stereo frames into [samples]; returns frames read. */
     external fun nativeReadAudio(samples: ShortArray, maxFrames: Int): Int
+
+    /** Performance fix 9 — off-speed / muted: the native resampler drops the batch without resampling. */
+    external fun nativeSetAudioDiscard(discard: Boolean)
     external fun nativeSetInput(mask: Int)
 
     /** Set one core option (see bridge.cpp). False for an unknown key. */

@@ -295,6 +295,93 @@ static void test_dirty_detection(void) {
     CHECK(frame_is_new(g_frame_w, g_frame_h) == true);
 }
 
+/* Performance fix 9 — the fixed-point resampler: Q16.16
+ * position/step, a power-of-two ring mask instead of the
+ * modulo, and the discard flag. The reference is the double
+ * math the old code did: at 32768 Hz in, the step is
+ * 44739 (Q16.16), so the first outputs of a 0,100,200...
+ * ramp are 0, 68, 136 — pinned exactly, not approximately.
+ */
+static void test_audio_resample(void) {
+    /* 32768 Hz in, 48000 Hz out. */
+    g_resample_rate = 32768.0;
+    g_resample_step_fp = (int32_t)(32768.0 * 65536.0 / 48000.0);
+    if (g_resample_step_fp < 1)
+        g_resample_step_fp = 1;
+    g_resample_pos_fp = 0;
+    g_resample_have_prev = false;
+    g_audio_head = 0;
+    g_audio_tail = 0;
+    g_audio_count = 0;
+    g_audio_overflow = false;
+    g_audio_discard.store(false);
+
+    /* A ramp: 100 input frames, L = R = i * 100. The first
+     * sample seeds prev (no output); the rest interpolate. */
+    int16_t in[200];
+    for (int i = 0; i < 100; ++i) {
+        in[i * 2] = (int16_t)(i * 100);
+        in[i * 2 + 1] = (int16_t)(i * 100);
+    }
+    bridge_audio_push(in, 100);
+    /* ~99 intervals * 48000/32768 = ~145 outputs. */
+    CHECK(g_audio_count > 130 && g_audio_count < 150);
+    /* The output is the ramp, interpolated: first 0, then
+     * 68 (100 * 44739 / 65536), then 136. */
+    CHECK(g_audio_ring[0] == 0);
+    CHECK(g_audio_ring[2] == 68);
+    CHECK(g_audio_ring[4] == 136);
+    /* Monotone, and the last output is in the final
+     * interval [9800, 9900]. */
+    for (int i = 1; i < g_audio_count; ++i) {
+        CHECK(g_audio_ring[i * 2] >= g_audio_ring[(i - 1) * 2]);
+    }
+    int16_t last = g_audio_ring[(g_audio_count - 1) * 2];
+    CHECK(last >= 9800 && last <= 9900);
+
+    /* Discard: the batch is dropped without resampling, the
+     * count does not move, and the resampler forgets its
+     * previous sample so it re-syncs cleanly. */
+    int count_before = g_audio_count;
+    g_audio_discard.store(true);
+    bridge_audio_push(in, 100);
+    CHECK(g_audio_count == count_before);
+    CHECK(g_resample_have_prev == false);
+    g_audio_discard.store(false);
+    bridge_audio_push(in, 100);
+    CHECK(g_audio_count > count_before);
+
+    /* Ring wrap: 48000 Hz in is one output per input, so
+     * 20000 frames are 19999 outputs into a 16384-frame
+     * ring — it fills, drops the oldest, and both ends
+     * wrap to 19999 % 16384 = 3615. The sawtooth input
+     * (i % 50) * 100 keeps every sample in int16 range. */
+    g_resample_rate = 48000.0;
+    g_resample_step_fp = 65536;
+    g_resample_pos_fp = 0;
+    g_resample_have_prev = false;
+    g_audio_head = 0;
+    g_audio_tail = 0;
+    g_audio_count = 0;
+    g_audio_overflow = false;
+    int16_t saw[40000];
+    for (int i = 0; i < 20000; ++i) {
+        saw[i * 2] = (int16_t)((i % 50) * 100);
+        saw[i * 2 + 1] = (int16_t)((i % 50) * 100);
+    }
+    bridge_audio_push(saw, 20000);
+    CHECK(g_audio_count == AUDIO_RING_FRAMES);
+    CHECK(g_audio_overflow == true);
+    CHECK(g_audio_head == 3615);
+    CHECK(g_audio_tail == 3615);
+    /* Output k is input k (one per interval, at pos 0), so
+     * the oldest surviving frame is output 3615, whose
+     * value is (3615 % 50) * 100 = 1500. */
+    CHECK(g_audio_ring[g_audio_tail * 2] == 1500);
+    printf("video_test: audio resample ok (ring full %d, head/tail %d)\n",
+           g_audio_count, g_audio_head);
+}
+
 int main(void) {
     g_frame = (uint32_t *)calloc((size_t)FRAME_MAX_W * FRAME_MAX_H,
                                  sizeof(uint32_t));
@@ -314,6 +401,7 @@ int main(void) {
     test_oversize_still_drops();
     test_null_and_zero();
     test_dirty_detection();
+    test_audio_resample();
 
     free(g_frame);
     g_frame = NULL;

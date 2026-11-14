@@ -337,7 +337,13 @@ object DisplayShaders {
           col *= 1.0 - gridStrength * (1.0 - g);
           col *= uBrightness;
           col = (col - 0.5) * uContrast + 0.5;
-          col = pow(max(col, vec3(0.0)), vec3(uGamma));
+          // Performance fix 8 — the gamma pow is a no-op at
+          // the neutral 1.0 (the common case: optics off, or
+          // a steady room), so skip it there; a uniform
+          // branch costs nothing against a pow per fragment.
+          if (uGamma != 1.0) {
+            col = pow(max(col, vec3(0.0)), vec3(uGamma));
+          }
           // Worm Light realism (Robert, 2026-11-12): the
           // lamp's pool, AFTER the optics lines so the room
           // dim never cancels the lamp. An elliptical
@@ -374,14 +380,22 @@ object DisplayShaders {
           // was the coolest). The plain program samples the
           // Bitmap directly (uFlipV 0, y = 0 at the top)
           // and takes the centre as-is.
-          vec2 wlD = vTex - vec2(uWlCenter.x, 1.0 - uWlCenter.y);
-          float wlC = cos(uWlRot);
-          float wlS = sin(uWlRot);
-          vec2 wlR = vec2(wlD.x * wlC - wlD.y * wlS, wlD.x * wlS + wlD.y * wlC);
-          float wlE = dot(wlR / uWlRadii, wlR / uWlRadii);
-          float wlFall = smoothstep(1.0, 0.0, wlE);
-          float wlHot = smoothstep(0.45, 0.0, wlE);
-          col += uWlIntensity * (wlFall * 0.14 + wlHot * 0.16) * vec3(1.0, 0.82, 0.55);
+          // Performance fix 8 — the pool math (cos/sin,
+          // two smoothsteps, the ellipse) runs per fragment
+          // even at intensity 0, where it adds exactly 0.0;
+          // skip it there. The clamp stays outside: the
+          // optics lines above can still push col out of
+          // range with the lamp off.
+          if (uWlIntensity > 0.0) {
+            vec2 wlD = vTex - vec2(uWlCenter.x, 1.0 - uWlCenter.y);
+            float wlC = cos(uWlRot);
+            float wlS = sin(uWlRot);
+            vec2 wlR = vec2(wlD.x * wlC - wlD.y * wlS, wlD.x * wlS + wlD.y * wlC);
+            float wlE = dot(wlR / uWlRadii, wlR / uWlRadii);
+            float wlFall = smoothstep(1.0, 0.0, wlE);
+            float wlHot = smoothstep(0.45, 0.0, wlE);
+            col += uWlIntensity * (wlFall * 0.14 + wlHot * 0.16) * vec3(1.0, 0.82, 0.55);
+          }
           col = clamp(col, vec3(0.0), vec3(1.0));
           gl_FragColor = vec4(col, 1.0);
         }
@@ -1393,14 +1407,20 @@ object DisplayShaders {
           // is flipped there, so the centre's y flips too —
           // the same flip the grid pass does inline. 0 is
           // the direct Bitmap source, y = 0 at the top.
-          vec2 wlD = vTex - vec2(uWlCenter.x, mix(uWlCenter.y, 1.0 - uWlCenter.y, uWlFlip));
-          float wlC = cos(uWlRot);
-          float wlS = sin(uWlRot);
-          vec2 wlR = vec2(wlD.x * wlC - wlD.y * wlS, wlD.x * wlS + wlD.y * wlC);
-          float wlE = dot(wlR / uWlRadii, wlR / uWlRadii);
-          float wlFall = smoothstep(1.0, 0.0, wlE);
-          float wlHot = smoothstep(0.45, 0.0, wlE);
-          col += uWlIntensity * (wlFall * 0.14 + wlHot * 0.16) * vec3(1.0, 0.82, 0.55);
+          // Performance fix 8 — same branch as the grid
+          // pass: the pool math is skipped at intensity 0,
+          // where it adds exactly 0.0; the clamp stays
+          // outside.
+          if (uWlIntensity > 0.0) {
+            vec2 wlD = vTex - vec2(uWlCenter.x, mix(uWlCenter.y, 1.0 - uWlCenter.y, uWlFlip));
+            float wlC = cos(uWlRot);
+            float wlS = sin(uWlRot);
+            vec2 wlR = vec2(wlD.x * wlC - wlD.y * wlS, wlD.x * wlS + wlD.y * wlC);
+            float wlE = dot(wlR / uWlRadii, wlR / uWlRadii);
+            float wlFall = smoothstep(1.0, 0.0, wlE);
+            float wlHot = smoothstep(0.45, 0.0, wlE);
+            col += uWlIntensity * (wlFall * 0.14 + wlHot * 0.16) * vec3(1.0, 0.82, 0.55);
+          }
           col = clamp(col, vec3(0.0), vec3(1.0));
           gl_FragColor = vec4(col, 1.0);
         }

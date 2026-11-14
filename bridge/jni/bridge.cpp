@@ -80,6 +80,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <atomic>
 
 #include "libretro.h"
 #include "ra_client.h"
@@ -134,11 +135,28 @@ static bool g_audio_overflow = false;
 static pthread_mutex_t g_audio_mutex = PTHREAD_MUTEX_INITIALIZER;
 
 // Resampler state (input rate set from av_info after load).
+// Performance fix 9 — the position and step are fixed-point
+// Q16.16, not doubles: the push runs per output sample, and
+// the double math plus two modulos per sample were the hot
+// path. The step is set at load (see the g_av_rate setup);
+// it is clamped to at least 1, so the position always
+// advances. The lerp product is int64 (a 16-bit delta times
+// a 16-bit fraction can exceed int32), shifted back down;
+// it differs from the old double lerp by at most 1 LSB.
 static double g_resample_rate = 0.0; // core sample rate
-static double g_resample_pos = 0.0;  // position in input frames
+static int32_t g_resample_pos_fp = 0; // position in input frames, Q16.16
+static int32_t g_resample_step_fp = 65536; // input frames per output frame, Q16.16
 static int16_t g_resample_prev_l = 0;
 static int16_t g_resample_prev_r = 0;
 static bool g_resample_have_prev = false;
+
+/* Performance fix 9 — when set, bridge_audio_push drops the
+ * batch without resampling (off-speed / muted: nobody hears
+ * the samples, so the work is pure waste). Set from Kotlin
+ * (Bridge.nativeSetAudioDiscard), read on the emu thread
+ * only; the previous-sample flag is emu-thread-only too, so
+ * the discard branch resets it without the mutex. */
+static std::atomic<bool> g_audio_discard{false};
 
 // Input: player-1 joypad bitmask, bits are (1 << RETRO_DEVICE_ID_JOYPAD_*).
 static volatile int16_t g_input_mask = 0;
@@ -657,10 +675,19 @@ static void bridge_video(const void *data, unsigned width, unsigned height,
 // Spike-only linear resampler: core rate -> 48 kHz, stereo.
 // Appends resampled frames to the ring buffer; drops the oldest
 // frames (and flags it) if the reader falls behind.
+// Performance fix 9 — fixed-point Q16.16 (see the state
+// comment above) and a power-of-two ring mask: AUDIO_RING_FRAMES
+// is 16384, so (x & 16383) is the wrap, no modulo per sample.
 static void bridge_audio_push(const int16_t *data, size_t frames) {
     if (g_resample_rate <= 0.0)
         return;
-    const double step = g_resample_rate / (double)AUDIO_OUT_RATE;
+    if (g_audio_discard.load(std::memory_order_relaxed)) {
+        // Off-speed / muted: drop the batch without
+        // resampling, and forget the previous sample so the
+        // resampler re-syncs cleanly when it resumes.
+        g_resample_have_prev = false;
+        return;
+    }
     pthread_mutex_lock(&g_audio_mutex);
     for (size_t i = 0; i < frames; ++i) {
         int16_t in_l = data[i * 2];
@@ -669,31 +696,31 @@ static void bridge_audio_push(const int16_t *data, size_t frames) {
             g_resample_prev_l = in_l;
             g_resample_prev_r = in_r;
             g_resample_have_prev = true;
-            g_resample_pos = 0.0;
+            g_resample_pos_fp = 0;
             continue;
         }
-        // g_resample_pos is the position of the next output sample
-        // within [prev, cur]: 0 = at prev, 1 = at cur. Emit while it
-        // falls inside this interval, then carry the remainder.
-        while (g_resample_pos < 1.0) {
-            double t = g_resample_pos;
+        // g_resample_pos_fp is the position of the next output
+        // sample within [prev, cur], Q16.16: 0 = at prev,
+        // 65536 = at cur. Emit while it falls inside this
+        // interval, then carry the remainder.
+        while (g_resample_pos_fp < 65536) {
             int32_t out_l = (int32_t)(g_resample_prev_l +
-                (in_l - g_resample_prev_l) * t);
+                (((int64_t)(in_l - g_resample_prev_l) * g_resample_pos_fp) >> 16));
             int32_t out_r = (int32_t)(g_resample_prev_r +
-                (in_r - g_resample_prev_r) * t);
+                (((int64_t)(in_r - g_resample_prev_r) * g_resample_pos_fp) >> 16));
             if (g_audio_count >= AUDIO_RING_FRAMES) {
                 // Reader is behind: drop the oldest frame.
-                g_audio_tail = (g_audio_tail + 1) % AUDIO_RING_FRAMES;
+                g_audio_tail = (g_audio_tail + 1) & (AUDIO_RING_FRAMES - 1);
                 g_audio_count--;
                 g_audio_overflow = true;
             }
             g_audio_ring[g_audio_head * 2] = (int16_t)out_l;
             g_audio_ring[g_audio_head * 2 + 1] = (int16_t)out_r;
-            g_audio_head = (g_audio_head + 1) % AUDIO_RING_FRAMES;
+            g_audio_head = (g_audio_head + 1) & (AUDIO_RING_FRAMES - 1);
             g_audio_count++;
-            g_resample_pos += step;
+            g_resample_pos_fp += g_resample_step_fp;
         }
-        g_resample_pos -= 1.0;
+        g_resample_pos_fp -= 65536;
         g_resample_prev_l = in_l;
         g_resample_prev_r = in_r;
     }
@@ -802,7 +829,13 @@ Java_app_poing_Bridge_nativeLoadGame(JNIEnv *env, jobject /* thiz */,
     g_av_fps = av.timing.fps;
     g_av_rate = av.timing.sample_rate;
     g_resample_rate = g_av_rate;
-    g_resample_pos = 0.0;
+    // Performance fix 9 — the fixed-point resampler step,
+    // Q16.16: input frames per output frame. Clamped to at
+    // least 1, so the position always advances.
+    g_resample_step_fp = (int32_t)(g_av_rate * 65536.0 / (double)AUDIO_OUT_RATE);
+    if (g_resample_step_fp < 1)
+        g_resample_step_fp = 1;
+    g_resample_pos_fp = 0;
     g_resample_have_prev = false;
     g_loaded = true;
     LOGI("game loaded: %dx%d @ %.3f fps, audio %.1f Hz",
@@ -898,11 +931,21 @@ Java_app_poing_Bridge_nativeReadAudio(JNIEnv *env, jobject /* thiz */,
             env->SetShortArrayRegion(samples, first * 2, (frames - first) * 2,
                                      (const jshort *)g_audio_ring);
         }
-        g_audio_tail = (g_audio_tail + frames) % AUDIO_RING_FRAMES;
+        g_audio_tail = (g_audio_tail + frames) & (AUDIO_RING_FRAMES - 1);
         g_audio_count -= frames;
     }
     pthread_mutex_unlock(&g_audio_mutex);
     return frames;
+}
+
+JNIEXPORT void JNICALL
+Java_app_poing_Bridge_nativeSetAudioDiscard(JNIEnv *env, jobject /* thiz */,
+                                            jboolean discard) {
+    (void)env;
+    // Performance fix 9 — off-speed / muted: the native
+    // resampler drops the batch instead of doing work
+    // nobody hears (see bridge_audio_push).
+    g_audio_discard.store(discard == JNI_TRUE, std::memory_order_relaxed);
 }
 
 JNIEXPORT void JNICALL

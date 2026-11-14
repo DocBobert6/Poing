@@ -1,6 +1,7 @@
 package app.poing
 
 import android.graphics.Bitmap
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -123,5 +124,53 @@ class DisplayRendererTest {
             reconGrid = false,
         )
         assertFalse(renderer.reconGrid)
+    }
+
+    /**
+     * Performance fix 8 — the per-system edge parameters
+     * are computed once in setDisplay, not allocated fresh
+     * every frame in drawEdge/drawRecon. GBC and GBA have
+     * different thresholds, so the stored params must follow
+     * the system, not the default.
+     */
+    @Test
+    fun setDisplayStoresEdgeParamsForTheSystem() {
+        val renderer = DisplayRenderer()
+        renderer.setDisplay(
+            DisplayChain.CLEAN,
+            JadeMode.FSTN,
+            EdgeMode.OFF,
+            GameSystem.GBC,
+        )
+        assertEquals(EdgeSmoothing.edgeParamsFor(GameSystem.GBC), renderer.edgeParams)
+        renderer.setDisplay(
+            DisplayChain.CLEAN,
+            JadeMode.FSTN,
+            EdgeMode.OFF,
+            GameSystem.GBA,
+        )
+        assertEquals(EdgeSmoothing.edgeParamsFor(GameSystem.GBA), renderer.edgeParams)
+    }
+
+    /**
+     * Performance fix 9 — the chain, edge and recon programs
+     * are built lazily on first use. Under Robolectric there
+     * is no GL context, so a build fails; the ensure
+     * functions must report false (and the caller falls back
+     * to plain), not throw — and a failed build is attempted
+     * once, so a second call still reports false without
+     * retrying the compile.
+     */
+    @Test
+    fun ensureProgramsReportFalseWithoutAGlContext() {
+        val renderer = DisplayRenderer()
+        assertFalse(renderer.ensureColourProgram())
+        assertFalse(renderer.ensureGridProgram())
+        assertFalse(renderer.ensureChainPrograms())
+        assertFalse(renderer.ensureEdgeProgram())
+        assertFalse(renderer.ensureReconPrograms())
+        // No retry: the attempted flags hold.
+        assertFalse(renderer.ensureColourProgram())
+        assertFalse(renderer.ensureReconPrograms())
     }
 }

@@ -134,7 +134,13 @@ fun GameScreen(
     // FileDescriptor the recorder's muxer writes to — closed
     // when the recording stops or the player leaves).
     var recording by remember { mutableStateOf(false) }
-    var recordingElapsed by remember { mutableStateOf(0L) }
+    // Performance fix 9 — the REC clock state object, passed
+    // to FloatingPlayerStatus so the 1s tick recomposes only
+    // the tiny REC row (see PlayerTopBar.kt), not the whole
+    // GameScreen scope. The delegate var stays for the
+    // bar-visible TopBarRow and the tick/reset writes.
+    val recordingElapsedState = remember { mutableStateOf(0L) }
+    var recordingElapsed by recordingElapsedState
     var videoOutput by remember { mutableStateOf<CaptureStore.VideoOutput?>(null) }
     val captureScope = rememberCoroutineScope()
     var pauseMessage by remember { mutableStateOf<String?>(null) }
@@ -994,7 +1000,7 @@ fun GameScreen(
         FloatingPlayerStatus(
             paused = paused,
             recording = recording,
-            recordingElapsed = recordingElapsed,
+            recordingElapsedState = recordingElapsedState,
             barVisible = barVisible,
             modifier = Modifier.align(Alignment.TopStart),
         )

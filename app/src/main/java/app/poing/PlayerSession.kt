@@ -6,7 +6,9 @@ import android.media.AudioFormat
 import android.media.AudioTrack
 import android.os.Handler
 import android.os.Looper
+import android.os.Process
 import android.util.Log
+import java.util.concurrent.Executors
 
 /**
  * Phase 2 spike session: owns the emulation thread, the audio thread,
@@ -164,12 +166,44 @@ class PlayerSession(
     private var audioTrack: AudioTrack? = null
     private val mainHandler = Handler(Looper.getMainLooper())
 
+    /**
+     * Performance fix 9 — the save writes (battery flush on
+     * pause, auto-save on quit) run on a single background
+     * thread, not the UI thread: the file write, the full
+     * serialize and the PNG thumbnail encode used to hitch
+     * pause/quit. One thread, in order, so a pause flush and
+     * a quit auto-save can never race each other; the lock
+     * guards flushSave against a direct call from the emu
+     * loop's tail. The thread is a daemon, so it can never
+     * hold the process open; stop() shuts the executor down
+     * after the joins, so a session leaves no parked thread
+     * behind.
+     */
+    private val saveIoExecutor = Executors.newSingleThreadExecutor { runnable ->
+        Thread(runnable, "poing-save-io").apply { isDaemon = true }
+    }
+    private val saveFlushLock = Any()
+
     @Volatile
     private var inputMask = 0
 
     /** The latest frame drawn, for save-state thumbnails. Written by the emu loop, read only while paused (the loop is idle then, so the Bitmap is stable). */
     @Volatile
     private var latestFrame: Bitmap? = null
+
+    /**
+     * Performance fix 8 — the frame post reuses one Runnable:
+     * the emu loop used to allocate a posting lambda every
+     * frame (60x/s). The Runnable reads the latest frame the
+     * loop just published (volatile, double-buffered, so the
+     * Bitmap it hands over is stable); if the main thread is
+     * behind and two posts queue up, the second simply
+     * re-delivers the newest frame — a drop, never a stale
+     * one, which is what the consumed-flag fix already does.
+     */
+    private val framePostRunnable = Runnable {
+        latestFrame?.let { onFrame(it) }
+    }
 
     /** The latest frame drawn, for screenshots (null before the first frame). */
     fun latestFrameBitmap(): Bitmap? = latestFrame
@@ -374,6 +408,12 @@ class PlayerSession(
 
     fun setSpeed(speed: PlaySpeed) {
         this.speed = speed
+        // Performance fix 9 — off-speed, the audio ring is
+        // drained and discarded, so the native resampler
+        // stops doing work nobody hears. Guard on loaded, as
+        // setInput does: a native call before load would hit
+        // a library that never loaded.
+        if (loaded) Bridge.nativeSetAudioDiscard(speed != PlaySpeed.NORMAL)
     }
 
     /** Pause the game: the emu loop idles (no retro_run) and the audio is silenced. The game stays loaded. */
@@ -403,8 +443,12 @@ class PlayerSession(
             }
         }
         // The core is idle now: flush the battery save while it is
-        // safe to read the live save-RAM buffer.
-        flushSave()
+        // safe to read the live save-RAM buffer. Performance fix 9
+        // — the write runs on the save-IO thread, not the UI thread
+        // (the file write used to hitch pause); the emu-loop tail
+        // drains the queue before unload, so the flush provably
+        // finishes before the game goes away.
+        saveIoExecutor.submit(Runnable { synchronized(saveFlushLock) { flushSave() } })
         // Bank the run's playtime while the core is idle.
         bankPlaytime()
     }
@@ -501,6 +545,15 @@ class PlayerSession(
      * without a battery, and any game that never saves).
      */
     fun flushSave(): Boolean {
+        // Performance fix 9 — the lock guards the write
+        // against a concurrent submit from pause()/stop():
+        // the save-IO thread runs one at a time, but a
+        // direct call from the emu-loop tail could overlap
+        // one still queued.
+        synchronized(saveFlushLock) { return flushSaveLocked() }
+    }
+
+    private fun flushSaveLocked(): Boolean {
         if (!loaded) return false
         val saveSize = Bridge.nativeSaveRamSize()
         if (saveSize <= 0) return false
@@ -571,6 +624,17 @@ class PlayerSession(
     /** Write the auto-save state (the dedicated auto slot). Only while paused — same rule as saveState. */
     fun saveAutoState(): Boolean {
         if (!loaded || !paused) return false
+        return saveAutoStateNow()
+    }
+
+    /**
+     * Performance fix 9 — the auto-save body, with no
+     * loaded/paused guards: the caller evaluates the guards
+     * at submit time, and the write runs on the save-IO
+     * thread. Only while the emu loop is idle (pause, or
+     * the stop() tail draining the queue before unload).
+     */
+    private fun saveAutoStateNow(): Boolean {
         if (!serializeTo(saveStore.autoStateFile(saveBase))) return false
         try {
             writeThumbnail(saveStore.autoThumbnailFile(saveBase))
@@ -776,7 +840,11 @@ class PlayerSession(
         // Never started (or a failed start) is a no-op: loaded is
         // false, so nothing is written.
         if (loaded && running && !paused) pause()
-        if (loaded && paused) saveAutoState()
+        // Performance fix 9 — the auto-save write runs on
+        // the save-IO thread; the emu-loop tail drains the
+        // queue before unload, so the write provably finishes
+        // before the game goes away.
+        if (loaded && paused) saveIoExecutor.submit(Runnable { saveAutoStateNow() })
         // Any run not already banked by pause() (a no-op when the
         // stamp is already cleared).
         bankPlaytime()
@@ -801,6 +869,14 @@ class PlayerSession(
         }
         emuThread = null
         audioThread = null
+        // Performance fix 9 — the save-IO thread is done: the
+        // emu-loop tail already drained the queue before the
+        // joins returned, so nothing is left to write. Shut
+        // it down, or every game start would leave a parked
+        // daemon thread behind. (shutdown lets any task
+        // submitted before it finish; nothing submits after
+        // stop — the session is dead.)
+        saveIoExecutor.shutdown()
         // RetroAchievements (Phase 6, item 8): the game is gone,
         // so the per-game RA state goes with it (the login stays).
         RaClient.onGameQuit()
@@ -983,7 +1059,7 @@ class PlayerSession(
                     // Bitmap is stable until the next swap — the
                     // next frame writes the other buffer).
                     if (videoRecorder.isRecording) videoRecorder.recordFrame(frame)
-                    mainHandler.post { onFrame(frame) }
+                    mainHandler.post(framePostRunnable)
                 } else {
                     // Geometry changed mid-game; the spike drops the
                     // frame rather than guessing.
@@ -1021,6 +1097,15 @@ class PlayerSession(
         }
 
         stopAudio()
+        // Performance fix 9 — drain the save-IO queue before
+        // unload: a pause flush or a quit auto-save submitted
+        // above must finish before the game unloads, or the
+        // serialize could race nativeUnloadGame. The no-op
+        // task waits for everything queued ahead of it.
+        try {
+            saveIoExecutor.submit(Runnable {}).get()
+        } catch (_: Exception) {
+        }
         // Flush the battery save before unload — the core never
         // writes it itself, and unload is the last chance.
         flushSave()
@@ -1056,10 +1141,17 @@ class PlayerSession(
             .build()
         audioTrack = track
         track.play()
+        // Performance fix 9 — a game loaded at non-normal
+        // speed starts discarded, matching setSpeed.
+        Bridge.nativeSetAudioDiscard(speed != PlaySpeed.NORMAL)
         audioThread = Thread(::audioLoop, "poing-audio").also { it.start() }
     }
 
     private fun audioLoop() {
+        // Performance fix 9 — the audio thread gets the
+        // audio priority, so the mixer never starves behind
+        // the emu loop.
+        Process.setThreadPriority(Process.THREAD_PRIORITY_AUDIO)
         val track = audioTrack ?: return
         val samples = ShortArray(4096 * 2) // stereo frames * 2 channels
         while (running) {
@@ -1089,8 +1181,13 @@ class PlayerSession(
                     track.write(samples, 0, frames * 2, AudioTrack.WRITE_BLOCKING)
                 }
             } else {
+                // Performance fix 9 — the ring is empty, so
+                // there is nothing to drain: 20 ms, not 5.
+                // The ring holds ~341 ms, so a 20 ms wait
+                // cannot starve it, and it cuts the polling
+                // wakeups from up to 200/s to up to 50/s.
                 try {
-                    Thread.sleep(5)
+                    Thread.sleep(20)
                 } catch (e: InterruptedException) {
                     break
                 }

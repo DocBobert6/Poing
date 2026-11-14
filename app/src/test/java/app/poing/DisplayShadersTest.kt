@@ -592,4 +592,28 @@ class DisplayShadersTest {
             assertFalse("shader source must not contain '$word'", lower.contains(word))
         }
     }
+
+    @Test
+    fun gridPassSkipsGammaPowAtNeutralGamma() {
+        // Performance fix 8 — the gamma pow ran on every
+        // fragment even at the neutral 1.0; it is branched
+        // on the uniform now (the pow itself is unchanged).
+        val src = DisplayShaders.GRID_FRAGMENT
+        assertTrue(src.contains("if (uGamma != 1.0)"))
+        assertTrue(src.contains("col = pow(max(col, vec3(0.0)), vec3(uGamma));"))
+    }
+
+    @Test
+    fun gridAndPlainPassesSkipPoolMathAtZeroIntensity() {
+        // Performance fix 8 — the Worm Light pool math ran
+        // per fragment even at intensity 0, where it adds
+        // exactly 0.0; both passes branch on it now, with
+        // the clamp outside the branch (the optics lines
+        // above can still push col out of range with the
+        // lamp off).
+        for (src in listOf(DisplayShaders.GRID_FRAGMENT, DisplayShaders.PLAIN_FRAGMENT)) {
+            assertTrue(src.contains("if (uWlIntensity > 0.0)"))
+            assertTrue(src.contains("col = clamp(col, vec3(0.0), vec3(1.0));"))
+        }
+    }
 }

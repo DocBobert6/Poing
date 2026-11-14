@@ -72,6 +72,16 @@ class DisplayRenderer : GLSurfaceView.Renderer {
     private var edgeSystem: GameSystem = GameSystem.GB
 
     /**
+     * Performance fix 8 — the per-system edge parameters,
+     * computed once in setDisplay instead of once per frame
+     * in drawEdge/drawRecon (EdgeSmoothing.edgeParamsFor
+     * allocates a new EdgeParams every call). Internal so
+     * tests can observe what setDisplay stored.
+     */
+    @Volatile
+    internal var edgeParams: EdgeParams = EdgeSmoothing.edgeParamsFor(GameSystem.GB)
+
+    /**
      * Task 6 (2026-11-14) — DLSS-in-spirit reconstruction:
      * the mode in effect, and the system it reconstructs
      * for. Recon on means the chain and the edge mode are
@@ -139,6 +149,20 @@ class DisplayRenderer : GLSurfaceView.Renderer {
     private var reconA1Program = 0
     private var reconA2Program = 0
     private var reconBProgram = 0
+
+    /**
+     * Performance fix 9 — whether each lazy program has
+     * been attempted in this EGL context. A failed build is
+     * attempted once; the same source on the same driver
+     * cannot succeed on retry, and retrying every frame
+     * would cost a compile per frame. Reset in
+     * onSurfaceCreated, so a lost context tries again.
+     */
+    private var colourProgramAttempted = false
+    private var gridProgramAttempted = false
+    private var edgeProgramAttempted = false
+    private var reconProgramsAttempted = false
+
     private var frameTextureId = 0
     private var fboTextureId = 0
     private var gammaLutTextureId = 0
@@ -180,8 +204,30 @@ class DisplayRenderer : GLSurfaceView.Renderer {
     private var fboW = 0
     private var fboH = 0
 
-    /** Uniform locations, cached at link time. */
-    private val uniformLocs = HashMap<String, Int>()
+    /**
+     * Uniform locations, cached at link time, per program —
+     * so no "$prog:$name" String is built per lookup
+     * (Performance fix 8: ~15-20 lookups a frame).
+     */
+    private val uniformLocs = HashMap<Int, HashMap<String, Int>>()
+
+    /**
+     * Attribute locations, cached at link time alongside
+     * the uniforms (Performance fix 8): drawQuad used to
+     * call glGetAttribLocation twice per quad per pass.
+     * Cleared with the uniform cache when the EGL context
+     * is lost and the programs are rebuilt.
+     */
+    private val attribLocs = HashMap<Int, Pair<Int, Int>>()
+
+    /**
+     * The Worm Light pool last uploaded to each program
+     * (Performance fix 8): setWormLightUniforms skips the
+     * four calls when the pool for that program is
+     * unchanged. Cleared with the location caches when
+     * the EGL context is lost.
+     */
+    private val wlUniformsByProg = HashMap<Int, WormLightPool>()
 
     /**
      * Performance fix 5 — backpressure: true once the GL
@@ -230,6 +276,10 @@ class DisplayRenderer : GLSurfaceView.Renderer {
         this.jadeMode = jadeMode
         this.edgeMode = edge
         this.edgeSystem = system
+        // Performance fix 8 — the per-system parameters are
+        // a pure function of the system, so they are computed
+        // here, once per display change, not once per frame.
+        this.edgeParams = EdgeSmoothing.edgeParamsFor(system)
         this.reconMode = recon
         this.reconSystem = system
         this.reconGrid = reconGrid
@@ -275,37 +325,29 @@ class DisplayRenderer : GLSurfaceView.Renderer {
         GLES20.glClearColor(0f, 0f, 0f, 1f)
         GLES20.glDisable(GLES20.GL_CULL_FACE)
         GLES20.glDisable(GLES20.GL_DEPTH_TEST)
-        colourProgram = buildProgram(DisplayShaders.VERTEX, DisplayShaders.COLOUR_FRAGMENT)
-        if (colourProgram == 0) {
-            Log.e(TAG, "Colour program failed to compile; the chain falls back to plain")
-        }
-        gridProgram = buildProgram(DisplayShaders.VERTEX, DisplayShaders.GRID_FRAGMENT)
-        if (gridProgram == 0) {
-            Log.e(TAG, "Grid program failed to compile; the chain falls back to plain")
-        }
-        edgeProgram = buildProgram(DisplayShaders.VERTEX, DisplayShaders.EDGE_FRAGMENT)
-        if (edgeProgram == 0) {
-            Log.e(TAG, "Edge program failed to compile; edge smoothing falls back to plain")
-        }
+        // Performance fix 9 — only the plain program is built
+        // here: the chain, edge and reconstruction programs
+        // are built lazily on first use (see the ensure*
+        // functions), so a cold start with everything off
+        // pays one program instead of seven. The handles and
+        // the attempted flags reset here, so a lost EGL
+        // context rebuilds on next use; the location caches
+        // clear too, so a rebuilt program never meets a stale
+        // handle's locations.
+        colourProgram = 0
+        gridProgram = 0
+        edgeProgram = 0
+        reconA1Program = 0
+        reconA2Program = 0
+        reconBProgram = 0
+        colourProgramAttempted = false
+        gridProgramAttempted = false
+        edgeProgramAttempted = false
+        reconProgramsAttempted = false
+        uniformLocs.clear()
+        attribLocs.clear()
+        wlUniformsByProg.clear()
         plainProgram = buildProgram(DisplayShaders.VERTEX, DisplayShaders.PLAIN_FRAGMENT)
-        // Task 6 — the reconstruction programs: A1 (the
-        // 3x3 detectors + corrected colour + pattern map),
-        // A2 (the 5x5 field + class + collapse), B (the
-        // line reconstruction at display size). A failed
-        // program falls back to plain, so the game stays
-        // visible.
-        reconA1Program = buildProgram(DisplayShaders.VERTEX, DisplayShaders.RECON_A1_FRAGMENT)
-        if (reconA1Program == 0) {
-            Log.e(TAG, "Recon A1 program failed to compile; reconstruction falls back to plain")
-        }
-        reconA2Program = buildProgram(DisplayShaders.VERTEX, DisplayShaders.RECON_A2_FRAGMENT)
-        if (reconA2Program == 0) {
-            Log.e(TAG, "Recon A2 program failed to compile; reconstruction falls back to plain")
-        }
-        reconBProgram = buildProgram(DisplayShaders.VERTEX, DisplayShaders.RECON_B_FRAGMENT)
-        if (reconBProgram == 0) {
-            Log.e(TAG, "Recon B program failed to compile; reconstruction falls back to plain")
-        }
         val frameTex = IntArray(1)
         GLES20.glGenTextures(1, frameTex, 0)
         frameTextureId = frameTex[0]
@@ -401,6 +443,9 @@ class DisplayRenderer : GLSurfaceView.Renderer {
         // failed recon program falls back to plain, so the
         // game stays visible.
         if (reconMode != ReconMode.OFF) {
+            // Performance fix 9 — the reconstruction programs
+            // are built lazily on first use.
+            ensureReconPrograms()
             if (reconA1Program != 0 && reconA2Program != 0 && reconBProgram != 0) {
                 drawRecon()
             } else {
@@ -412,6 +457,7 @@ class DisplayRenderer : GLSurfaceView.Renderer {
         // caller resolves that); a failed edge program falls
         // back to plain, so the game stays visible.
         if (edgeMode != EdgeMode.OFF) {
+            ensureEdgeProgram()
             if (edgeProgram != 0) {
                 drawEdge()
             } else {
@@ -419,6 +465,9 @@ class DisplayRenderer : GLSurfaceView.Renderer {
             }
             return
         }
+        // Performance fix 9 — the chain programs are built
+        // lazily on first chain use.
+        if (chain != DisplayChain.CLEAN) ensureChainPrograms()
         if (chain == DisplayChain.CLEAN || colourProgram == 0 || gridProgram == 0) {
             drawPlain()
             return
@@ -511,12 +560,24 @@ class DisplayRenderer : GLSurfaceView.Renderer {
         lastDrawPath = DrawPath.CHAIN
     }
 
-    /** The Worm Light's pool uniforms, shared by the grid and the plain programs. */
-    private fun setWormLightUniforms(prog: Int) {
-        GLES20.glUniform2f(uniform(prog, "uWlCenter"), wormLight.center.x, wormLight.center.y)
-        GLES20.glUniform2f(uniform(prog, "uWlRadii"), wormLight.radii.x, wormLight.radii.y)
-        GLES20.glUniform1f(uniform(prog, "uWlRot"), wormLight.rotationRad)
-        GLES20.glUniform1f(uniform(prog, "uWlIntensity"), wormLight.intensity)
+    /**
+     * The Worm Light's pool uniforms, shared by the grid and
+     * the plain programs. Performance fix 8 — the four calls
+     * went out per pass per frame even with the pool off;
+     * they now go out only when the pool for this program
+     * changed (the cache is per program: each program keeps
+     * its own uploaded values). The pool argument is the pool
+     * to upload — the recon grid pass uploads a
+     * zero-intensity pool, so its cache entry is that pool,
+     * and the next real upload is not skipped by mistake.
+     */
+    private fun setWormLightUniforms(prog: Int, pool: WormLightPool = wormLight) {
+        if (wlUniformsByProg[prog] == pool) return
+        GLES20.glUniform2f(uniform(prog, "uWlCenter"), pool.center.x, pool.center.y)
+        GLES20.glUniform2f(uniform(prog, "uWlRadii"), pool.radii.x, pool.radii.y)
+        GLES20.glUniform1f(uniform(prog, "uWlRot"), pool.rotationRad)
+        GLES20.glUniform1f(uniform(prog, "uWlIntensity"), pool.intensity)
+        wlUniformsByProg[prog] = pool
     }
 
     /**
@@ -545,7 +606,10 @@ class DisplayRenderer : GLSurfaceView.Renderer {
             viewW.toFloat() / frameW,
             viewH.toFloat() / frameH,
         )
-        val params = EdgeSmoothing.edgeParamsFor(reconSystem)
+        // Performance fix 8 — the per-system parameters are
+        // computed once in setDisplay (see edgeParams), not
+        // allocated fresh every frame.
+        val params = edgeParams
         // Pass A1 — detectors + colour-fold, native size,
         // into texA. The source is the frame Bitmap, and a
         // Bitmap texture reads true row v — but the pass
@@ -625,6 +689,10 @@ class DisplayRenderer : GLSurfaceView.Renderer {
         // failed. The source is texB (a framebuffer
         // texture), so V flips (uFlipV 1), as in the
         // chain's grid pass and the edge pass's blit.
+        // Performance fix 9 — the grid program is built
+        // lazily; the reconstruction's grid pass needs it
+        // even with the chain off.
+        if (reconGrid) ensureGridProgram()
         val gridOn = reconGrid && gridProgram != 0 && ensureFbo(viewW, viewH)
         GLES20.glBindFramebuffer(
             GLES20.GL_FRAMEBUFFER,
@@ -699,8 +767,7 @@ class DisplayRenderer : GLSurfaceView.Renderer {
         GLES20.glUniform1f(uniform(gridProgram, "uBrightness"), 1f)
         GLES20.glUniform1f(uniform(gridProgram, "uContrast"), 1f)
         GLES20.glUniform1f(uniform(gridProgram, "uGamma"), 1f)
-        setWormLightUniforms(gridProgram)
-        GLES20.glUniform1f(uniform(gridProgram, "uWlIntensity"), 0f)
+        setWormLightUniforms(gridProgram, wormLight.copy(intensity = 0f))
         GLES20.glActiveTexture(GLES20.GL_TEXTURE0)
         GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, fboTextureId)
         drawQuad(gridProgram)
@@ -788,7 +855,7 @@ class DisplayRenderer : GLSurfaceView.Renderer {
      * pass 1 runs at display size.
      */
     private fun drawEdge() {
-        val params = EdgeSmoothing.edgeParamsFor(edgeSystem)
+        val params = edgeParams
         // Pass 0 — colour, at the native size, into the edge
         // colour framebuffer (performance fix 7): the fold
         // runs once per texel here, not once per display
@@ -1119,9 +1186,12 @@ class DisplayRenderer : GLSurfaceView.Renderer {
 
     private fun drawQuad(prog: Int) {
         if (quadVbo == 0) return
+        // Performance fix 8 — the attribute locations are
+        // cached at link time (see buildProgram); a program
+        // with no cached pair is not built, so there is
+        // nothing to draw.
+        val (aPos, aTex) = attribLocs[prog] ?: return
         GLES20.glBindBuffer(GLES20.GL_ARRAY_BUFFER, quadVbo)
-        val aPos = GLES20.glGetAttribLocation(prog, "aPos")
-        val aTex = GLES20.glGetAttribLocation(prog, "aTex")
         GLES20.glEnableVertexAttribArray(aPos)
         GLES20.glVertexAttribPointer(aPos, 2, GLES20.GL_FLOAT, false, 16, 0)
         GLES20.glEnableVertexAttribArray(aTex)
@@ -1133,8 +1203,103 @@ class DisplayRenderer : GLSurfaceView.Renderer {
     }
 
     private fun uniform(prog: Int, name: String): Int {
-        val key = "$prog:$name"
-        return uniformLocs.getOrPut(key) { GLES20.glGetUniformLocation(prog, name) }
+        // Performance fix 8 — the per-program map, so no
+        // "$prog:$name" String is built per lookup.
+        return uniformLocs.getOrPut(prog) { HashMap() }
+            .getOrPut(name) { GLES20.glGetUniformLocation(prog, name) }
+    }
+
+    /**
+     * Performance fix 9 — build the chain's colour program
+     * on first chain use. True when it is usable. A failed
+     * build is attempted once per EGL context; the caller
+     * falls back to plain, so the game stays visible.
+     */
+    internal fun ensureColourProgram(): Boolean {
+        if (colourProgram == 0 && !colourProgramAttempted) {
+            colourProgramAttempted = true
+            colourProgram = buildProgram(DisplayShaders.VERTEX, DisplayShaders.COLOUR_FRAGMENT)
+            if (colourProgram == 0) {
+                Log.e(TAG, "Colour program failed to compile; the chain falls back to plain")
+            }
+        }
+        return colourProgram != 0
+    }
+
+    /**
+     * Performance fix 9 — build the grid program on first
+     * use (the chain's grid pass, or the reconstruction's
+     * LCD grid). Same once-per-context rule as the colour
+     * program. A failed grid program degrades to the
+     * recon without the grid, never to plain.
+     */
+    internal fun ensureGridProgram(): Boolean {
+        if (gridProgram == 0 && !gridProgramAttempted) {
+            gridProgramAttempted = true
+            gridProgram = buildProgram(DisplayShaders.VERTEX, DisplayShaders.GRID_FRAGMENT)
+            if (gridProgram == 0) {
+                Log.e(TAG, "Grid program failed to compile; the chain falls back to plain")
+            }
+        }
+        return gridProgram != 0
+    }
+
+    /** Performance fix 9 — both chain programs, on first chain use. */
+    internal fun ensureChainPrograms(): Boolean {
+        ensureColourProgram()
+        ensureGridProgram()
+        return colourProgram != 0 && gridProgram != 0
+    }
+
+    /**
+     * Performance fix 9 — build the edge program on first
+     * edge use. Same once-per-context rule; a failed build
+     * falls back to plain.
+     */
+    internal fun ensureEdgeProgram(): Boolean {
+        if (edgeProgram == 0 && !edgeProgramAttempted) {
+            edgeProgramAttempted = true
+            edgeProgram = buildProgram(DisplayShaders.VERTEX, DisplayShaders.EDGE_FRAGMENT)
+            if (edgeProgram == 0) {
+                Log.e(TAG, "Edge program failed to compile; edge smoothing falls back to plain")
+            }
+        }
+        return edgeProgram != 0
+    }
+
+    /**
+     * Performance fix 9 — build the three reconstruction
+     * programs on first recon use. A1 (the 3x3 detectors +
+     * corrected colour + pattern map), A2 (the 5x5 field +
+     * class + collapse), B (the line reconstruction at
+     * display size). One attempted flag for the engine:
+     * the three are one unit, and a failed compile cannot
+     * succeed on retry in the same context. A failed build
+     * falls back to plain, so the game stays visible.
+     */
+    internal fun ensureReconPrograms(): Boolean {
+        if (!reconProgramsAttempted) {
+            reconProgramsAttempted = true
+            if (reconA1Program == 0) {
+                reconA1Program = buildProgram(DisplayShaders.VERTEX, DisplayShaders.RECON_A1_FRAGMENT)
+                if (reconA1Program == 0) {
+                    Log.e(TAG, "Recon A1 program failed to compile; reconstruction falls back to plain")
+                }
+            }
+            if (reconA2Program == 0) {
+                reconA2Program = buildProgram(DisplayShaders.VERTEX, DisplayShaders.RECON_A2_FRAGMENT)
+                if (reconA2Program == 0) {
+                    Log.e(TAG, "Recon A2 program failed to compile; reconstruction falls back to plain")
+                }
+            }
+            if (reconBProgram == 0) {
+                reconBProgram = buildProgram(DisplayShaders.VERTEX, DisplayShaders.RECON_B_FRAGMENT)
+                if (reconBProgram == 0) {
+                    Log.e(TAG, "Recon B program failed to compile; reconstruction falls back to plain")
+                }
+            }
+        }
+        return reconA1Program != 0 && reconA2Program != 0 && reconBProgram != 0
     }
 
     private fun buildProgram(vertexSrc: String, fragmentSrc: String): Int {
@@ -1157,6 +1322,10 @@ class DisplayRenderer : GLSurfaceView.Renderer {
             GLES20.glDeleteProgram(prog)
             return 0
         }
+        // Performance fix 8 — cache the attribute locations
+        // at link time, so drawQuad never queries them.
+        attribLocs[prog] = GLES20.glGetAttribLocation(prog, "aPos") to
+            GLES20.glGetAttribLocation(prog, "aTex")
         return prog
     }
 
