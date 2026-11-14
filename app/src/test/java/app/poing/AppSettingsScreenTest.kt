@@ -2,6 +2,8 @@ package app.poing
 
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.hasTestTag
+import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
@@ -9,6 +11,7 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performScrollToIndex
+import androidx.compose.ui.test.performScrollToNode
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -368,16 +371,33 @@ class AppSettingsScreenTest {
         composeRule.onAllNodesWithText("Developer — experimental").assertCountEquals(0)
         composeRule.onAllNodesWithText("Reconstruction (GBC)").assertCountEquals(0)
         assertFalse(AppSettingsStore(temp.root).developerUnlocked())
+        // The footer is the last item of the LazyColumn, so it
+        // is not composed until the list is scrolled to it —
+        // scroll the list to the footer node before each tap.
         repeat(6) {
-            composeRule.onNodeWithTag("version-footer").performScrollTo().performClick()
+            composeRule.onNodeWithTag("settings-list")
+                .performScrollToNode(hasTestTag("version-footer"))
+            composeRule.onNodeWithTag("version-footer").performClick()
         }
         composeRule.onAllNodesWithText("Developer — experimental").assertCountEquals(0)
         assertFalse(AppSettingsStore(temp.root).developerUnlocked())
-        composeRule.onNodeWithTag("version-footer").performScrollTo().performClick()
+        composeRule.onNodeWithTag("settings-list")
+            .performScrollToNode(hasTestTag("version-footer"))
+        composeRule.onNodeWithTag("version-footer").performClick()
         assertTrue(AppSettingsStore(temp.root).developerUnlocked())
+        composeRule.onNodeWithTag("settings-list")
+            .performScrollToNode(hasText("Developer — experimental"))
         composeRule.onNodeWithText("Developer — experimental").assertIsDisplayed()
+        composeRule.onNodeWithTag("settings-list")
+            .performScrollToNode(hasText("Reconstruction (GBC)"))
         composeRule.onNodeWithText("Reconstruction (GBC)").assertIsDisplayed()
         // The warning line, verbatim.
+        composeRule.onNodeWithTag("settings-list")
+            .performScrollToNode(
+                hasText(
+                    "Experimental. May look wrong and may use more battery. Replaces edge smoothing while on.",
+                ),
+            )
         composeRule.onNodeWithText(
             "Experimental. May look wrong and may use more battery. Replaces edge smoothing while on.",
         ).assertIsDisplayed()
@@ -397,9 +417,15 @@ class AppSettingsScreenTest {
             }
         }
         assertFalse(AppSettingsStore(temp.root).reconGbcEnabled())
-        composeRule.onNodeWithTag("recon-gbc-switch").performScrollTo().performClick()
+        // The toggle row sits below the fold in the
+        // LazyColumn — scroll the list to it first.
+        composeRule.onNodeWithTag("settings-list")
+            .performScrollToNode(hasTestTag("recon-gbc-switch"))
+        composeRule.onNodeWithTag("recon-gbc-switch").performClick()
         assertTrue(AppSettingsStore(temp.root).reconGbcEnabled())
-        composeRule.onNodeWithTag("recon-gbc-switch").performScrollTo().performClick()
+        composeRule.onNodeWithTag("settings-list")
+            .performScrollToNode(hasTestTag("recon-gbc-switch"))
+        composeRule.onNodeWithTag("recon-gbc-switch").performClick()
         assertFalse(AppSettingsStore(temp.root).reconGbcEnabled())
     }
 }
