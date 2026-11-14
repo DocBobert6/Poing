@@ -291,14 +291,16 @@ fun GameScreen(
     // changes: at game start, and on resume after the palette
     // was changed in Core Options. Phase 9 carries the edge
     // mode and the system with it, so the renderer knows
-    // what to smooth and which palette key to watch.
+    // what to smooth. The palette is still passed to the
+    // chain's Jade mode; the renderer no longer takes it —
+    // the rework deleted the GB palette scan with the
+    // palette snap.
     LaunchedEffect(displayChain, edgeMode, palette) {
         glView?.setDisplay(
             displayChain,
             DisplayChain.jadeModeForPalette(palette),
             edgeMode,
             system,
-            palette,
         )
     }
 

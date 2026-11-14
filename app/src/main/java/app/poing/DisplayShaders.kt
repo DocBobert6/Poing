@@ -385,12 +385,13 @@ object DisplayShaders {
     """
 
     /**
-     * Phase 9 — edge smoothing, pass 1: HowlingDog's
-     * dither-aware edge shader, retuned for handhelds. It
-     * detects hard sprite edges and fills intermediate
-     * anti-aliased pixels along them, so a diagonal reads as
-     * a clean line instead of a staircase — and it runs at
-     * the DISPLAY size into the offscreen framebuffer (the
+     * Edge smoothing, pass 1 — REWORKED 2026-11-14:
+     * HowlingDog's dither-aware edge shader, rebuilt
+     * per-system for these handhelds. It detects hard
+     * sprite edges and fills intermediate anti-aliased
+     * pixels along them, so a diagonal reads as a clean
+     * line instead of a staircase — and it runs at the
+     * DISPLAY size into the offscreen framebuffer (the
      * renderer binds the FBO at the view size for this
      * pass). That placement is the whole point: at the
      * frame's native size every fragment sat at a texel
@@ -404,19 +405,30 @@ object DisplayShaders {
      * stay crisp. Pass 2 is the plain blit (edge only)
      * or the light grid (the combined mode).
      *
+     * The rework, over Phase 9: patterned dither BLENDS
+     * to the average of its shades (the real-LCD look),
+     * gated by the 1px and text bypasses — it is not
+     * preserved as noise. GB has NO palette snap (on 4
+     * shades any grey is harmonious; the old binary snap
+     * turned a smooth ramp into a hard one-shade band).
+     * GBC / GBA quantize blended outputs to the 15-bit
+     * grid (uSnap15). There is NO motion factor — the
+     * rework deleted motion-adaptive entirely (frame
+     * history breaks the pure-function temporal-stability
+     * goal). There is NO blend-cap taper. The text
+     * bypass's axis-aligned threshold is per-system
+     * (uTextAlign: GB 0.15, GBC 0.08, GBA 0.05). The
+     * subpixel blend (uSubpixel, GBA only) is removed in
+     * item 3 of the rework.
+     *
      * The result is very clean, sharp pixel art — NOT
      * hand-drawn vector art. It does not turn pixel art into
      * a painting, and the code does not claim it does.
      *
-     * uSubpixel is 1 for GBA only (the AGB panel is BGR);
-     * uSnapGb is 1 for GB only (snap to the game's 4 shades
-     * — GBC / GBA quantize to the 15-bit grid instead);
-     * uMotion is the renderer's frame-differencing factor
-     * (0 still, 1 scrolling fast). The combined mode's grid
-     * lives in pass 2, not here: this pass never draws a
-     * grid, and it never draws a line-based overlay of any
-     * kind. No curvature anywhere — every handheld LCD here
-     * is flat.
+     * The combined mode's grid lives in pass 2, not here:
+     * this pass never draws a grid, and it never draws a
+     * line-based overlay of any kind. No curvature anywhere
+     * — every handheld LCD here is flat.
      */
     const val EDGE_FRAGMENT = """
         precision mediump float;
@@ -428,12 +440,8 @@ object DisplayShaders {
         uniform float uEdgeHi;
         uniform float uBlendMax;
         uniform float uSubpixel;
-        uniform float uMotion;
-        uniform float uSnapGb;
-        uniform vec3 uPal0;
-        uniform vec3 uPal1;
-        uniform vec3 uPal2;
-        uniform vec3 uPal3;
+        uniform float uSnap15;
+        uniform float uTextAlign;
         float edgeLuma(vec3 c) {
           return dot(c, vec3(0.299, 0.587, 0.114));
         }
@@ -450,33 +458,42 @@ object DisplayShaders {
           vec3 cSW = texture2D(uTex, vTex + vec2(-texel.x, -texel.y)).rgb;
           float tol = uDitherTol;
           // Patterned dither: regular alternation is shading,
-          // not an edge, so the centre is preserved.
+          // not an edge — so the centre blends to the average
+          // of its shades (the real-LCD look), it is not
+          // preserved as noise and not blurred into mud.
           // Checkerboard: the centre matches its diagonal
-          // neighbour and differs from BOTH orthogonal
-          // neighbours — requiring both is what keeps a
-          // diagonal edge from reading as dither (a diagonal
-          // differs from only one orthogonal neighbour).
-          // Stripes: the centre matches along the stripe and
-          // differs across it. Bayer 2x2: the ordered 2x2
-          // pattern repeats every two texels, so the east and
-          // west neighbours match each other, the north and
-          // south match each other, and all four diagonals
-          // match each other, while the three groups differ
-          // from the centre and from each other. Bayer 4x4:
-          // a 3x3 window cannot see a 4-texel period, so the
-          // local proxy is the pattern's non-monotonic steps
-          // — the luma on both sides of the centre sits on
-          // the SAME side of it AND differs from it, in both
-          // axes. Both conditions matter: a diagonal edge has
-          // one neighbour equal to the centre on each axis,
-          // so requiring both sides to differ is what keeps a
-          // diagonal from reading as a pattern. A real edge or
-          // gradient is monotonic across the edge, so it never
-          // trips this either.
+          // neighbour (the match must be real — the loose
+          // dDiag*3.0 rule false-fired on Bayer 2x2 and
+          // blended it to the wrong level) and differs from
+          // BOTH orthogonal neighbours — requiring both is
+          // what keeps a diagonal edge from reading as
+          // dither (a diagonal differs from only one
+          // orthogonal neighbour). Stripes: the centre
+          // matches along the stripe and differs across it.
+          // Bayer 2x2: the ordered 2x2 pattern repeats every
+          // two texels, so the east and west neighbours match
+          // each other, the north and south match each other,
+          // and all four diagonals match each other, while
+          // the three groups differ from the centre and from
+          // each other. Bayer 4x4: a 3x3 window cannot see a
+          // 4-texel period, so the local proxy is the
+          // pattern's non-monotonic steps — the luma on both
+          // sides of the centre sits on the SAME side of it
+          // AND differs from it, in both axes — AND the
+          // opposite sides differ from each other (a real
+          // 4x4 has different levels on E vs W and N vs S).
+          // Without that last guard the proxy erases
+          // isolated 1px dots, whose four neighbours are all
+          // the background level. Both conditions matter: a
+          // diagonal edge has one neighbour equal to the
+          // centre on each axis, so requiring both sides to
+          // differ is what keeps a diagonal from reading as
+          // a pattern. A real edge or gradient is monotonic
+          // across the edge, so it never trips this either.
           float dDiag = distance(c0, cSE);
           float dE = distance(c0, cE);
           float dS = distance(c0, cS);
-          float checker = step(dDiag * 3.0 + tol * 0.2, dE + dS) * step(tol, dE) * step(tol, dS);
+          float checker = step(dDiag, tol) * step(tol, dE) * step(tol, dS);
           float stripeV = step(distance(c0, cN) + distance(c0, cS), tol) * step(tol, distance(c0, cE)) * step(tol, distance(c0, cW));
           float stripeH = step(distance(c0, cE) + distance(c0, cW), tol) * step(tol, distance(c0, cN)) * step(tol, distance(c0, cS));
           float bayer2 = step(distance(cE, cW), tol) * step(distance(cN, cS), tol) * step(distance(cNE, cSE), tol) * step(distance(cNE, cNW), tol) * step(tol, distance(c0, cE)) * step(tol, distance(c0, cN)) * step(tol, distance(cE, cN));
@@ -489,8 +506,33 @@ object DisplayShaders {
           float lNW = edgeLuma(cNW);
           float lSE = edgeLuma(cSE);
           float lSW = edgeLuma(cSW);
-          float bayer4 = step(0.0, (lE - l0) * (lW - l0)) * step(0.0, (lN - l0) * (lS - l0)) * step(0.03, abs(lE - l0)) * step(0.03, abs(lW - l0)) * step(0.03, abs(lN - l0)) * step(0.03, abs(lS - l0));
+          float bayer4 = step(0.0, (lE - l0) * (lW - l0)) * step(0.0, (lN - l0) * (lS - l0)) * step(0.03, abs(lE - l0)) * step(0.03, abs(lW - l0)) * step(0.03, abs(lN - l0)) * step(0.03, abs(lS - l0)) * step(0.05, abs(lE - lW)) * step(0.05, abs(lN - lS));
           float pattern = max(max(checker, max(stripeV, stripeH)), max(bayer2, bayer4));
+          // The dither average: the intended level of the
+          // pattern, not the centre texel. Checker /
+          // stripeV: the two shades are the centre and its
+          // east neighbour (both orthogonals carry the other
+          // shade). StripeH: centre and north. Bayer 2x2:
+          // the four texels of the 2x2 block. Bayer 4x4
+          // (proxy): the 3x3 mean is the local estimate of
+          // the intended level. Priority is bayer4, then
+          // bayer2, then stripeH, then stripeV / checker —
+          // the same order as the numeric replica; the
+          // detectors are mutually exclusive on real
+          // patterns, so the priority only settles
+          // JPEG-noise overlaps.
+          vec3 ditherAvg;
+          if (bayer4 > 0.5) {
+            ditherAvg = (c0 + cN + cS + cE + cW + cNE + cNW + cSE + cSW) / 9.0;
+          } else if (bayer2 > 0.5) {
+            ditherAvg = (c0 + cE + cN + cNE) * 0.25;
+          } else if (stripeH > 0.5) {
+            ditherAvg = (c0 + cN) * 0.5;
+          } else if (checker > 0.5 || stripeV > 0.5) {
+            ditherAvg = (c0 + cE) * 0.5;
+          } else {
+            ditherAvg = c0;
+          }
           // 1-pixel detail: the eight neighbours all agree
           // with each other and the centre stands apart — an
           // eye, an outline dot, a single bright pixel.
@@ -509,10 +551,13 @@ object DisplayShaders {
           // gradient in BOTH directions, so they never trip
           // this; a straight sprite edge trips it too, and
           // it needs no smoothing either — a staircase only
-          // exists on a diagonal.
+          // exists on a diagonal. The axis-aligned
+          // threshold is per-system (uTextAlign: GB 0.15,
+          // GBC 0.08, GBA 0.05), set by the sim from the
+          // text / diagonal margins.
           float lMax = max(l0, max(max(lN, lS), max(max(lE, lW), max(max(lNE, lNW), max(lSE, lSW)))));
           float lMin = min(l0, min(min(lN, lS), min(min(lE, lW), min(min(lNE, lNW), min(lSE, lSW)))));
-          float axisAligned = step(min(abs(gx), abs(gy)), 0.15 * max(abs(gx), abs(gy)) + 0.001);
+          float axisAligned = step(min(abs(gx), abs(gy)), uTextAlign * max(abs(gx), abs(gy)) + 0.001);
           float text = step(0.5, lMax - lMin) * axisAligned;
           // Corner: both diagonal pairs match. A diagonal
           // edge has a strong gradient in BOTH directions,
@@ -529,7 +574,9 @@ object DisplayShaders {
           // horizontally, and each channel blends at its own
           // subpixel offset — the AGB panel is BGR, blue
           // first from the left — so a vertical edge does not
-          // fringe.
+          // fringe. (Removed in item 3 of the rework: the
+          // offset is 0.3333 of a texel, about 1.9 screen px
+          // at 5.7x, and the target phone is pOLED.)
           vec2 sub = fract(vTex * uTexSize);
           float wAlong;
           vec3 along;
@@ -553,33 +600,37 @@ object DisplayShaders {
             }
           }
           float edge = smoothstep(uEdgeLo, uEdgeHi, edgeStrength);
-          float w = edge * wAlong * (1.0 - pattern) * (1.0 - isolated) * (1.0 - text) * (1.0 - corner) * (1.0 - uMotion);
+          // No motion factor: the rework deleted motion-
+          // adaptive entirely (frame history breaks the
+          // pure-function temporal-stability goal, and
+          // scrolling needs none of it — smoothing identical
+          // on every frame is no wobble by construction).
+          float w = edge * wAlong * (1.0 - pattern) * (1.0 - isolated) * (1.0 - text) * (1.0 - corner);
           w = clamp(w, 0.0, uBlendMax);
           vec3 col = mix(c0, along, w);
           col = clamp(col, lo, hi);
-          // Palette snap-back: the blend's intermediates are
-          // never left as they fall. GB snaps to the nearest
-          // of the game's 4 shades (uPal0..3, scanned from
-          // the frame itself). GBC / GBA quantize to the
-          // 15-bit grid — 5 bits a channel — which IS their
-          // palette space. A texel that was not blended
-          // (w == 0) keeps its own colour exactly: the snap
-          // only ever applies to a blend.
-          vec3 snapped;
-          if (uSnapGb > 0.5) {
-            float d0 = distance(col, uPal0);
-            float d1 = distance(col, uPal1);
-            float d2 = distance(col, uPal2);
-            float d3 = distance(col, uPal3);
-            snapped = uPal0;
-            float best = d0;
-            if (d1 < best) { snapped = uPal1; best = d1; }
-            if (d2 < best) { snapped = uPal2; best = d2; }
-            if (d3 < best) { snapped = uPal3; }
-          } else {
-            snapped = floor(col * 31.0 + 0.5) / 31.0;
+          // Dither blend: a patterned texel becomes its
+          // intended level. Gated by the 1px and text
+          // bypasses — a real dither texel is never
+          // isolated and never text, so the gate does not
+          // block real dither, but it keeps the blend from
+          // averaging a glyph or a 1px detail away.
+          float patternEff = pattern * (1.0 - isolated) * (1.0 - text);
+          col = mix(col, ditherAvg, patternEff);
+          // 15-bit snap-back, GBC / GBA only (uSnap15): the
+          // blend's intermediates are never left as they
+          // fall — they quantize to the 15-bit grid, which
+          // IS the GBC / GBA palette space. GB has no snap
+          // at all (uSnap15 0): on 4 shades any grey is
+          // harmonious, and the old binary snap turned a
+          // smooth ramp into a hard one-shade band. A texel
+          // that was neither blended nor patterned (w == 0,
+          // patternEff == 0) keeps its own colour exactly:
+          // the snap only ever applies to a blend.
+          if (uSnap15 > 0.5) {
+            vec3 snapped = floor(col * 31.0 + 0.5) / 31.0;
+            col = mix(c0, snapped, max(step(0.001, w), patternEff));
           }
-          col = mix(c0, snapped, step(0.001, w));
           gl_FragColor = vec4(col, 1.0);
         }
     """

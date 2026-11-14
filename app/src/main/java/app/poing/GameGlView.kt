@@ -43,19 +43,18 @@ class GameGlView @JvmOverloads constructor(
 
     /**
      * Apply a chain and the edge mode (called at game start,
-     * and when the chain or the GB palette changes). The
-     * palette key is only a change detector for the GB
-     * palette scan — the shades themselves are read from
-     * the frame.
+     * and when the chain or the GB palette changes — the
+     * palette is still passed to the chain's Jade mode, but
+     * the renderer no longer scans it: the rework deleted
+     * the GB palette scan with the palette snap).
      */
     fun setDisplay(
         chain: DisplayChain,
         jadeMode: JadeMode,
         edge: EdgeMode,
         system: GameSystem,
-        palette: String,
     ) {
-        renderer.setDisplay(chain, jadeMode, edge, system, palette)
+        renderer.setDisplay(chain, jadeMode, edge, system)
         requestRender()
     }
 

@@ -271,23 +271,29 @@ class DisplayShadersTest {
     }
 
     @Test
-    fun edgeFragmentHasTheEightImprovements() {
-        // Phase 9 — the edge pass: HowlingDog's dither-aware
-        // edge shader, retuned for handhelds. The eight
-        // improvements over HowlingDog are all in the text:
-        // (1) multi-pattern dither — checkerboard, stripes,
-        // Bayer 2x2 and the 4x4 local proxy; (2) 1-pixel
-        // detail preservation; (3) the text / UI bypass;
-        // (4) palette snap-back — the GB 4-shade snap and the
-        // 15-bit quantize; (5) motion-adaptive (uMotion);
+    fun edgeFragmentHasTheRework() {
+        // Edge smoothing, REWORKED 2026-11-14: HowlingDog's
+        // dither-aware edge shader, rebuilt per-system for
+        // these handhelds. The rework's shape is all in the
+        // text: (1) multi-pattern dither — checkerboard,
+        // stripes, Bayer 2x2 and the 4x4 local proxy — that
+        // BLENDS to the average of its shades (the
+        // ditherAvg, applied by patternEff), gated by the
+        // 1px and text bypasses; (2) 1-pixel detail
+        // preservation; (3) the text / UI bypass with a
+        // per-system threshold (uTextAlign); (4) the 15-bit
+        // snap-back for GBC / GBA only (uSnap15) — GB has
+        // NO snap; (5) NO motion-adaptive (uMotion is gone:
+        // frame history breaks the pure-function goal);
         // (6) grid-aligned — the pass runs at display size
         // (the fix for the 2026-11-14 no-op: at native size
         // every fragment sat at a texel centre and the
         // boundary weight was exactly 0), so fragments land
         // between texel centres (fract of vTex * uTexSize);
-        // (7) subpixel-aware for GBA (uSubpixel); (8)
-        // per-system parameters as uniforms (uDitherTol,
-        // uEdgeLo, uEdgeHi, uBlendMax).
+        // (7) subpixel-aware for GBA (uSubpixel) — removed
+        // in item 3, still present here; (8) per-system
+        // parameters as uniforms (uDitherTol, uEdgeLo,
+        // uEdgeHi, uBlendMax, uTextAlign, uSnap15).
         val src = DisplayShaders.EDGE_FRAGMENT
         assertTrue(src.contains("uTexSize"))
         assertTrue(src.contains("uDitherTol"))
@@ -295,35 +301,55 @@ class DisplayShadersTest {
         assertTrue(src.contains("uEdgeHi"))
         assertTrue(src.contains("uBlendMax"))
         assertTrue(src.contains("uSubpixel"))
-        assertTrue(src.contains("uMotion"))
-        assertTrue(src.contains("uSnapGb"))
-        assertTrue(src.contains("uPal0"))
-        assertTrue(src.contains("uPal1"))
-        assertTrue(src.contains("uPal2"))
-        assertTrue(src.contains("uPal3"))
-        // Dither: checkerboard (diagonal match, both
-        // orthogonals differ), stripes (match along, differ
-        // across), Bayer 2x2 (opposite neighbours match),
-        // Bayer 4x4 (non-monotonic steps in both axes).
+        assertTrue(src.contains("uSnap15"))
+        assertTrue(src.contains("uTextAlign"))
+        // Deleted in the rework: the motion factor, the GB
+        // palette snap, and the scanned palette uniforms.
+        assertFalse(src.contains("uMotion"))
+        assertFalse(src.contains("uSnapGb"))
+        assertFalse(src.contains("uPal0"))
+        assertFalse(src.contains("uPal1"))
+        assertFalse(src.contains("uPal2"))
+        assertFalse(src.contains("uPal3"))
+        // Dither: checkerboard (the diagonal must actually
+        // match — the loose dDiag*3.0 rule false-fired on
+        // Bayer 2x2), stripes (match along, differ across),
+        // Bayer 2x2 (opposite neighbours match), Bayer 4x4
+        // (non-monotonic steps in both axes, opposite sides
+        // differ — the guard that keeps it from erasing
+        // isolated 1px dots).
         assertTrue(src.contains("checker"))
         assertTrue(src.contains("stripeV"))
         assertTrue(src.contains("stripeH"))
         assertTrue(src.contains("bayer2"))
         assertTrue(src.contains("bayer4"))
-        // 1-pixel detail and text bypass.
+        assertTrue(src.contains("float checker = step(dDiag, tol)"))
+        assertTrue(src.contains("step(0.05, abs(lE - lW))"))
+        assertTrue(src.contains("step(0.05, abs(lN - lS))"))
+        // The dither blend: the average of the pattern's
+        // shades, applied in pattern regions gated by the
+        // 1px and text bypasses.
+        assertTrue(src.contains("ditherAvg"))
+        assertTrue(src.contains("float patternEff = pattern * (1.0 - isolated) * (1.0 - text)"))
+        assertTrue(src.contains("col = mix(col, ditherAvg, patternEff)"))
+        // 1-pixel detail and text bypass (per-system threshold).
         assertTrue(src.contains("isolated"))
         assertTrue(src.contains("float text = step(0.5, lMax - lMin) * axisAligned"))
+        assertTrue(src.contains("uTextAlign * max(abs(gx), abs(gy))"))
         // Directional blend along the edge, weight growing
-        // toward the texel boundary.
+        // toward the texel boundary — and no motion factor.
         assertTrue(src.contains("fract(vTex * uTexSize)"))
-        assertTrue(src.contains("float w = edge * wAlong * (1.0 - pattern) * (1.0 - isolated) * (1.0 - text) * (1.0 - corner) * (1.0 - uMotion)"))
-        // Palette snap-back: GB snaps to its 4 shades, GBC /
-        // GBA quantize to the 15-bit grid — and only a blend
-        // is ever snapped (w == 0 keeps its own colour).
+        assertTrue(src.contains("float w = edge * wAlong * (1.0 - pattern) * (1.0 - isolated) * (1.0 - text) * (1.0 - corner)"))
+        assertFalse(src.contains("uMotion"))
+        // 15-bit snap-back, GBC / GBA only, gated on
+        // uSnap15 — and only a blend or a pattern is ever
+        // snapped (w == 0 and patternEff == 0 keeps its own
+        // colour).
         assertTrue(src.contains("floor(col * 31.0 + 0.5) / 31.0"))
-        assertTrue(src.contains("col = mix(c0, snapped, step(0.001, w))"))
+        assertTrue(src.contains("if (uSnap15 > 0.5)"))
+        assertTrue(src.contains("col = mix(c0, snapped, max(step(0.001, w), patternEff))"))
         // The subpixel blend only runs on the horizontal
-        // (vertical-edge) branch, GBA only.
+        // (vertical-edge) branch, GBA only — until item 3.
         assertTrue(src.contains("mix(cW.r, cE.r, clamp(sub.x + 0.3333, 0.0, 1.0))"))
         assertTrue(src.contains("mix(cW.b, cE.b, clamp(sub.x - 0.3333, 0.0, 1.0))"))
         // The corner test survives from HowlingDog.

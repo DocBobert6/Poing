@@ -70,9 +70,14 @@ class EdgeRenderGeometryTest {
     }
 
     /**
-     * DisplayShaders.EDGE_FRAGMENT, mirrored in Kotlin.
-     * [pal] is the GB 4-shade palette (uPal0..3); ignored
-     * unless params.snapGb.
+     * DisplayShaders.EDGE_FRAGMENT, mirrored in Kotlin
+     * (reworked 2026-11-14: dither blends flat, no GB
+     * snap, no motion, no taper, per-system text
+     * threshold). Must be kept in step with the shader;
+     * sim2.py (~/workspace/poing/verify/edge-rework/
+     * sim2.py) mirrors the same shader in Python and
+     * cross-checks these numbers at full device
+     * resolution.
      */
     private fun edgeFragment(
         frame: Array<Rgb>,
@@ -81,8 +86,6 @@ class EdgeRenderGeometryTest {
         u: Float,
         v: Float,
         params: EdgeParams,
-        motion: Float,
-        pal: Array<Rgb>,
     ): Rgb {
         val tx = 1f / w
         val ty = 1f / h
@@ -99,7 +102,7 @@ class EdgeRenderGeometryTest {
         val dDiag = c0.dist(cSE)
         val dE = c0.dist(cE)
         val dS = c0.dist(cS)
-        val checker = step(dDiag * 3f + tol * 0.2f, dE + dS) * step(tol, dE) * step(tol, dS)
+        val checker = step(dDiag, tol) * step(tol, dE) * step(tol, dS)
         val stripeV = step(c0.dist(cN) + c0.dist(cS), tol) *
             step(tol, c0.dist(cE)) * step(tol, c0.dist(cW))
         val stripeH = step(c0.dist(cE) + c0.dist(cW), tol) *
@@ -120,8 +123,35 @@ class EdgeRenderGeometryTest {
         val bayer4 = step(0f, (lE - l0) * (lW - l0)) *
             step(0f, (lN - l0) * (lS - l0)) *
             step(0.03f, abs(lE - l0)) * step(0.03f, abs(lW - l0)) *
-            step(0.03f, abs(lN - l0)) * step(0.03f, abs(lS - l0))
+            step(0.03f, abs(lN - l0)) * step(0.03f, abs(lS - l0)) *
+            step(0.05f, abs(lE - lW)) * step(0.05f, abs(lN - lS))
         val pattern = max(max(checker, max(stripeV, stripeH)), max(bayer2, bayer4))
+        // The dither average: the intended level of the
+        // pattern. Priority matches the shader (bayer4,
+        // bayer2, stripeH, stripeV / checker).
+        val ditherAvg: Rgb = when {
+            bayer4 > 0.5f -> Rgb(
+                (c0.r + cN.r + cS.r + cE.r + cW.r + cNE.r + cNW.r + cSE.r + cSW.r) / 9f,
+                (c0.g + cN.g + cS.g + cE.g + cW.g + cNE.g + cNW.g + cSE.g + cSW.g) / 9f,
+                (c0.b + cN.b + cS.b + cE.b + cW.b + cNE.b + cNW.b + cSE.b + cSW.b) / 9f,
+            )
+            bayer2 > 0.5f -> Rgb(
+                (c0.r + cE.r + cN.r + cNE.r) * 0.25f,
+                (c0.g + cE.g + cN.g + cNE.g) * 0.25f,
+                (c0.b + cE.b + cN.b + cNE.b) * 0.25f,
+            )
+            stripeH > 0.5f -> Rgb(
+                (c0.r + cN.r) * 0.5f,
+                (c0.g + cN.g) * 0.5f,
+                (c0.b + cN.b) * 0.5f,
+            )
+            checker > 0.5f || stripeV > 0.5f -> Rgb(
+                (c0.r + cE.r) * 0.5f,
+                (c0.g + cE.g) * 0.5f,
+                (c0.b + cE.b) * 0.5f,
+            )
+            else -> c0
+        }
         val nMean = Rgb(
             (cN.r + cS.r + cE.r + cW.r + cNE.r + cNW.r + cSE.r + cSW.r) / 8f,
             (cN.g + cS.g + cE.g + cW.g + cNE.g + cNW.g + cSE.g + cSW.g) / 8f,
@@ -139,7 +169,7 @@ class EdgeRenderGeometryTest {
         val lMin = min(min(min(l0, lN), min(lS, lE)), min(min(lW, lNE), min(lNW, min(lSE, lSW))))
         val axisAligned = step(
             min(abs(gx), abs(gy)),
-            0.15f * max(abs(gx), abs(gy)) + 0.001f,
+            params.textAlign * max(abs(gx), abs(gy)) + 0.001f,
         )
         val text = step(0.5f, lMax - lMin) * axisAligned
         val corner = step(cNW.dist(cSE), 0.1f) * step(cNE.dist(cSW), 0.1f) *
@@ -171,32 +201,39 @@ class EdgeRenderGeometryTest {
         }
         val edge = smoothstep(params.edgeLo, params.edgeHi, edgeStrength)
         var wgt = edge * wAlong * (1f - pattern) * (1f - isolated) *
-            (1f - text) * (1f - corner) * (1f - motion)
+            (1f - text) * (1f - corner)
         wgt = clampF(wgt, 0f, params.blendMax)
         var col = Rgb(
             clampF(mix(c0.r, along.r, wgt), lo.r, hi.r),
             clampF(mix(c0.g, along.g, wgt), lo.g, hi.g),
             clampF(mix(c0.b, along.b, wgt), lo.b, hi.b),
         )
-        val snapped: Rgb = if (params.snapGb) {
-            var best = pal[0]
-            var bestD = col.dist(pal[0])
-            for (i in 1..3) {
-                val d = col.dist(pal[i])
-                if (d < bestD) {
-                    best = pal[i]
-                    bestD = d
-                }
-            }
-            best
-        } else {
-            Rgb(
+        // Dither blend, gated by the 1px and text bypasses.
+        val patternEff = pattern * (1f - isolated) * (1f - text)
+        col = Rgb(
+            mix(col.r, ditherAvg.r, patternEff),
+            mix(col.g, ditherAvg.g, patternEff),
+            mix(col.b, ditherAvg.b, patternEff),
+        )
+        // 15-bit snap-back, GBC / GBA only. GB has no snap:
+        // on 4 shades any grey is harmonious, and the old
+        // binary snap turned a smooth ramp into a hard
+        // one-shade band. Only a blend or a pattern is ever
+        // snapped (w == 0 and patternEff == 0 keeps its own
+        // colour exactly).
+        if (params.snap15) {
+            val snapped = Rgb(
                 floor(col.r * 31f + 0.5f) / 31f,
                 floor(col.g * 31f + 0.5f) / 31f,
                 floor(col.b * 31f + 0.5f) / 31f,
             )
+            val blended = max(if (wgt > 0.001f) 1f else 0f, patternEff)
+            col = Rgb(
+                mix(c0.r, snapped.r, blended),
+                mix(c0.g, snapped.g, blended),
+                mix(c0.b, snapped.b, blended),
+            )
         }
-        if (wgt > 0.001f) col = snapped
         return col
     }
 
@@ -214,15 +251,13 @@ class EdgeRenderGeometryTest {
         viewW: Int,
         viewH: Int,
         params: EdgeParams,
-        motion: Float = 0f,
-        pal: Array<Rgb> = GB_PAL,
     ): Array<Rgb> {
         val out = Array(viewW * viewH) { Rgb(0f, 0f, 0f) }
         for (j in 0 until viewH) {
             val v = (j + 0.5f) / viewH
             for (i in 0 until viewW) {
                 val u = (i + 0.5f) / viewW
-                out[j * viewW + i] = edgeFragment(frame, w, h, u, v, params, motion, pal)
+                out[j * viewW + i] = edgeFragment(frame, w, h, u, v, params)
             }
         }
         return out
@@ -268,7 +303,7 @@ class EdgeRenderGeometryTest {
         val light = Rgb(0.9f, 0.9f, 0.9f)
         val dark = Rgb(0.1f, 0.1f, 0.1f)
         val frame = diagonalFrame(w, h, light, dark)
-        val params = EdgeSmoothing.edgeParamsFor(GameSystem.GBA, 2.0f)
+        val params = EdgeSmoothing.edgeParamsFor(GameSystem.GBA)
         val out = renderEdge(frame, w, h, 480, 320, params)
         val base = nearest(frame, w, h, 480, 320)
         val changed = changedPixels(out, base)
@@ -304,7 +339,7 @@ class EdgeRenderGeometryTest {
         val light = Rgb(0.9f, 0.9f, 0.9f)
         val dark = Rgb(0.1f, 0.1f, 0.1f)
         val frame = diagonalFrame(w, h, light, dark)
-        val params = EdgeSmoothing.edgeParamsFor(GameSystem.GBA, 2.0f)
+        val params = EdgeSmoothing.edgeParamsFor(GameSystem.GBA)
         val out = renderEdge(frame, w, h, w, h, params)
         val base = nearest(frame, w, h, w, h)
         assertEquals("at native size the shader is a no-op", 0, changedPixels(out, base))
@@ -318,27 +353,35 @@ class EdgeRenderGeometryTest {
         val h = 160
         val flat = Rgb(0.9f, 0.9f, 0.9f)
         val frame = Array(w * h) { flat }
-        val params = EdgeSmoothing.edgeParamsFor(GameSystem.GBA, 2.0f)
+        val params = EdgeSmoothing.edgeParamsFor(GameSystem.GBA)
         val out = renderEdge(frame, w, h, 480, 320, params)
         val base = nearest(frame, w, h, 480, 320)
         assertEquals(0, changedPixels(out, base))
     }
 
     @Test
-    fun gbDiagonalBlendsAndStaysInPalette() {
-        // GB at 2x: the diagonal blends, and every output
-        // pixel is one of the game's 4 shades.
+    fun gbDiagonalBlendsWithIntermediateGreys() {
+        // GB at 2x: the diagonal blends — and, since the
+        // rework deleted the GB palette snap, the blended
+        // band holds intermediate greys, not just the 4
+        // shades. (The old test pinned the snap: every
+        // output a palette shade. The sim's C15 measures 24
+        // distinct greys in the real SML2 logo band.)
         val w = 160
         val h = 144
         val frame = diagonalFrame(w, h, GB_PAL[0], GB_PAL[3])
-        val params = EdgeSmoothing.edgeParamsFor(GameSystem.GB, 2.0f)
+        val params = EdgeSmoothing.edgeParamsFor(GameSystem.GB)
         val out = renderEdge(frame, w, h, 320, 288, params)
         val base = nearest(frame, w, h, 320, 288)
         val changed = changedPixels(out, base)
         assertTrue("a GB diagonal must blend, changed=$changed", changed > 50)
+        // Every output is still grey (the input is greyscale).
         for (px in out) {
-            assertTrue("GB output must be a palette shade", GB_PAL.any { px.dist(it) <= 0.001f })
+            assertTrue("GB output must stay grey", abs(px.r - px.g) <= 0.001f && abs(px.g - px.b) <= 0.001f)
         }
+        // And the band holds intermediates, not just the 4 shades.
+        val distinct = out.map { (it.r * 1000).toInt() }.toSet().size
+        assertTrue("GB band must hold intermediate greys, distinct=$distinct", distinct > 4)
     }
 
     @Test
@@ -353,7 +396,7 @@ class EdgeRenderGeometryTest {
             val y = idx / w
             if (y in 70..74) dark else light
         }
-        val params = EdgeSmoothing.edgeParamsFor(GameSystem.GBA, 2.0f)
+        val params = EdgeSmoothing.edgeParamsFor(GameSystem.GBA)
         val out = renderEdge(frame, w, h, 480, 320, params)
         val base = nearest(frame, w, h, 480, 320)
         assertEquals(0, changedPixels(out, base))

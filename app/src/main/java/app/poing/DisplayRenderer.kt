@@ -53,45 +53,23 @@ class DisplayRenderer : GLSurfaceView.Renderer {
     private var jadeMode: JadeMode = JadeMode.FSTN
 
     /**
-     * Phase 9 — edge smoothing: the mode in effect, and the
-     * system it is smoothing for (the per-system parameters
-     * come from EdgeSmoothing.edgeParamsFor). Edge on means
-     * the chain is off — the caller resolves that (see
-     * EdgeSmoothing.resolve); this renderer only draws what
-     * it is told.
+     * Edge smoothing (reworked 2026-11-14): the mode in
+     * effect, and the system it is smoothing for (the
+     * per-system parameters come from
+     * EdgeSmoothing.edgeParamsFor). Edge on means the
+     * chain is off — the caller resolves that (see
+     * EdgeSmoothing.resolve); this renderer only draws
+     * what it is told. There is no motion state and no
+     * palette scan here any more: the rework deleted
+     * motion-adaptive entirely (frame history breaks the
+     * pure-function goal) and GB has no palette snap, so
+     * nothing is sampled from the frame on arrival.
      */
     @Volatile
     private var edgeMode: EdgeMode = EdgeMode.OFF
 
     @Volatile
     private var edgeSystem: GameSystem = GameSystem.GB
-
-    /**
-     * Phase 9 — motion-adaptive smoothing: the frame
-     * differencing state. The motion factor is 0 when the
-     * picture is still and 1 while scrolling fast; it rises
-     * at once and decays slowly, so the blend weight never
-     * wobbles. Sampled in setFrame, only while edge
-     * smoothing is on — the chain path pays nothing for it.
-     */
-    private var motion = 0f
-    private var prevMotionGrid: FloatArray? = null
-    private var prevGridW = 0
-    private var prevGridH = 0
-
-    /**
-     * Phase 9 — GB palette snap-back: the game's 4 shades,
-     * scanned from the frame itself (the four most frequent
-     * colours), as normalized RGB triples. Re-scanned when
-     * the palette key changes or the frame size changes —
-     * never every frame.
-     */
-    private val gbPalette = FloatArray(12)
-    private var paletteKey: String? = null
-    private var paletteDirty = false
-
-    /** The frame's pixels, reused for the motion grid and the palette scan. */
-    private val pixelBuf = IntArray(240 * 160)
 
     /**
      * Phase 8 — Screen Optics: the ambient light's
@@ -134,50 +112,6 @@ class DisplayRenderer : GLSurfaceView.Renderer {
 
     fun setFrame(bitmap: Bitmap) {
         pendingBitmap = bitmap
-        if (edgeMode != EdgeMode.OFF) sampleMotionAndPalette(bitmap)
-    }
-
-    /**
-     * Phase 9 — the motion grid and the GB palette, sampled
-     * from the frame on arrival (synchronous, so the
-     * double-buffered Bitmap is stable here). The motion
-     * grid is a 20x18 luma downsample compared against the
-     * last frame's; the palette scan runs only when the
-     * palette key or the frame size changed, and only for
-     * GB — GBC / GBA snap to the 15-bit grid and need no
-     * palette.
-     */
-    private fun sampleMotionAndPalette(bitmap: Bitmap) {
-        val w = bitmap.width
-        val h = bitmap.height
-        if (w <= 0 || h <= 0 || w * h > pixelBuf.size) return
-        bitmap.getPixels(pixelBuf, 0, w, 0, 0, w, h)
-        val grid = EdgeSmoothing.lumaGrid(
-            pixelBuf, w, h,
-            EdgeSmoothing.MOTION_GRID_COLS, EdgeSmoothing.MOTION_GRID_ROWS,
-        )
-        val prev = prevMotionGrid
-        if (prev != null && prev.size == grid.size && prevGridW == w && prevGridH == h) {
-            val instant = EdgeSmoothing.motionFromMeanDiff(
-                EdgeSmoothing.meanAbsDiff(prev, grid),
-            )
-            motion = maxOf(instant, motion * EdgeSmoothing.MOTION_DECAY)
-        } else {
-            motion = 0f
-        }
-        prevMotionGrid = grid
-        prevGridW = w
-        prevGridH = h
-        if (paletteDirty && edgeSystem == GameSystem.GB) {
-            val top = EdgeSmoothing.topPaletteColors(pixelBuf.copyOf(w * h))
-            for (i in 0 until 4) {
-                val argb = top[i]
-                gbPalette[i * 3] = ((argb shr 16) and 0xFF) / 255f
-                gbPalette[i * 3 + 1] = ((argb shr 8) and 0xFF) / 255f
-                gbPalette[i * 3 + 2] = (argb and 0xFF) / 255f
-            }
-            paletteDirty = false
-        }
     }
 
     /**
@@ -186,19 +120,14 @@ class DisplayRenderer : GLSurfaceView.Renderer {
      * mapping in DisplayChain.forSystem never returns it,
      * and this is the backstop.
      *
-     * Phase 9 — this is also where the edge mode arrives:
-     * the chain, the edge mode, the system being smoothed,
-     * and the GB palette key (the core's mgba_gb_colors
-     * value — only a change detector; the shades themselves
-     * are scanned from the frame). A new edge mode, system
-     * or palette key re-scans the palette on the next frame.
+     * This is also where the edge mode arrives: the chain,
+     * the edge mode, and the system being smoothed.
      */
     fun setDisplay(
         chain: DisplayChain,
         jadeMode: JadeMode,
         edge: EdgeMode,
         system: GameSystem,
-        palette: String,
     ) {
         this.chain = when (chain) {
             DisplayChain.JADE -> DisplayChain.JADE
@@ -207,12 +136,8 @@ class DisplayRenderer : GLSurfaceView.Renderer {
             DisplayChain.CLEAN -> DisplayChain.CLEAN
         }
         this.jadeMode = jadeMode
-        if (edge != edgeMode || system != edgeSystem || palette != paletteKey) {
-            paletteDirty = true
-        }
         this.edgeMode = edge
         this.edgeSystem = system
-        this.paletteKey = palette
     }
 
     /**
@@ -468,7 +393,7 @@ class DisplayRenderer : GLSurfaceView.Renderer {
             viewW.toFloat() / frameW,
             viewH.toFloat() / frameH,
         )
-        val params = EdgeSmoothing.edgeParamsFor(edgeSystem, displayScale)
+        val params = EdgeSmoothing.edgeParamsFor(edgeSystem)
         GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, fboId)
         GLES20.glViewport(0, 0, viewW, viewH)
         GLES20.glUseProgram(edgeProgram)
@@ -487,27 +412,11 @@ class DisplayRenderer : GLSurfaceView.Renderer {
             uniform(edgeProgram, "uSubpixel"),
             if (params.subpixel) 1f else 0f,
         )
-        GLES20.glUniform1f(uniform(edgeProgram, "uMotion"), motion)
         GLES20.glUniform1f(
-            uniform(edgeProgram, "uSnapGb"),
-            if (params.snapGb) 1f else 0f,
+            uniform(edgeProgram, "uSnap15"),
+            if (params.snap15) 1f else 0f,
         )
-        GLES20.glUniform3f(
-            uniform(edgeProgram, "uPal0"),
-            gbPalette[0], gbPalette[1], gbPalette[2],
-        )
-        GLES20.glUniform3f(
-            uniform(edgeProgram, "uPal1"),
-            gbPalette[3], gbPalette[4], gbPalette[5],
-        )
-        GLES20.glUniform3f(
-            uniform(edgeProgram, "uPal2"),
-            gbPalette[6], gbPalette[7], gbPalette[8],
-        )
-        GLES20.glUniform3f(
-            uniform(edgeProgram, "uPal3"),
-            gbPalette[9], gbPalette[10], gbPalette[11],
-        )
+        GLES20.glUniform1f(uniform(edgeProgram, "uTextAlign"), params.textAlign)
         GLES20.glActiveTexture(GLES20.GL_TEXTURE0)
         GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, frameTextureId)
         drawQuad(edgeProgram)
