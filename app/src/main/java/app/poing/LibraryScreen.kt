@@ -26,8 +26,10 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -71,11 +73,17 @@ fun LibraryScreen(
     // back swipe on the home page shows this hint instead of
     // closing the app — a second swipe within ~2s exits.
     showExitHint: Boolean = false,
+    // Test seam: a fake fetcher for the cover-art tests. Null
+    // (the default, and what MainActivity passes) means the real
+    // libretro-thumbnails fetcher.
+    coverFetcher: CoverArtFetcher? = null,
 ) {
     val context = LocalContext.current
     val store = remember { LibraryStore(context.filesDir) }
     val bios = remember { BiosStore(context.filesDir) }
-    val art = remember { CoverArtStore(context.filesDir, LibretroThumbnailsFetcher(context.filesDir)) }
+    val art = remember {
+        CoverArtStore(context.filesDir, coverFetcher ?: LibretroThumbnailsFetcher(context.filesDir))
+    }
     // Phase 6 (item 5) — playtime totals for the rows; the store
     // is re-read on refresh so a finished session's banked time
     // shows when the player quits back here.
@@ -110,13 +118,28 @@ fun LibraryScreen(
     // The fetcher is the libretro-thumbnails collection (see
     // CoverArt.kt): one file per game, cached on the device, so
     // covers appear as their tiles are shown.
-    LaunchedEffect(games) {
-        withContext(Dispatchers.IO) {
-            val wifi = isWifiConnected(context)
-            for (game in games) {
-                if (!art.hasCover(game)) art.coverOrFetch(game, wifi)
-            }
+    // Two states, one for each half of the 2026-11-14 fix:
+    // connectivityVersion bumps when connectivity changes (the
+    // watcher below), so the fetch re-runs when Wi-Fi appears
+    // while the library is open — the old effect keyed only on
+    // `games`, so the first run on mobile data fetched nothing
+    // and there was never a retry. coversVersion bumps when a
+    // fetch pass lands a cover, so the tiles recompose with the
+    // new art — the fetch writes files to disk but updates no
+    // state of its own, and the old tiles read coverFile.exists()
+    // during composition and never re-read it.
+    var coversVersion by remember { mutableStateOf(0) }
+    var connectivityVersion by remember { mutableStateOf(0) }
+    DisposableEffect(Unit) {
+        val watcher = ConnectivityWatcher(context) { connectivityVersion++ }
+        watcher.start()
+        onDispose { watcher.stop() }
+    }
+    LaunchedEffect(games, connectivityVersion) {
+        val landed = withContext(Dispatchers.IO) {
+            fetchMissingCovers(art, games, isWifiConnected(context))
         }
+        if (landed) coversVersion++
     }
 
     val pickGame = rememberLauncherForActivityResult(
@@ -344,25 +367,35 @@ fun LibraryScreen(
             // same in both views.
             if (libraryView == LibraryView.LIST) {
                 items(shown, key = { it.id }, span = { GridItemSpan(maxLineSpan) }) { game ->
-                    GameRow(
-                        game = game,
-                        coverFile = art.coverFile(game).takeIf { it.exists() },
-                        onPlay = { onPlay(game) },
-                        onRemove = { pendingRemove = game },
-                        playtimeSeconds = playtime.get(game.id),
-                        onSaveManager = { onSaveManager(game) },
-                    )
+                    // key(coversVersion): the row re-reads
+                    // coverFile when a fetch lands a cover —
+                    // without this the row keeps the placeholder
+                    // it composed with, because the fetch writes
+                    // files to disk but updates no state of its
+                    // own (2026-11-14).
+                    key(coversVersion) {
+                        GameRow(
+                            game = game,
+                            coverFile = art.coverFile(game).takeIf { it.exists() },
+                            onPlay = { onPlay(game) },
+                            onRemove = { pendingRemove = game },
+                            playtimeSeconds = playtime.get(game.id),
+                            onSaveManager = { onSaveManager(game) },
+                        )
+                    }
                 }
             } else {
                 items(shown, key = { it.id }) { game ->
-                    GameGridCell(
-                        game = game,
-                        coverFile = art.coverFile(game).takeIf { it.exists() },
-                        onPlay = { onPlay(game) },
-                        onRemove = { pendingRemove = game },
-                        playtimeSeconds = playtime.get(game.id),
-                        onSaveManager = { onSaveManager(game) },
-                    )
+                    key(coversVersion) {
+                        GameGridCell(
+                            game = game,
+                            coverFile = art.coverFile(game).takeIf { it.exists() },
+                            onPlay = { onPlay(game) },
+                            onRemove = { pendingRemove = game },
+                            playtimeSeconds = playtime.get(game.id),
+                            onSaveManager = { onSaveManager(game) },
+                        )
+                    }
                 }
             }
         }

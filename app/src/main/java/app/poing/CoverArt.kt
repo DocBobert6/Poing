@@ -2,7 +2,9 @@ package app.poing
 
 import android.content.Context
 import android.net.ConnectivityManager
+import android.net.Network
 import android.net.NetworkCapabilities
+import android.net.NetworkRequest
 import java.io.File
 
 /**
@@ -155,4 +157,65 @@ fun isWifiConnected(context: Context): Boolean {
     val caps = manager.getNetworkCapabilities(network) ?: return false
     return caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) &&
         caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_METERED)
+}
+
+/**
+ * Fetches covers for the games that lack one. Returns true when at
+ * least one cover landed on disk (the caller bumps its covers
+ * version so the tiles recompose with the new art). Pure apart
+ * from the store and fetcher it is given, so it is unit-testable
+ * with a fake fetcher.
+ */
+fun fetchMissingCovers(
+    art: CoverArtStore,
+    games: List<LibraryGame>,
+    networkAvailable: Boolean,
+): Boolean {
+    var landed = false
+    for (game in games) {
+        if (!art.hasCover(game) && art.coverOrFetch(game, networkAvailable) != null) {
+            landed = true
+        }
+    }
+    return landed
+}
+
+/**
+ * Calls [onChanged] whenever connectivity changes — a network
+ * becomes available or is lost, or its capabilities change. The
+ * library uses it to re-trigger the cover-art fetch when Wi-Fi
+ * appears while the library is open (2026-11-14: the old fetch
+ * ran once, keyed on the game list, so switching to Wi-Fi while
+ * the library was open never retried it — the first run on mobile
+ * data fetched nothing, with no retry). Start/stop are the
+ * caller's lifecycle (a DisposableEffect); stop tolerates an
+ * already-unregistered callback.
+ */
+class ConnectivityWatcher(
+    context: Context,
+    private val onChanged: () -> Unit,
+) {
+    private val manager =
+        context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
+    private val callback = object : ConnectivityManager.NetworkCallback() {
+        override fun onAvailable(network: Network) {
+            onChanged()
+        }
+
+        override fun onLost(network: Network) {
+            onChanged()
+        }
+
+        override fun onCapabilitiesChanged(network: Network, caps: NetworkCapabilities) {
+            onChanged()
+        }
+    }
+
+    fun start() {
+        manager?.registerNetworkCallback(NetworkRequest.Builder().build(), callback)
+    }
+
+    fun stop() {
+        manager?.let { runCatching { it.unregisterNetworkCallback(callback) } }
+    }
 }

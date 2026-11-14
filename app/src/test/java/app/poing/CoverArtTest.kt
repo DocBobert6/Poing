@@ -55,4 +55,31 @@ class CoverArtTest {
         val second = art.coverOrFetch(game(), wifiAvailable = false)
         assertEquals(first, second)
     }
+
+    @Test
+    fun fetchMissingCoversFetchesOnlyWhatIsMissing() {
+        var calls = 0
+        val fetcher = CoverArtFetcher { calls++; "fresh".toByteArray() }
+        val art = CoverArtStore(temp.root, fetcher)
+        val missing = game()
+        val cached = game().copy(id = "cached1", title = "CACHED")
+        art.coverFile(cached).writeBytes("cached".toByteArray())
+        // One pass lands the missing cover and skips the cached one.
+        assertTrue(fetchMissingCovers(art, listOf(missing, cached), networkAvailable = true))
+        assertEquals(1, calls)
+        assertEquals("fresh", art.coverFile(missing).readText())
+        // A second pass finds everything cached and fetches nothing.
+        assertFalse(fetchMissingCovers(art, listOf(missing, cached), networkAvailable = true))
+        assertEquals(1, calls)
+    }
+
+    @Test
+    fun fetchMissingCoversDoesNothingOffline() {
+        var calls = 0
+        val fetcher = CoverArtFetcher { calls++; "fresh".toByteArray() }
+        val art = CoverArtStore(temp.root, fetcher)
+        assertFalse(fetchMissingCovers(art, listOf(game()), networkAvailable = false))
+        assertEquals(0, calls)
+        assertFalse(art.hasCover(game()))
+    }
 }
