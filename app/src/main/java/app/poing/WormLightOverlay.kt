@@ -142,11 +142,26 @@ const val WORM_LIGHT_BULB_RY_DP = 6f
 // The plug just left of the display area, in dp: the EXT
 // port's plug, where the cord enters the player. The gap
 // is the small space between the plug and the game rect's
-// left edge — the plug sits beside the picture, never at
-// the device screen's edge and never over the picture.
+// left edge — the plug sits beside the picture, in the
+// flank, never at the device screen's edge and never over
+// the picture. Realism rework (Robert, 2026-11-14): the
+// gap is 10dp, not 4 — the plug + its port sit a little
+// further left, so the lamp reads as plugged into the
+// device's side, not into the screen itself. The port
+// housing wraps the plug on three sides (a 3dp pad, its
+// right edge flush with the plug's right face, where the
+// cord leaves); the collar is the strain-relief where the
+// cord enters the plug — a short sleeve at the plug's
+// right face, the cord emerging from it. The whole
+// assembly lives in the strip (port bottom 43dp on the
+// 923x411 reference canvas, D-pad top 133.5dp, L pill top
+// 60dp), so it stays clear of the flank controls.
 const val WORM_LIGHT_PLUG_W_DP = 10f
 const val WORM_LIGHT_PLUG_H_DP = 24f
-const val WORM_LIGHT_PLUG_GAP_DP = 4f
+const val WORM_LIGHT_PLUG_GAP_DP = 10f
+const val WORM_LIGHT_PORT_PAD_DP = 3f
+const val WORM_LIGHT_COLLAR_W_DP = 7f
+const val WORM_LIGHT_COLLAR_H_DP = 9f
 
 // The coil: a telephone cord has a fixed number of loops,
 // so a longer spine spreads them (stretch) and a shorter
@@ -276,6 +291,12 @@ data class CoilCubic(
 data class WormLightGeometry(
     val gameRect: Rect,
     val plugRect: Rect,
+    // Realism rework (Robert, 2026-11-14): the port housing
+    // the plug seats into, and the strain-relief collar the
+    // cord leaves through — both derived from the plug rect,
+    // so they move with it.
+    val portRect: Rect,
+    val collarRect: Rect,
     val coilP0: Offset,
     val coilP1: Offset,
     val coilP2: Offset,
@@ -471,6 +492,12 @@ fun wormLightGeometry(
     // plug never leaves the screen: when the game nearly
     // fills the width there is no room left of it, so the
     // plug parks at the edge instead of going off-screen.
+    // The port housing wraps the plug on three sides — its
+    // right edge flush with the plug's right face, where the
+    // cord leaves — and the collar is the short sleeve at
+    // that face the cord emerges from. At the edge-parked
+    // extreme the port's left side is clipped by the canvas;
+    // the plug itself never is.
     val plugW = WORM_LIGHT_PLUG_W_DP * density
     val plugH = WORM_LIGHT_PLUG_H_DP * density
     val plugGap = WORM_LIGHT_PLUG_GAP_DP * density
@@ -478,6 +505,17 @@ fun wormLightGeometry(
     val plugRect = Rect(
         plugRight - plugW, stripPx / 2f - plugH / 2f,
         plugRight, stripPx / 2f + plugH / 2f,
+    )
+    val portPad = WORM_LIGHT_PORT_PAD_DP * density
+    val portRect = Rect(
+        plugRect.left - portPad, plugRect.top - portPad,
+        plugRect.right, plugRect.bottom + portPad,
+    )
+    val collarW = WORM_LIGHT_COLLAR_W_DP * density
+    val collarH = WORM_LIGHT_COLLAR_H_DP * density
+    val collarRect = Rect(
+        plugRight, stripPx / 2f - collarH / 2f,
+        plugRight + collarW, stripPx / 2f + collarH / 2f,
     )
     // The coil's spine, by the head's zone (full travel,
     // Robert, 2026-11-13). A head in the strip keeps the
@@ -590,6 +628,8 @@ fun wormLightGeometry(
     return WormLightGeometry(
         gameRect = gameRect,
         plugRect = plugRect,
+        portRect = portRect,
+        collarRect = collarRect,
         coilP0 = coilFirst.p0,
         coilP1 = coilFirst.p1,
         coilP2 = coilFirst.p2,
@@ -725,14 +765,37 @@ data class WormLightDragHead(
 )
 
 /**
- * Draws the lamp's head: the soft glow, the lens fill (a
- * touch brighter in aim mode, so the mode is visible),
- * the rim, the bulb with its hot core, and — in aim mode
- * only — a short tick from the lens edge outward along
- * the lens's long axis, pointing where the head is aimed.
+ * Mix a colour toward white (factor > 0) or toward black
+ * (factor < 0), keeping its alpha — the gloss and shading
+ * of the lamp's plastic: a lighter top, a darker bottom,
+ * so flat hardware reads as a real moulded part.
+ */
+private fun Color.shaded(factor: Float): Color {
+    val a = abs(factor).coerceIn(0f, 1f)
+    val target = if (factor >= 0f) Color.White else Color.Black
+    return copy(
+        red = red + (target.red - red) * a,
+        green = green + (target.green - green) * a,
+        blue = blue + (target.blue - blue) * a,
+    )
+}
+
+/**
+ * Draws the lamp's head: the soft glow, the lens in
+ * layered translucent plastic (a shaded housing, a glass
+ * inner, a specular highlight — so it reads as a real
+ * moulded head, not a flat oval), the rim, the bulb with
+ * its halo and hot core, and — in aim mode only — a short
+ * tick from the lens edge outward along the lens's long
+ * axis, pointing where the head is aimed.
  */
 fun DrawScope.drawWormLightHead(head: WormLightDragHead) {
     val hardware = Color(head.hardwareColorArgb)
+    // A touch brighter in aim mode, so the mode reads in
+    // the lens itself as well as in the aim tick.
+    val housingAlpha =
+        (if (head.hardwareTranslucent) 0.45f else 0.60f) +
+            if (head.aimMode) 0.15f else 0f
     rotate(head.lensRotationDeg, pivot = head.lensCenter) {
         // The glow: a wide, faint halo of the same warm
         // white as the pool.
@@ -748,14 +811,46 @@ fun DrawScope.drawWormLightHead(head: WormLightDragHead) {
             center = head.lensCenter,
             radius = head.glowRadiusPx,
         )
-        // The lens: clear plastic — a faint white fill, a
-        // little brighter in aim mode so the mode reads,
-        // with its rim in the hardware colour (the bulb
-        // stays visible through the fill).
+        // The housing: glossy translucent plastic — lighter
+        // on top where the light catches it, darker at the
+        // bottom — so the head has a top and a bottom, not
+        // one flat fill. The bulb, drawn after, still shows
+        // through it.
         drawOval(
-            color = Color.White.copy(alpha = if (head.aimMode) 0.30f else 0.14f),
+            brush = Brush.linearGradient(
+                colorStops = arrayOf(
+                    0f to hardware.shaded(0.45f).copy(alpha = housingAlpha),
+                    1f to hardware.shaded(-0.40f).copy(alpha = housingAlpha),
+                ),
+                start = Offset(head.lensCenter.x, head.lensCenter.y - head.lensRadii.y),
+                end = Offset(head.lensCenter.x, head.lensCenter.y + head.lensRadii.y),
+            ),
             topLeft = head.lensCenter - head.lensRadii,
             size = Size(head.lensRadii.x * 2f, head.lensRadii.y * 2f),
+        )
+        // The glass inner: a smaller oval, brighter toward
+        // its upper-left, fading out — the clear window the
+        // bulb shines through.
+        drawOval(
+            brush = Brush.radialGradient(
+                colorStops = arrayOf(
+                    0f to Color.White.copy(alpha = 0.28f),
+                    1f to Color.Transparent,
+                ),
+                center = head.lensCenter +
+                    Offset(-head.lensRadii.x * 0.25f, -head.lensRadii.y * 0.30f),
+                radius = head.lensRadii.x * 0.9f,
+            ),
+            topLeft = head.lensCenter - head.lensRadii * 0.82f,
+            size = Size(head.lensRadii.x * 2f * 0.82f, head.lensRadii.y * 2f * 0.82f),
+        )
+        // The specular highlight: a small bright ellipse at
+        // the upper-left, the gloss on the plastic.
+        drawOval(
+            color = Color.White.copy(alpha = 0.50f),
+            topLeft = head.lensCenter +
+                Offset(-head.lensRadii.x * 0.55f, -head.lensRadii.y * 0.75f),
+            size = Size(head.lensRadii.x * 0.50f, head.lensRadii.y * 0.32f),
         )
         // The rim.
         drawOval(
@@ -765,8 +860,21 @@ fun DrawScope.drawWormLightHead(head: WormLightDragHead) {
             style = Stroke(width = head.rimStrokePx),
         )
     }
-    // The bulb: a bright warm point with a hot core, drawn
-    // unrotated (it is a point, not a direction).
+    // The bulb: a bright warm point with a halo and a hot
+    // core, drawn unrotated (it is a point, not a
+    // direction).
+    drawCircle(
+        brush = Brush.radialGradient(
+            colorStops = arrayOf(
+                0f to WORM_LIGHT_WARM.copy(alpha = 0.30f),
+                1f to Color.Transparent,
+            ),
+            center = head.bulbCenter,
+            radius = head.bulbRadii.x * 2.2f,
+        ),
+        center = head.bulbCenter,
+        radius = head.bulbRadii.x * 2.2f,
+    )
     drawCircle(
         color = Color(0xFFFFF3C4),
         radius = head.bulbRadii.x,
@@ -1088,15 +1196,65 @@ fun WormLightOverlay(
             val hw = Color(hardwareColor.argb).copy(
                 alpha = if (hardwareColor.translucent) 0.6f else 1f,
             )
-            // The plug just left of the game rect, in the
-            // strip zone — the EXT port, where the cord
-            // enters the player.
+            // The port: the device's socket — a dark recessed
+            // housing the plug seats into, with a thin rim so
+            // it reads as a socket, not a shadow. Drawn first,
+            // so the plug sits in it.
             drawRoundRect(
-                color = hw,
+                color = Color(0xFF181818),
+                topLeft = Offset(g.portRect.left, g.portRect.top),
+                size = Size(g.portRect.width, g.portRect.height),
+                cornerRadius = CornerRadius(4f * density, 4f * density),
+            )
+            drawRoundRect(
+                color = Color.White.copy(alpha = 0.12f),
+                topLeft = Offset(g.portRect.left, g.portRect.top),
+                size = Size(g.portRect.width, g.portRect.height),
+                cornerRadius = CornerRadius(4f * density, 4f * density),
+                style = Stroke(width = 1f * density),
+            )
+            // The plug: shaded like the head's housing —
+            // lighter on top, darker at the bottom — with the
+            // shell's split line across its middle.
+            drawRoundRect(
+                brush = Brush.linearGradient(
+                    colorStops = arrayOf(
+                        0f to hw.shaded(0.35f),
+                        1f to hw.shaded(-0.35f),
+                    ),
+                    start = Offset(g.plugRect.left, g.plugRect.top),
+                    end = Offset(g.plugRect.left, g.plugRect.bottom),
+                ),
                 topLeft = Offset(g.plugRect.left, g.plugRect.top),
                 size = Size(g.plugRect.width, g.plugRect.height),
                 cornerRadius = CornerRadius(3f * density, 3f * density),
             )
+            drawLine(
+                color = hw.shaded(-0.5f),
+                start = Offset(g.plugRect.left + 1f * density, g.plugRect.center.y),
+                end = Offset(g.plugRect.right - 1f * density, g.plugRect.center.y),
+                strokeWidth = 1f * density,
+                cap = StrokeCap.Round,
+            )
+            // The collar: the strain-relief sleeve where the
+            // cord leaves the plug, a shade darker, with two
+            // relief rings across it.
+            drawRoundRect(
+                color = hw.shaded(-0.25f),
+                topLeft = Offset(g.collarRect.left, g.collarRect.top),
+                size = Size(g.collarRect.width, g.collarRect.height),
+                cornerRadius = CornerRadius(2f * density, 2f * density),
+            )
+            for (fx in listOf(0.33f, 0.66f)) {
+                val rx = g.collarRect.left + g.collarRect.width * fx
+                drawLine(
+                    color = hw.shaded(-0.5f),
+                    start = Offset(rx, g.collarRect.top + 1f * density),
+                    end = Offset(rx, g.collarRect.bottom - 1f * density),
+                    strokeWidth = 1f * density,
+                    cap = StrokeCap.Round,
+                )
+            }
             // The coil: the sine ribbon along the cubic spine
             // — a telephone cord, not a straight line. A head
             // on the right flank routes over the top and down
@@ -1112,10 +1270,39 @@ fun WormLightOverlay(
                     moveTo(pts.first().x, pts.first().y)
                     for (p in pts.drop(1)) lineTo(p.x, p.y)
                 }
+                // A real cord is a tube, not a line: a soft
+                // shadow under it, the hardware-coloured
+                // body, and a bright edge along its top —
+                // so the loops read as a coiled cable
+                // instead of a drawn squiggle.
+                val shadow = Path().apply {
+                    addPath(ribbon)
+                    translate(Offset(0.5f * density, 0.75f * density))
+                }
+                drawPath(
+                    shadow,
+                    Color.Black.copy(alpha = 0.35f),
+                    style = Stroke(
+                        width = g.coilStrokePx + 1f * density,
+                        cap = StrokeCap.Round,
+                    ),
+                )
                 drawPath(
                     ribbon,
                     hw,
                     style = Stroke(width = g.coilStrokePx, cap = StrokeCap.Round),
+                )
+                val highlight = Path().apply {
+                    addPath(ribbon)
+                    translate(Offset(0f, -0.75f * density))
+                }
+                drawPath(
+                    highlight,
+                    Color.White.copy(alpha = 0.30f),
+                    style = Stroke(
+                        width = g.coilStrokePx * 0.4f,
+                        cap = StrokeCap.Round,
+                    ),
                 )
             }
             drawCoil(

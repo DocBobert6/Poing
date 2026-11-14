@@ -89,12 +89,15 @@ class WormLightGeometryTest {
     @Test
     fun plugSitsJustLeftOfTheGameRect() {
         val g = geometry()
-        // The EXT port's plug: 10x24dp, its right edge a 4dp
+        // The EXT port's plug: 10x24dp, its right edge a 10dp
         // gap left of the game rect's left edge, centred in
-        // the strip — beside the picture, never at the device
-        // screen's edge (Robert, 2026-11-13: "still attached
-        // to top and it's too far left").
-        assertEquals(160.25f - 4f * density, g.plugRect.right, 0.01f)
+        // the strip — beside the picture, in the flank, never
+        // at the device screen's edge (Robert, 2026-11-13:
+        // "still attached to top and it's too far left"; the
+        // realism rework, Robert, 2026-11-14, moved it a
+        // little further left so it reads as plugged into the
+        // device's side, not into the screen).
+        assertEquals(160.25f - 10f * density, g.plugRect.right, 0.01f)
         assertEquals(10f * density, g.plugRect.width, 0.01f)
         assertEquals(24f * density, g.plugRect.height, 0.01f)
         assertEquals(stripPx / 2f, g.plugRect.center.y, 0.01f)
@@ -103,8 +106,32 @@ class WormLightGeometryTest {
         // A GB game is narrower, so its plug sits further
         // right — always beside its own picture.
         val gb = geometry(aspect = 160f / 144f)
-        assertEquals(248.33f - 4f * density, gb.plugRect.right, 0.01f)
+        assertEquals(248.33f - 10f * density, gb.plugRect.right, 0.01f)
         assertTrue(gb.plugRect.left > 0f)
+    }
+
+    @Test
+    fun portHousingWrapsThePlugAndCollarExitsRight() {
+        // Realism rework (Robert, 2026-11-14): the port
+        // housing wraps the plug on three sides — its right
+        // edge flush with the plug's right face, where the
+        // cord leaves — and the strain-relief collar is the
+        // short sleeve at that face, the cord emerging from
+        // it. The whole assembly lives in the strip, clear
+        // of the flank controls below it.
+        val g = geometry()
+        val pad = WORM_LIGHT_PORT_PAD_DP * density
+        assertEquals(g.plugRect.left - pad, g.portRect.left, 0.01f)
+        assertEquals(g.plugRect.top - pad, g.portRect.top, 0.01f)
+        assertEquals(g.plugRect.right, g.portRect.right, 0.01f)
+        assertEquals(g.plugRect.bottom + pad, g.portRect.bottom, 0.01f)
+        assertEquals(g.plugRect.right, g.collarRect.left, 0.01f)
+        assertEquals(WORM_LIGHT_COLLAR_W_DP * density, g.collarRect.width, 0.01f)
+        assertEquals(WORM_LIGHT_COLLAR_H_DP * density, g.collarRect.height, 0.01f)
+        assertEquals(stripPx / 2f, g.collarRect.center.y, 0.01f)
+        assertEquals(g.coilP0.x, g.collarRect.left, 0.01f)
+        assertEquals(g.coilP0.y, g.collarRect.center.y, 0.01f)
+        assertTrue("the port should stay in the strip", g.portRect.bottom <= stripPx)
     }
 
     @Test
@@ -126,7 +153,7 @@ class WormLightGeometryTest {
         // top of the strip — above both ends — so the cord
         // rises from the plug beside the game's left edge,
         // arches over the top, and descends to the head.
-        assertEquals(160.25f - 4f * density, g.coilP0.x, 0.01f)
+        assertEquals(160.25f - 10f * density, g.coilP0.x, 0.01f)
         assertEquals(stripPx / 2f, g.coilP0.y, 0.01f)
         assertEquals(g.lensCenter, g.coilP3)
         assertTrue("first control should be above the plug", g.coilP1.y < g.coilP0.y)
