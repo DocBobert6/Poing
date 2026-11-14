@@ -159,8 +159,26 @@ class WormLightOverlayTest {
         // head sits at (0.5, 0.06) of the node, i.e. centre
         // + (0, -0.44h) — so the tap lands on the head
         // whatever the node's root offset or measured size.
+        // The down and the up are injected in SEPARATE
+        // blocks, not as click(): click() sends down+up
+        // back-to-back, and under Robolectric they collapse
+        // so the up never reaches awaitTouchSlopOrCancellation
+        // as its own event — the tap's gesture stalls, the
+        // detector never calls onDragCancel, and the toggle
+        // never runs (the swipe that follows still drags,
+        // because its moves are picked up by the stalled
+        // await — which is why the swipe probe passed while
+        // the aim probe failed). A real tap is two separate
+        // MotionEvents; the split injection is the faithful
+        // one, and the up goes to the pointer the down
+        // returned.
+        var tapPointer = 0
         composeRule.onNodeWithTag("worm-light").performTouchInput {
-            click(center + Offset(0f, -0.44f * size.second))
+            tapPointer = down(center + Offset(0f, -0.44f * size.second))
+        }
+        composeRule.waitForIdle()
+        composeRule.onNodeWithTag("worm-light").performTouchInput {
+            up(tapPointer)
         }
         composeRule.waitForIdle()
         // Drag straight down from the head: in aim mode this
