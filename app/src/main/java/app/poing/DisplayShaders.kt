@@ -600,17 +600,41 @@ object DisplayShaders {
           float edgeStrength = abs(gx) + abs(gy);
           // Text: a high-contrast edge that runs straight
           // along one axis — a glyph stroke, a text-box
-          // border, HUD numbers. Diagonals have a strong
-          // gradient in BOTH directions, so they never trip
-          // this; a straight sprite edge trips it too, and
-          // it needs no smoothing either — a staircase only
-          // exists on a diagonal. The axis-aligned
-          // threshold is per-system (uTextAlign: GB 0.15,
-          // GBC 0.08, GBA 0.05), set by the sim from the
-          // text / diagonal margins.
+          // border, HUD numbers. The gradient ratio is
+          // evaluated over the 5x5 OUTER RING, on RAW luma
+          // (direction is a property of the source art, not
+          // the colour model; the ring costs 12 plain taps,
+          // no colour correction, no mixing with the
+          // corrected inner 3x3). The old 3x3 ratio fired on
+          // staircase steps — each step texel's gradient is
+          // one-directional, so a staircased diagonal read
+          // as "text" on a third to a half of its texels and
+          // the blend never ran (Robert's device photos,
+          // 2026-11-14). Over the ring a staircase's steps
+          // average into a diagonal gradient (0% fire on
+          // clean 1:2 / 1:3 / 1:4 staircases); a glyph stroke
+          // stays one-directional. The 3x3 gradient still
+          // drives the edge strength and the blend direction.
+          // The axis-aligned threshold is per-system
+          // (uTextAlign: GB 0.15, GBC 0.08, GBA 0.05), set
+          // by the sim from the text / diagonal margins.
           float lMax = max(l0, max(max(lN, lS), max(max(lE, lW), max(max(lNE, lNW), max(lSE, lSW)))));
           float lMin = min(l0, min(min(lN, lS), min(min(lE, lW), min(min(lNE, lNW), min(lSE, lSW)))));
-          float axisAligned = step(min(abs(gx), abs(gy)), uTextAlign * max(abs(gx), abs(gy)) + 0.001);
+          float rE2 = edgeLuma(texture2D(uTex, vTex + vec2(2.0 * texel.x, 0.0)).rgb);
+          float rNE2 = edgeLuma(texture2D(uTex, vTex + vec2(2.0 * texel.x, texel.y)).rgb);
+          float rSE2 = edgeLuma(texture2D(uTex, vTex + vec2(2.0 * texel.x, -texel.y)).rgb);
+          float rW2 = edgeLuma(texture2D(uTex, vTex + vec2(-2.0 * texel.x, 0.0)).rgb);
+          float rNW2 = edgeLuma(texture2D(uTex, vTex + vec2(-2.0 * texel.x, texel.y)).rgb);
+          float rSW2 = edgeLuma(texture2D(uTex, vTex + vec2(-2.0 * texel.x, -texel.y)).rgb);
+          float rN2 = edgeLuma(texture2D(uTex, vTex + vec2(0.0, 2.0 * texel.y)).rgb);
+          float rN2E = edgeLuma(texture2D(uTex, vTex + vec2(texel.x, 2.0 * texel.y)).rgb);
+          float rN2W = edgeLuma(texture2D(uTex, vTex + vec2(-texel.x, 2.0 * texel.y)).rgb);
+          float rS2 = edgeLuma(texture2D(uTex, vTex + vec2(0.0, -2.0 * texel.y)).rgb);
+          float rS2E = edgeLuma(texture2D(uTex, vTex + vec2(texel.x, -2.0 * texel.y)).rgb);
+          float rS2W = edgeLuma(texture2D(uTex, vTex + vec2(-texel.x, -2.0 * texel.y)).rgb);
+          float gx5 = (rE2 + rNE2 + rSE2) - (rW2 + rNW2 + rSW2);
+          float gy5 = (rN2 + rN2E + rN2W) - (rS2 + rS2E + rS2W);
+          float axisAligned = step(min(abs(gx5), abs(gy5)), uTextAlign * max(abs(gx5), abs(gy5)) + 0.001);
           float text = step(0.5, lMax - lMin) * axisAligned;
           // Corner: both diagonal pairs match. A diagonal
           // edge has a strong gradient in BOTH directions,

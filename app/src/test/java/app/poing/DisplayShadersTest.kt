@@ -335,9 +335,16 @@ class DisplayShadersTest {
         assertTrue(src.contains("float patternEff = pattern * (1.0 - isolated) * (1.0 - text)"))
         assertTrue(src.contains("col = mix(col, ditherAvg, patternEff)"))
         // 1-pixel detail and text bypass (per-system threshold).
+        // Fix 3: the ratio is evaluated over the 5x5 outer
+        // ring, RAW luma (gx5 / gy5) — the 3x3 ratio fired on
+        // staircase steps and defeated the blend on every
+        // real diagonal (Robert's device photos, 2026-11-14).
         assertTrue(src.contains("isolated"))
         assertTrue(src.contains("float text = step(0.5, lMax - lMin) * axisAligned"))
-        assertTrue(src.contains("uTextAlign * max(abs(gx), abs(gy))"))
+        assertTrue(src.contains("uTextAlign * max(abs(gx5), abs(gy5))"))
+        assertTrue(src.contains("float gx5 = (rE2 + rNE2 + rSE2) - (rW2 + rNW2 + rSW2)"))
+        assertTrue(src.contains("float gy5 = (rN2 + rN2E + rN2W) - (rS2 + rS2E + rS2W)"))
+        assertFalse(src.contains("uTextAlign * max(abs(gx), abs(gy))"))
         // Directional blend along the edge, weight growing
         // toward the texel boundary — and no motion factor.
         assertTrue(src.contains("fract(vTex * uTexSize)"))

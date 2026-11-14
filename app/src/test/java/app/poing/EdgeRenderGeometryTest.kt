@@ -119,9 +119,12 @@ class EdgeRenderGeometryTest {
      * DisplayShaders.EDGE_FRAGMENT, mirrored in Kotlin
      * (reworked 2026-11-14: dither blends flat, no GB
      * snap, no motion, no taper, per-system text
-     * threshold, colour-fold in item 4). Must be kept in step
-     * with the shader; sim2.py (~/workspace/poing/verify/edge-rework/
-     * sim2.py) mirrors the same shader in Python and
+     * threshold, colour-fold in item 4; Fix 3: the text
+     * ratio is evaluated over the 5x5 outer ring, RAW
+     * luma, so staircased diagonals no longer read as
+     * text). Must be kept in step with the shader;
+     * sim3.py (~/workspace/poing/verify/edge-rework/
+     * sim3.py) mirrors the same shader in Python and
      * cross-checks these numbers at full device
      * resolution.
      */
@@ -218,9 +221,28 @@ class EdgeRenderGeometryTest {
         val edgeStrength = abs(gx) + abs(gy)
         val lMax = max(max(max(l0, lN), max(lS, lE)), max(max(lW, lNE), max(lNW, max(lSE, lSW))))
         val lMin = min(min(min(l0, lN), min(lS, lE)), min(min(lW, lNE), min(lNW, min(lSE, lSW))))
+        // 5x5 text test (Fix 3, 2026-11-14): the 3x3 ratio
+        // fired on staircase steps, so the ratio is now
+        // evaluated over the outer ring, on RAW luma — see
+        // the shader's comment and sim3.py
+        // (~/workspace/poing/verify/edge-rework/sim3.py).
+        val rE2 = sample(frame, w, h, u + 2f * tx, v).luma()
+        val rNE2 = sample(frame, w, h, u + 2f * tx, v + ty).luma()
+        val rSE2 = sample(frame, w, h, u + 2f * tx, v - ty).luma()
+        val rW2 = sample(frame, w, h, u - 2f * tx, v).luma()
+        val rNW2 = sample(frame, w, h, u - 2f * tx, v + ty).luma()
+        val rSW2 = sample(frame, w, h, u - 2f * tx, v - ty).luma()
+        val rN2 = sample(frame, w, h, u, v + 2f * ty).luma()
+        val rN2E = sample(frame, w, h, u + tx, v + 2f * ty).luma()
+        val rN2W = sample(frame, w, h, u - tx, v + 2f * ty).luma()
+        val rS2 = sample(frame, w, h, u, v - 2f * ty).luma()
+        val rS2E = sample(frame, w, h, u + tx, v - 2f * ty).luma()
+        val rS2W = sample(frame, w, h, u - tx, v - 2f * ty).luma()
+        val gx5 = (rE2 + rNE2 + rSE2) - (rW2 + rNW2 + rSW2)
+        val gy5 = (rN2 + rN2E + rN2W) - (rS2 + rS2E + rS2W)
         val axisAligned = step(
-            min(abs(gx), abs(gy)),
-            params.textAlign * max(abs(gx), abs(gy)) + 0.001f,
+            min(abs(gx5), abs(gy5)),
+            params.textAlign * max(abs(gx5), abs(gy5)) + 0.001f,
         )
         val text = step(0.5f, lMax - lMin) * axisAligned
         val corner = step(cNW.dist(cSE), 0.1f) * step(cNE.dist(cSW), 0.1f) *
@@ -367,6 +389,32 @@ class EdgeRenderGeometryTest {
             if (a[i].dist(b[i]) > 0.001f) n++
         }
         return n
+    }
+
+    /**
+     * The 10–90% transition width of the step at x0 on one
+     * display line, in display px, against levels taken from
+     * the BASELINE line (the sim's _local_width /
+     * _local_levels): a hard 1px step has no intermediate
+     * values, so it measures 0; a blended step spreads over
+     * ~3–6px. The levels must come from the baseline — the
+     * blended line's own levels can sit on a dither-averaged
+     * patch and move the band off the real step.
+     */
+    private fun transitionWidth(line: FloatArray, x0: Int, a: Float, b: Float): Int {
+        val t10 = a + 0.1f * (b - a)
+        val t90 = a + 0.9f * (b - a)
+        val lo = max(0, x0 - 14)
+        val hi = min(line.size, x0 + 14)
+        var first = -1
+        var last = -1
+        for (i in lo until hi) {
+            if ((line[i] - t10) * (line[i] - t90) <= 0f) {
+                if (first < 0) first = i
+                last = i
+            }
+        }
+        return if (first < 0) 0 else last - first
     }
 
     private fun diagonalFrame(w: Int, h: Int, light: Rgb, dark: Rgb): Array<Rgb> {
@@ -589,6 +637,124 @@ class EdgeRenderGeometryTest {
         val out = renderEdge(frame, w, h, 480, 320, params, 3)
         val base = nearestCorrected(frame, w, h, 480, 320, 3)
         assertEquals(0, changedPixels(out, base))
+    }
+
+    @Test
+    fun staircaseDoesNotTripTheTextBypass() {
+        // Fix 3: the detector-level pin. On a 1:3 staircase
+        // the old 3x3 ratio fell below the GBA threshold
+        // (0.05) on a quarter of the boundary texels, so the
+        // text bypass fired and the blend never ran there
+        // (the sim's probe: old fire rate 0.25, new 0.00).
+        // The 5x5 outer-ring ratio averages the steps into
+        // a diagonal gradient: its minimum over the boundary
+        // is 0.333, far above the threshold, so the bypass
+        // never fires. The render-level test above pins the
+        // softening; this one pins the detector — the width
+        // alone does not discriminate, because a row that
+        // crosses a blended segment still measures 4px with
+        // the old detector.
+        val w = 240
+        val h = 160
+        val light = Rgb(0.9f, 0.9f, 0.9f)
+        val dark = Rgb(0.1f, 0.1f, 0.1f)
+        val frame = Array(w * h) { idx ->
+            val x = idx % w
+            val y = idx / w
+            if (3 * y < x + 140) light else dark
+        }
+        val params = EdgeSmoothing.edgeParamsFor(GameSystem.GBA)
+        val tx = 1f / w
+        val ty = 1f / h
+        var minRatio = Float.MAX_VALUE
+        var fires = 0
+        var n = 0
+        for (y in 2 until h - 2) {
+            for (x in 2 until w - 2) {
+                val c = frame[y * w + x]
+                if (c.dist(frame[y * w + x + 1]) < 0.3f &&
+                    c.dist(frame[(y + 1) * w + x]) < 0.3f
+                ) continue
+                val u = (x + 0.5f) / w
+                val v = (y + 0.5f) / h
+                val rE2 = sample(frame, w, h, u + 2f * tx, v).luma()
+                val rNE2 = sample(frame, w, h, u + 2f * tx, v + ty).luma()
+                val rSE2 = sample(frame, w, h, u + 2f * tx, v - ty).luma()
+                val rW2 = sample(frame, w, h, u - 2f * tx, v).luma()
+                val rNW2 = sample(frame, w, h, u - 2f * tx, v + ty).luma()
+                val rSW2 = sample(frame, w, h, u - 2f * tx, v - ty).luma()
+                val rN2 = sample(frame, w, h, u, v + 2f * ty).luma()
+                val rN2E = sample(frame, w, h, u + tx, v + 2f * ty).luma()
+                val rN2W = sample(frame, w, h, u - tx, v + 2f * ty).luma()
+                val rS2 = sample(frame, w, h, u, v - 2f * ty).luma()
+                val rS2E = sample(frame, w, h, u + tx, v - 2f * ty).luma()
+                val rS2W = sample(frame, w, h, u - tx, v - 2f * ty).luma()
+                val gx5 = (rE2 + rNE2 + rSE2) - (rW2 + rNW2 + rSW2)
+                val gy5 = (rN2 + rN2E + rN2W) - (rS2 + rS2E + rS2W)
+                val denom = max(abs(gx5), abs(gy5))
+                val ratio = if (denom > 0f) min(abs(gx5), abs(gy5)) / denom else 1f
+                minRatio = min(minRatio, ratio)
+                if (ratio < params.textAlign) fires++
+                n++
+            }
+        }
+        assertTrue("staircase boundary texels must number in the hundreds, n=$n", n > 100)
+        assertEquals("the text bypass must never fire on a staircase", 0, fires)
+        assertTrue(
+            "the 5x5 ratio must clear the threshold everywhere, min=$minRatio",
+            minRatio > 0.15f,
+        )
+    }
+
+    @Test
+    fun staircasedDiagonalBlendsAtDisplayResolution() {
+        // Fix 3 (Robert's device photos, 2026-11-14): the
+        // old 3x3 text bypass fired on a third to a half of
+        // a staircased diagonal's texels — each step texel's
+        // gradient is one-directional — so the blend never
+        // ran on real diagonals. The 5x5 outer-ring ratio
+        // averages the steps into a diagonal gradient. A
+        // 1:3 staircase (1 texel down per 3 across, the
+        // pixel-art diagonal) must soften on EVERY row that
+        // crosses it: the transition width is >= 3px on each
+        // of five rows, and the band changes by hundreds of
+        // pixels. (The width alone does not discriminate the
+        // old detector — a row crossing a blended segment
+        // still measures 4px with it; the detector test
+        // above is the discriminator. This one pins the
+        // render softening: the sim's C17 measures 4px on
+        // 1:2 / 1:3 / 1:4 and 7px on a steep 3:1.)
+        val w = 240
+        val h = 160
+        val light = Rgb(0.9f, 0.9f, 0.9f)
+        val dark = Rgb(0.1f, 0.1f, 0.1f)
+        val frame = Array(w * h) { idx ->
+            val x = idx % w
+            val y = idx / w
+            if (3 * y < x + 140) light else dark
+        }
+        val params = EdgeSmoothing.edgeParamsFor(GameSystem.GBA)
+        val out = renderEdge(frame, w, h, 480, 320, params, 3)
+        val base = nearestCorrected(frame, w, h, 480, 320, 3)
+        val changed = changedPixels(out, base)
+        assertTrue("a staircased diagonal must blend, changed=$changed", changed > 100)
+        for (ty in listOf(60, 70, 80, 90, 100)) {
+            // The boundary at this row is x = 3*ty - 140;
+            // the display row and crossing are the 2x
+            // positions of that texel row and column.
+            val j = ((ty + 0.5f) * 2f).toInt()
+            val xd = ((3 * ty - 140 + 0.5f) * 2f).toInt()
+            val baseRow = FloatArray(480) { i -> base[j * 480 + i].luma() }
+            val outRow = FloatArray(480) { i -> out[j * 480 + i].luma() }
+            val a = baseRow.copyOfRange(max(0, xd - 12), max(1, xd - 6)).sorted()[2]
+            val b = baseRow.copyOfRange(min(480, xd + 7), min(480, xd + 13)).sorted()[2]
+            val wBase = transitionWidth(baseRow, xd, a, b)
+            val wOut = transitionWidth(outRow, xd, a, b)
+            assertTrue(
+                "staircase row $ty must soften (base ${wBase}px -> blended ${wOut}px)",
+                wOut >= 3 && wBase <= 1,
+            )
+        }
     }
 
     companion object {
