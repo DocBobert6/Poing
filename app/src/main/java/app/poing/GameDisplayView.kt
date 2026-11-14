@@ -60,6 +60,11 @@ fun GameDisplayView(
     // medium gray by default; the light itself stays warm
     // white and is never a setting.
     wormLightColor: WormLightColor = WormLightColor.DEFAULT,
+    // Worm Light improvements (Robert, 2026-11-13): while a
+    // drag is in progress the overlay reports its head, so
+    // the player can draw it above the controls — a dragged
+    // head never disappears behind the D-pad.
+    onWormLightDragHeadChange: (WormLightDragHead?) -> Unit = {},
     // The layout weight lives in the caller's Column (a
     // ColumnScope modifier cannot be built inside this
     // composable, so it arrives as a plain modifier).
@@ -163,6 +168,7 @@ fun GameDisplayView(
                 gameAspect = s.width.toFloat() / s.height.toFloat(),
                 drawPool = glView == null,
                 onPoolChange = { pool -> glView?.setWormLight(pool) },
+                onDragHeadChange = onWormLightDragHeadChange,
                 modifier = Modifier.fillMaxSize(),
             )
         } else {

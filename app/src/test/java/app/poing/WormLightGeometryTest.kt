@@ -35,7 +35,11 @@ class WormLightGeometryTest {
         head: Offset = WORM_LIGHT_DEFAULT_HEAD,
         aspect: Float = gameAspect,
         swayPx: Float = 0f,
-    ) = wormLightGeometry(width, height, head, density, aspect, WORM_LIGHT_STRIP_DP, swayPx)
+        aimAngleRad: Float? = null,
+    ) = wormLightGeometry(
+        width, height, head, density, aspect, WORM_LIGHT_STRIP_DP, swayPx,
+        aimAngleRad = aimAngleRad,
+    )
 
     @Test
     fun defaultHeadSitsMidStripCentred() {
@@ -49,12 +53,14 @@ class WormLightGeometryTest {
     }
 
     @Test
-    fun headIsClampedIntoTheStrip() {
-        // A stored position from a taller or shorter player
-        // area still lands in the strip, and the lens stays
-        // on screen.
+    fun headIsClampedToThePlayerBox() {
+        // Free head (Robert, 2026-11-13 — the "never on top
+        // of the game" rule is reversed): a stored position
+        // from a taller or shorter player area still lands
+        // in the player box, anywhere in it — low, high, far
+        // left, far right — and the lens stays on screen.
         val low = geometry(Offset(0.5f, 0.9f))
-        assertEquals(stripPx, low.lensCenter.y, 0.01f)
+        assertEquals(height * 0.9f, low.lensCenter.y, 0.01f)
         val high = geometry(Offset(0.5f, -0.1f))
         assertEquals(0f, high.lensCenter.y, 0.01f)
         val left = geometry(Offset(-0.5f, 0.06f))
@@ -135,18 +141,30 @@ class WormLightGeometryTest {
     }
 
     @Test
-    fun lensIsAnOvalAngledDownAtTheGame() {
+    fun lensFollowsThePoolsTilt() {
+        // The lens rotation follows where the light lands
+        // (Robert, 2026-11-13): level over the middle of the
+        // game, tilting toward the game from each flank —
+        // and always the pool's own tilt, in degrees.
         val g = geometry()
-        // A clear oval, longer than tall (22x14dp), rotated
-        // 35 degrees so the head angles down at the game.
         assertEquals(22f * density, g.lensRadii.x, 0.01f)
         assertEquals(14f * density, g.lensRadii.y, 0.01f)
-        assertEquals(35f, g.lensRotationDeg, 0.01f)
+        assertEquals(0f, g.lensRotationDeg, 0.01f)
+        assertEquals(g.pool.rotationRad * 180f / PI.toFloat(), g.lensRotationDeg, 0.01f)
+        // At level the half-extents are the radii themselves.
+        assertEquals(g.lensRadii.x, g.lensHalfWidthPx, 0.01f)
+        assertEquals(g.lensRadii.y, g.lensHalfHeightPx, 0.01f)
+        val left = geometry(Offset(0.2f, 0.06f))
+        assertEquals(15.18f, left.lensRotationDeg, 0.01f)
+        assertEquals(left.pool.rotationRad * 180f / PI.toFloat(), left.lensRotationDeg, 0.01f)
+        val right = geometry(Offset(0.8f, 0.06f))
+        assertEquals(-15.18f, right.lensRotationDeg, 0.01f)
+        assertEquals(right.pool.rotationRad * 180f / PI.toFloat(), right.lensRotationDeg, 0.01f)
         // The rotated lens's bounding half-extents: wider
         // than the unrotated x radius would be alone, and
         // taller than the y radius alone.
-        assertTrue(g.lensHalfWidthPx > g.lensRadii.x * 0.8f)
-        assertTrue(g.lensHalfHeightPx > g.lensRadii.y)
+        assertTrue(left.lensHalfWidthPx >= left.lensRadii.x * 0.8f)
+        assertTrue(left.lensHalfHeightPx >= left.lensRadii.y)
     }
 
     @Test
@@ -159,7 +177,7 @@ class WormLightGeometryTest {
         assertTrue("bulb should sit above the lens centre", g.bulbCenter.y < g.lensCenter.y)
         val dx = g.bulbCenter.x - g.lensCenter.x
         val dy = g.bulbCenter.y - g.lensCenter.y
-        val rot = 35f * PI.toFloat() / 180f
+        val rot = g.lensRotationDeg * PI.toFloat() / 180f
         val c = kotlin.math.cos(rot)
         val s = kotlin.math.sin(rot)
         val rx = dx * c + dy * s
@@ -270,14 +288,16 @@ class WormLightGeometryTest {
     fun poolFactorIsBrightestAtTheCentreAndZeroAtTheEdge() {
         val center = Offset(0.5f, 0.20f)
         val radii = Offset(0.55f, 0.42f)
-        // At the centre: 0.30 fall + 0.35 hotspot = 0.65.
-        assertEquals(0.65f, wormLightPoolFactor(center, radii, 0f, center), 0.001f)
+        // At the centre: 0.14 fall + 0.16 hotspot = 0.30
+        // (retuned 2026-11-13, from 0.65 — the old peak
+        // bleached the lightest Jade shades to white).
+        assertEquals(0.30f, wormLightPoolFactor(center, radii, 0f, center), 0.001f)
         // At the ellipse edge (e = 1): nothing.
         assertEquals(0f, wormLightPoolFactor(center, radii, 0f, Offset(1.05f, 0.20f)), 0.001f)
         // Outside the ellipse: nothing.
         assertEquals(0f, wormLightPoolFactor(center, radii, 0f, Offset(1.30f, 0.20f)), 0.001f)
-        // Halfway out along the long axis (e = 0.25): 0.399.
-        assertEquals(0.399f, wormLightPoolFactor(center, radii, 0f, Offset(0.775f, 0.20f)), 0.01f)
+        // Halfway out along the long axis (e = 0.25): 0.185.
+        assertEquals(0.185f, wormLightPoolFactor(center, radii, 0f, Offset(0.775f, 0.20f)), 0.01f)
     }
 
     @Test
@@ -306,8 +326,8 @@ class WormLightGeometryTest {
         val downRight = wormLightPoolFactor(center, radii, 0.6f, Offset(0.8f, 0.35f))
         val upRight = wormLightPoolFactor(center, radii, 0.6f, Offset(0.8f, 0.05f))
         assertTrue("down-right should score higher than up-right", downRight > upRight)
-        assertEquals(0.229f, downRight, 0.01f)
-        assertEquals(0.116f, upRight, 0.01f)
+        assertEquals(0.107f, downRight, 0.01f)
+        assertEquals(0.054f, upRight, 0.01f)
     }
 
     @Test
@@ -347,19 +367,20 @@ class WormLightGeometryTest {
     }
 
     @Test
-    fun headCannotBeDraggedOntoTheGame() {
-        // A drag straight down over the game keeps the head
-        // on the strip's bottom edge — it never lands on
-        // the picture, and the pool stays at the top.
+    fun headCanBeDraggedOntoTheGame() {
+        // Free head (Robert, 2026-11-13 — the "never on top
+        // of the game" rule is reversed): a drag straight
+        // down over the game puts the head ON the picture,
+        // and the pool follows it down the middle.
         val mid = geometry(Offset(0.5f, 0.5f))
         assertEquals(500f, mid.lensCenter.x, 0.01f)
-        assertEquals(stripPx, mid.lensCenter.y, 0.01f)
+        assertEquals(300f, mid.lensCenter.y, 0.01f)
         assertEquals(0.5f, mid.pool.center.x, 0.01f)
-        assertEquals(0.20f, mid.pool.center.y, 0.01f)
+        assertEquals((300f - 147f) / 453f, mid.pool.center.y, 0.01f)
         // ... and the same at the very bottom of the game.
         val low = geometry(Offset(0.5f, 0.95f))
-        assertEquals(stripPx, low.lensCenter.y, 0.01f)
-        assertEquals(0.20f, low.pool.center.y, 0.01f)
+        assertEquals(570f, low.lensCenter.y, 0.01f)
+        assertEquals(0.80f, low.pool.center.y, 0.01f)
     }
 
     @Test
@@ -410,12 +431,15 @@ class WormLightGeometryTest {
     }
 
     @Test
-    fun coilNeverCrossesTheGame() {
+    fun coilNeverCrossesTheGameForPerimeterHeads() {
         // The cord routes around the display area — left
         // edge, top, right edge — never across the picture
         // itself. Sampled over the ribbon (both legs when
         // there are two), for heads in the strip and low on
-        // each flank.
+        // each flank. (A head OVER the game drapes its cord
+        // across the picture by design — free head, Robert,
+        // 2026-11-13 — so only perimeter heads are pinned
+        // here.)
         val heads = listOf(
             Offset(0.5f, 0.06f), Offset(0.1f, 0.06f), Offset(0.9f, 0.06f),
             Offset(0.08f, 0.5f), Offset(0.08f, 0.95f),
@@ -452,12 +476,95 @@ class WormLightGeometryTest {
     }
 
     @Test
-    fun headStaysInTheStripWhenTheFlanksAreTooNarrow() {
-        // A game nearly as wide as the player leaves no
-        // flank to hold the lens: the head stays in the
-        // strip, exactly as before full travel.
+    fun headGoesOverTheGameWhenTheGameFillsTheWidth() {
+        // Free head (Robert, 2026-11-13): a game nearly as
+        // wide as the player leaves no flank to hold the
+        // lens — the head goes OVER the game instead of
+        // staying in the strip.
         val g = geometry(Offset(0.1f, 0.9f), aspect = 3.0f)
-        assertEquals(stripPx, g.lensCenter.y, 0.01f)
-        assertEquals(0.20f, g.pool.center.y, 0.01f)
+        assertEquals(100f, g.lensCenter.x, 0.01f)
+        assertEquals(540f, g.lensCenter.y, 0.01f)
+        assertEquals(0.80f, g.pool.center.y, 0.01f)
+    }
+
+    @Test
+    fun headReachesTheCentreOfTheGame() {
+        // The pool's brightest point can sit at the centre
+        // of the picture (Robert, 2026-11-13): the head at
+        // the game's centre (0.5, 0.6225) puts the pool
+        // centre at exactly (0.5, 0.5).
+        val g = geometry(Offset(0.5f, 0.6225f))
+        assertEquals(500f, g.lensCenter.x, 0.01f)
+        assertEquals(373.5f, g.lensCenter.y, 0.01f)
+        assertEquals(0.5f, g.pool.center.x, 0.01f)
+        assertEquals(0.5f, g.pool.center.y, 0.01f)
+    }
+
+    @Test
+    fun lensTiltsTowardTheGameOnBothFlanks() {
+        // The lens points at where the light lands, on both
+        // flanks and at the corners: a head at the top-left
+        // tilts down-right, at the top-right down-left, and
+        // the low corners mirror — and the lens rotation is
+        // the pool's tilt in every zone.
+        val leftTop = geometry(Offset(0.08f, 0.25f))
+        assertEquals(21.25f, leftTop.lensRotationDeg, 0.01f)
+        assertEquals(
+            leftTop.pool.rotationRad * 180f / PI.toFloat(),
+            leftTop.lensRotationDeg, 0.01f,
+        )
+        val rightTop = geometry(Offset(0.92f, 0.25f))
+        assertEquals(-21.25f, rightTop.lensRotationDeg, 0.01f)
+        assertEquals(
+            rightTop.pool.rotationRad * 180f / PI.toFloat(),
+            rightTop.lensRotationDeg, 0.01f,
+        )
+        val leftBottom = geometry(Offset(0.08f, 0.95f))
+        assertEquals(-21.25f, leftBottom.lensRotationDeg, 0.01f)
+        assertEquals(
+            leftBottom.pool.rotationRad * 180f / PI.toFloat(),
+            leftBottom.lensRotationDeg, 0.01f,
+        )
+        val rightBottom = geometry(Offset(0.92f, 0.95f))
+        assertEquals(21.25f, rightBottom.lensRotationDeg, 0.01f)
+        assertEquals(
+            rightBottom.pool.rotationRad * 180f / PI.toFloat(),
+            rightBottom.lensRotationDeg, 0.01f,
+        )
+    }
+
+    @Test
+    fun aimAngleSetsTheLensAndThePool() {
+        // Tap-to-aim (Robert, 2026-11-13): in aim mode the
+        // lens and the pool follow the aim angle, not the
+        // head's position — the pool's centre still follows
+        // the head.
+        val aimed = geometry(Offset(0.5f, 0.06f), aimAngleRad = -0.5f)
+        assertEquals(-28.65f, aimed.lensRotationDeg, 0.01f)
+        assertEquals(-0.5f, aimed.pool.rotationRad, 0.001f)
+        assertEquals(0.5f, aimed.pool.center.x, 0.01f)
+        assertEquals(0.20f, aimed.pool.center.y, 0.01f)
+        // The aim overrides the position tilt, not just
+        // where the position tilt is zero.
+        val offCentre = geometry(Offset(0.2f, 0.06f), aimAngleRad = -0.5f)
+        assertEquals(-0.5f, offCentre.pool.rotationRad, 0.001f)
+        assertEquals(-28.65f, offCentre.lensRotationDeg, 0.01f)
+    }
+
+    @Test
+    fun overGameHeadRoutesTheCoilDirectly() {
+        // Free head (Robert, 2026-11-13): a head over the
+        // game gets one cubic straight from the plug to the
+        // head — a cord draped over the screen — with all 14
+        // loops on it.
+        val g = geometry(Offset(0.5f, 0.6225f))
+        assertTrue("an over-game head should have one coil leg", g.coilSecond == null)
+        assertEquals(WORM_LIGHT_COIL_TURNS, g.coilTurnsFirst)
+        assertEquals(0, g.coilTurnsSecond)
+        assertEquals(g.lensCenter, g.coilP3)
+        assertEquals(237.31f, g.coilP1.x, 0.01f)
+        assertEquals(412.44f, g.coilP2.x, 0.01f)
+        assertEquals(148.5f, g.coilP1.y, 0.01f)
+        assertEquals(298.5f, g.coilP2.y, 0.01f)
     }
 }

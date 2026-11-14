@@ -33,6 +33,8 @@ import androidx.compose.ui.platform.testTag
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlin.math.PI
+import kotlin.math.abs
+import kotlin.math.atan2
 import kotlin.math.cos
 import kotlin.math.hypot
 import kotlin.math.roundToInt
@@ -49,19 +51,29 @@ import kotlin.math.sqrt
  * head hangs above the screen — and, since full travel
  * (Robert, 2026-11-13), the head can be pulled DOWN the
  * left and right sides of the game too, to light any part
- * of the picture: it travels the perimeter of the display
- * area, never on top of the game itself, and stays where
- * it is left. The head is a CLEAR OVAL LENS with the bulb
- * visible inside as a bright point, plus a soft glow
- * around it; the neck is a TIGHT HELIX COIL (a telephone
- * cord), not a straight line. The light is ADDITIVE: an
- * ELLIPTICAL warm-white pool, brightest at the head,
- * smooth falloff to nothing at the edges, with a hotspot
- * where the beam lands most directly. When the head is
- * dragged, the pool moves and skews with it, and the coil
- * flexes (stretch on one side, bunch on the other — the
- * cord has a fixed number of coils, so a longer spine
- * spreads them) with a tiny settle wobble when released.
+ * of the picture. Since the improvements (Robert,
+ * 2026-11-13), the head is FREE: it can sit anywhere in
+ * the player area, including over the middle of the game
+ * — that reverses the "never on top of the game" rule,
+ * by his word — and the pool's brightest point can sit
+ * at the centre of the picture. The head is a CLEAR OVAL
+ * LENS with the bulb visible inside as a bright point,
+ * plus a soft glow around it; the neck is a TIGHT HELIX
+ * COIL (a telephone cord), not a straight line. The light
+ * is ADDITIVE: an ELLIPTICAL warm-white pool, brightest
+ * at the head, smooth falloff to nothing at the edges,
+ * with a hotspot where the beam lands most directly.
+ * When the head is dragged, the pool moves and skews
+ * with it, and the coil flexes (stretch on one side,
+ * bunch on the other — the cord has a fixed number of
+ * coils, so a longer spine spreads them) with a tiny
+ * settle wobble when released. The lens is not fixed any
+ * more: it tilts toward where the light lands, so the
+ * head and its pool always agree — and a tap on the head
+ * switches it into aim mode, where a drag rotates the
+ * head and the pool instead of moving the head. While a
+ * drag is in progress the head draws above the controls,
+ * so it never disappears behind the D-pad mid-drag.
  *
  * The hardware (cord coil, head plastic, plug) wears the
  * colour the player picked in Settings (dark medium gray
@@ -107,12 +119,14 @@ const val WORM_LIGHT_STRIP_DP = 56f
 // safe on a tall or a short player area alike.
 val WORM_LIGHT_DEFAULT_HEAD = Offset(0.5f, 0.06f)
 
-// The oval lens, in dp: a clear oval, longer than tall,
-// rotated 35 degrees so the head angles down at the game
-// the way the real Worm Light's head does.
+// The oval lens, in dp: a clear oval, longer than tall.
+// Its rotation follows where the light lands (see
+// wormLightGeometry) — it is not a fixed tilt any more:
+// the fixed 35 degrees pointed away from the game on the
+// right side while the pool shone toward it (Robert's
+// 2026-11-13 video, 00:14).
 const val WORM_LIGHT_LENS_RX_DP = 22f
 const val WORM_LIGHT_LENS_RY_DP = 14f
-const val WORM_LIGHT_LENS_ROTATION_DEG = 35f
 
 // The bulb inside the lens, in dp: a small bright oval,
 // offset toward the top of the lens (the bulb sits at the
@@ -152,6 +166,10 @@ const val WORM_LIGHT_COIL_BOW_DP = 8f
 // dragged. Full travel (Robert, 2026-11-13): the head
 // travels the perimeter, so the centre tracks it in both
 // axes — down the flanks as well as across the strip.
+// Free head (Robert, 2026-11-13): the head can sit over
+// the game itself now, so the centre can reach (0.5, 0.5)
+// — the middle of the picture, which the perimeter lock
+// could never reach.
 const val WORM_LIGHT_POOL_CENTER_Y = 0.20f
 const val WORM_LIGHT_POOL_CENTER_Y_MAX = 0.80f
 const val WORM_LIGHT_POOL_RX = 0.55f
@@ -159,6 +177,24 @@ const val WORM_LIGHT_POOL_RY = 0.42f
 const val WORM_LIGHT_POOL_CENTER_X_MIN = 0.15f
 const val WORM_LIGHT_POOL_CENTER_X_MAX = 0.85f
 const val WORM_LIGHT_POOL_ROTATION_PER_OFFSET = 0.6f
+// The pool's peak (retune, Robert, 2026-11-13): 0.30 —
+// 0.14 fall + 0.16 hotspot — down from 0.65. At 0.65 the
+// lightest two Jade shades clipped to white at the pool
+// core (his video: the top of Super Mario Land 2 bleached
+// to cream, core measured R 0.97). The lightest Jade shade
+// clips above a peak of 0.353, so 0.30 keeps it at 0.95
+// with all four shades distinct. The fall/hot balance is
+// unchanged, and the shader (DisplayShaders) carries the
+// same two numbers — keep them in step.
+const val WORM_LIGHT_POOL_FALL = 0.14f
+const val WORM_LIGHT_POOL_HOT = 0.16f
+const val WORM_LIGHT_POOL_PEAK = WORM_LIGHT_POOL_FALL + WORM_LIGHT_POOL_HOT
+// Tap-to-aim (Robert, 2026-11-13): a press on the head
+// with less than this much movement is a tap, and toggles
+// aim mode. The tap must start on the lens itself, within
+// the lens's half-extents plus this grab margin.
+const val WORM_LIGHT_TAP_MAX_DP = 12f
+const val WORM_LIGHT_TAP_GRAB_EXTRA_DP = 12f
 // The tilt's vertical blend (in game heights): the long
 // axis tilts toward the head's side while the head is
 // above the pool's centre, and mirrors when the head is
@@ -206,12 +242,20 @@ data class WormLightPool(
  * so it is unit-testable without a Canvas: the game rect
  * (the largest aspect box in the row below the strip), the
  * plug, the coil's spine (one cubic, or two when the head
- * is on the right flank), the lens and its bulb, and the
+ * is on the right flank — or a direct drape when the head
+ * is over the game itself), the lens and its bulb, and the
  * pool in frame UV (plus its px form, for the fallback
- * path). The head is clamped to the perimeter of the
- * display area (the strip plus both flanks), so a stored
- * position from a taller or shorter player area still
- * lands on it, never on the game itself.
+ * path). The head is FREE (Robert, 2026-11-13 — the
+ * "never on top of the game" rule is reversed): it can sit
+ * anywhere in the player area, clamped only to the box,
+ * so a stored position from a taller or shorter player
+ * area still lands on screen. The lens rotation follows
+ * the pool's tilt, so the head and its light always agree;
+ * in aim mode both follow the aim angle instead.
+ *
+ * @param aimAngleRad the head's angle in aim mode (the
+ * direction from the head to the finger, radians, screen
+ * space), or null to follow the head's position.
  */
 /**
  * One leg of the coil's spine: a cubic from the plug (or
@@ -257,49 +301,92 @@ data class WormLightGeometry(
 )
 
 /**
- * Full travel (Robert, 2026-11-13): the head travels the
- * perimeter of the display area — the strip above the
- * game plus the flanks beside it — never on top of the
- * game itself. The clamp is zone-based: a raw position
- * at or above the strip's bottom edge stays in the strip;
- * below it, the head drops into the flank under the
- * finger, or sticks to the strip's bottom edge while the
- * finger is over the game. (A nearest-point clamp would
- * be wrong here: a low drag over the centre of the game
- * is nearly equidistant to the strip bottom and a flank,
- * and would jump the head sideways.) A flank that is too
- * narrow to hold the lens never takes the head — it stays
- * in the strip, exactly as before full travel.
+ * The lens's bounding half-extents for a rotation: the
+ * rotated oval's half-width across and half-height down.
  */
-private fun clampHeadToPerimeter(
+private fun lensHalfExtents(rotationRad: Float, density: Float): Pair<Float, Float> {
+    val lensRx = WORM_LIGHT_LENS_RX_DP * density
+    val lensRy = WORM_LIGHT_LENS_RY_DP * density
+    val cosR = cos(rotationRad)
+    val sinR = sin(rotationRad)
+    val halfW = sqrt(lensRx * lensRx * cosR * cosR + lensRy * lensRy * sinR * sinR)
+    val halfH = sqrt(lensRx * lensRx * sinR * sinR + lensRy * lensRy * cosR * cosR)
+    return halfW to halfH
+}
+
+/**
+ * The pool for a head position: its centre is the head's
+ * position projected onto the game, clamped so the pool
+ * stays on the picture, and its long axis tilts toward the
+ * head's side — mirroring when the head is below the
+ * pool's centre, so a low head's slant reads the right way
+ * round; the blend is 1 while the head is clearly above
+ * the centre, -1 clearly below, 0 level with it. In aim
+ * mode the tilt follows the aim angle instead of the
+ * position — the centre still follows the head.
+ */
+private fun poolForHead(
+    headPx: Offset,
+    gameRect: Rect,
+    aimAngleRad: Float?,
+): WormLightPool {
+    val gameCenterX = gameRect.center.x
+    val poolCenterX = ((headPx.x - gameRect.left) / gameRect.width)
+        .coerceIn(WORM_LIGHT_POOL_CENTER_X_MIN, WORM_LIGHT_POOL_CENTER_X_MAX)
+    val headYinGame = (headPx.y - gameRect.top) / gameRect.height
+    val poolCenterY = headYinGame
+        .coerceIn(WORM_LIGHT_POOL_CENTER_Y, WORM_LIGHT_POOL_CENTER_Y_MAX)
+    val rotationRad = if (aimAngleRad != null) {
+        aimAngleRad
+    } else {
+        val tiltBlend = ((poolCenterY - headYinGame) / WORM_LIGHT_POOL_TILT_BLEND)
+            .coerceIn(-1f, 1f)
+        (gameCenterX - headPx.x) / gameRect.width *
+            WORM_LIGHT_POOL_ROTATION_PER_OFFSET * tiltBlend
+    }
+    return WormLightPool(
+        center = Offset(poolCenterX, poolCenterY),
+        radii = Offset(WORM_LIGHT_POOL_RX, WORM_LIGHT_POOL_RY),
+        rotationRad = rotationRad,
+        intensity = 1f,
+    )
+}
+
+/**
+ * Free head (Robert, 2026-11-13 — the "never on top of
+ * the game" rule is reversed): the head can sit anywhere
+ * in the player area. The clamp keeps the lens on screen
+ * sideways — its centre stays a half-width from the edges
+ * — and lets its centre reach the top and bottom edges
+ * (as it always could in the strip: the lens may poke out
+ * a few px there, exactly as the default head already
+ * does). The rotation follows the head, so the half-width
+ * moves a few px as the head moves — iterate to a fixed
+ * point (three passes converge: each pass moves the head
+ * less). In aim mode the rotation is the aim angle, not
+ * the position, so the half-width is fixed and one pass
+ * suffices — the loop covers both.
+ */
+private fun clampHeadToBox(
     raw: Offset,
     boxWidth: Float,
     boxHeight: Float,
-    stripPx: Float,
     gameRect: Rect,
-    halfW: Float,
-    halfH: Float,
+    density: Float,
+    aimAngleRad: Float?,
 ): Offset {
-    if (raw.y <= stripPx) {
-        return Offset(
-            raw.x.coerceIn(halfW, boxWidth - halfW),
-            raw.y.coerceIn(0f, stripPx),
+    var head = raw
+    repeat(3) {
+        val rot = poolForHead(head, gameRect, aimAngleRad).rotationRad
+        val (halfW, _) = lensHalfExtents(rot, density)
+        val clamped = Offset(
+            head.x.coerceIn(halfW, boxWidth - halfW),
+            head.y.coerceIn(0f, boxHeight),
         )
+        if (clamped == head) return clamped
+        head = clamped
     }
-    val leftMaxX = gameRect.left - halfW
-    val rightMinX = gameRect.right + halfW
-    val flankBottom = boxHeight - halfH
-    return when {
-        raw.x <= leftMaxX && leftMaxX > halfW && flankBottom > stripPx -> Offset(
-            raw.x.coerceIn(halfW, leftMaxX),
-            raw.y.coerceIn(stripPx, flankBottom),
-        )
-        raw.x >= rightMinX && rightMinX < boxWidth - halfW && flankBottom > stripPx -> Offset(
-            raw.x.coerceIn(rightMinX, boxWidth - halfW),
-            raw.y.coerceIn(stripPx, flankBottom),
-        )
-        else -> Offset(raw.x.coerceIn(halfW, boxWidth - halfW), stripPx)
-    }
+    return head
 }
 
 private fun coilCubicLength(c: CoilCubic): Float {
@@ -329,6 +416,7 @@ fun wormLightGeometry(
     gameAspect: Float,
     stripDp: Float,
     swayPx: Float,
+    aimAngleRad: Float? = null,
 ): WormLightGeometry {
     val stripPx = stripDp * density
     // The game rect: the largest aspect box in the row below
@@ -340,38 +428,35 @@ fun wormLightGeometry(
     val gameLeft = (boxWidth - gameW) / 2f
     val gameTop = stripPx + (rowH - gameH) / 2f
     val gameRect = Rect(gameLeft, gameTop, gameLeft + gameW, gameTop + gameH)
-    // The head, clamped to the perimeter of the display
-    // area (see clampHeadToPerimeter): its centre stays in
-    // the strip or on a flank, and the lens stays on
-    // screen. The sway trails the head — the coil's apex
-    // moves with the full sway, the head itself with half
-    // of it, so the lamp settles as one piece.
-    val lensRx = WORM_LIGHT_LENS_RX_DP * density
-    val lensRy = WORM_LIGHT_LENS_RY_DP * density
-    val rot = WORM_LIGHT_LENS_ROTATION_DEG * PI.toFloat() / 180f
-    val cosR = cos(rot)
-    val sinR = sin(rot)
-    // The rotated lens's half-extents (its bounding box):
-    // sqrt((rx cos)^2 + (ry sin)^2) across, and the same
-    // with sin/cos swapped down.
-    val halfW = sqrt(lensRx * lensRx * cosR * cosR + lensRy * lensRy * sinR * sinR)
-    val halfH = sqrt(lensRx * lensRx * sinR * sinR + lensRy * lensRy * cosR * cosR)
-    // The head's unswayed x: the coil's control points are
-    // measured from it, so the apex moves with exactly the
-    // full sway — the head itself only with half of it (see
+    // The head, free (Robert, 2026-11-13): anywhere in the
+    // player area, clamped only to the box (see
+    // clampHeadToBox). The sway trails the head — the
+    // coil's apex moves with the full sway, the head itself
+    // with half of it, so the lamp settles as one piece.
+    // headBase is the unswayed head: the coil's control
+    // points are measured from it, so the apex moves with
+    // exactly the full sway (see
     // swayTrailsTheHeadAndTheCoilApex). Measuring from the
     // swayed head would double-count: the sway would reach
     // the apex through the interpolation too.
-    val headBaseX = (head.x * boxWidth).coerceIn(halfW, boxWidth - halfW)
-    // Full travel (Robert, 2026-11-13): the sway trails the
-    // head by half, as before — but the swayed position is
-    // clamped to the PERIMETER of the display area (the
-    // strip plus both flanks), so a fast drag's sway can
-    // never push the head onto the game itself.
-    val rawHead = Offset(headBaseX + swayPx * 0.5f, head.y * boxHeight)
-    val headPx = clampHeadToPerimeter(
-        rawHead, boxWidth, boxHeight, stripPx, gameRect, halfW, halfH,
+    val headBase = clampHeadToBox(
+        Offset(head.x * boxWidth, head.y * boxHeight),
+        boxWidth, boxHeight, gameRect, density, aimAngleRad,
     )
+    val headPx = clampHeadToBox(
+        Offset(headBase.x + swayPx * 0.5f, head.y * boxHeight),
+        boxWidth, boxHeight, gameRect, density, aimAngleRad,
+    )
+    // The lens rotation follows the pool's tilt (see
+    // poolForHead): the head and its light always agree.
+    // In aim mode both follow the aim angle instead.
+    val pool = poolForHead(headPx, gameRect, aimAngleRad)
+    val rot = pool.rotationRad
+    val lensRx = WORM_LIGHT_LENS_RX_DP * density
+    val lensRy = WORM_LIGHT_LENS_RY_DP * density
+    val cosR = cos(rot)
+    val sinR = sin(rot)
+    val (halfW, halfH) = lensHalfExtents(rot, density)
     // The plug: just left of the display area — the game
     // rect's left edge minus a small gap — centred in the
     // strip. The old anchor was the player area's left edge
@@ -403,21 +488,25 @@ fun wormLightGeometry(
     // keep the cord out of the picture: the top leg stays
     // in the strip, the drop stays in the flank (its
     // control points are clamped there, so even a hard
-    // sway cannot push it over the game). The sway moves
-    // the apex with the head's trail, as before.
+    // sway cannot push it over the game). A head OVER the
+    // game (free head, Robert, 2026-11-13) gets ONE cubic
+    // straight from the plug to the head — a cord draped
+    // over the screen, accepted by his word. The sway
+    // moves the apex with the head's trail, as before.
     val p0 = Offset(plugRight, stripPx / 2f)
     val bowPx = WORM_LIGHT_COIL_BOW_DP * density
     val ampPx = WORM_LIGHT_COIL_AMP_DP * density
     val strokePx = WORM_LIGHT_COIL_STROKE_DP * density
     val headInStrip = headPx.y <= stripPx
     val headOnLeftFlank = !headInStrip && headPx.x < gameRect.left
+    val headOnRightFlank = !headInStrip && headPx.x > gameRect.right
     val coilFirst: CoilCubic
     val coilSecond: CoilCubic?
     if (headInStrip) {
         coilFirst = CoilCubic(
             p0,
-            Offset(p0.x + (headBaseX - p0.x) * 0.25f + swayPx, stripPx * 0.06f),
-            Offset(p0.x + (headBaseX - p0.x) * 0.75f + swayPx, stripPx * 0.06f),
+            Offset(p0.x + (headBase.x - p0.x) * 0.25f + swayPx, stripPx * 0.06f),
+            Offset(p0.x + (headBase.x - p0.x) * 0.75f + swayPx, stripPx * 0.06f),
             headPx,
         )
         coilSecond = null
@@ -425,28 +514,28 @@ fun wormLightGeometry(
         coilFirst = CoilCubic(
             p0,
             Offset(
-                (p0.x + (headBaseX - p0.x) * 0.25f - bowPx + swayPx)
+                (p0.x + (headBase.x - p0.x) * 0.25f - bowPx + swayPx)
                     .coerceIn(strokePx, gameRect.left - ampPx - strokePx),
                 p0.y + (headPx.y - p0.y) * 0.25f,
             ),
             Offset(
-                (p0.x + (headBaseX - p0.x) * 0.75f - bowPx + swayPx)
+                (p0.x + (headBase.x - p0.x) * 0.75f - bowPx + swayPx)
                     .coerceIn(strokePx, gameRect.left - ampPx - strokePx),
                 p0.y + (headPx.y - p0.y) * 0.75f,
             ),
             headPx,
         )
         coilSecond = null
-    } else {
+    } else if (headOnRightFlank) {
         // The right flank: arch over the top to the corner
         // at the top of that flank, then drop down it.
-        val cornerX = (headBaseX + swayPx)
+        val cornerX = (headBase.x + swayPx)
             .coerceIn(gameRect.right + halfW, boxWidth - halfW)
         val corner = Offset(cornerX, stripPx / 2f)
         coilFirst = CoilCubic(
             p0,
-            Offset(p0.x + (headBaseX - p0.x) * 0.25f + swayPx, stripPx * 0.06f),
-            Offset(p0.x + (headBaseX - p0.x) * 0.75f + swayPx, stripPx * 0.06f),
+            Offset(p0.x + (headBase.x - p0.x) * 0.25f + swayPx, stripPx * 0.06f),
+            Offset(p0.x + (headBase.x - p0.x) * 0.75f + swayPx, stripPx * 0.06f),
             corner,
         )
         coilSecond = CoilCubic(
@@ -465,6 +554,16 @@ fun wormLightGeometry(
             ),
             headPx,
         )
+    } else {
+        // Over the game: one cubic straight from the plug
+        // to the head — the cord drapes over the screen.
+        coilFirst = CoilCubic(
+            p0,
+            Offset(p0.x + (headBase.x - p0.x) * 0.25f + swayPx, p0.y + (headPx.y - p0.y) * 0.25f),
+            Offset(p0.x + (headBase.x - p0.x) * 0.75f + swayPx, p0.y + (headPx.y - p0.y) * 0.75f),
+            headPx,
+        )
+        coilSecond = null
     }
     // The cord's 14 loops, split across the two legs by
     // length when there are two, so the loops stay evenly
@@ -479,36 +578,10 @@ fun wormLightGeometry(
         headPx.x + bulbLocal.x * cosR - bulbLocal.y * sinR,
         headPx.y + bulbLocal.x * sinR + bulbLocal.y * cosR,
     )
-    // The pool: the head's position projected onto the
-    // game, clamped so the pool stays on the picture —
-    // full travel means the centre tracks the head in both
-    // axes now, not just across the strip: drag it low on
-    // a flank and the light pools low on that side. The
-    // centre's y is the head's height in the game, clamped
-    // to [0.20, 0.80] (the default head, above the game,
-    // still lands at 0.20, exactly as before). Its long
-    // axis tilts toward the head's side (the beam slants
-    // from the head) — and mirrors when the head is below
-    // the pool's centre, so a low head's slant reads the
-    // right way round; the blend is 1 while the head is
-    // clearly above the centre, -1 clearly below, 0 level
-    // with it.
-    val gameCenterX = gameLeft + gameW / 2f
-    val poolCenterX = ((headPx.x - gameLeft) / gameW)
-        .coerceIn(WORM_LIGHT_POOL_CENTER_X_MIN, WORM_LIGHT_POOL_CENTER_X_MAX)
-    val headYinGame = (headPx.y - gameTop) / gameH
-    val poolCenterY = headYinGame
-        .coerceIn(WORM_LIGHT_POOL_CENTER_Y, WORM_LIGHT_POOL_CENTER_Y_MAX)
-    val tiltBlend = ((poolCenterY - headYinGame) / WORM_LIGHT_POOL_TILT_BLEND)
-        .coerceIn(-1f, 1f)
-    val poolRotation = (gameCenterX - headPx.x) / gameW *
-        WORM_LIGHT_POOL_ROTATION_PER_OFFSET * tiltBlend
-    val pool = WormLightPool(
-        center = Offset(poolCenterX, poolCenterY),
-        radii = Offset(WORM_LIGHT_POOL_RX, WORM_LIGHT_POOL_RY),
-        rotationRad = poolRotation,
-        intensity = 1f,
-    )
+    // The pool is computed above, from the head (see
+    // poolForHead): its centre tracks the head in both
+    // axes, its tilt follows the head's side — or the aim
+    // angle in aim mode.
     return WormLightGeometry(
         gameRect = gameRect,
         plugRect = plugRect,
@@ -520,7 +593,7 @@ fun wormLightGeometry(
         coilStrokePx = WORM_LIGHT_COIL_STROKE_DP * density,
         lensCenter = headPx,
         lensRadii = Offset(lensRx, lensRy),
-        lensRotationDeg = WORM_LIGHT_LENS_ROTATION_DEG,
+        lensRotationDeg = rot * 180f / PI.toFloat(),
         lensHalfWidthPx = halfW,
         lensHalfHeightPx = halfH,
         bulbCenter = bulbCenter,
@@ -531,7 +604,7 @@ fun wormLightGeometry(
             gameTop + pool.center.y * gameH,
         ),
         poolRadiiPx = Offset(pool.radii.x * gameW, pool.radii.y * gameH),
-        poolRotationDeg = poolRotation * 180f / PI.toFloat(),
+        poolRotationDeg = pool.rotationRad * 180f / PI.toFloat(),
         coilSecond = coilSecond,
         coilTurnsFirst = turnsFirst,
         coilTurnsSecond = turnsSecond,
@@ -582,15 +655,18 @@ fun coilRibbonPoints(
 /**
  * The pool's scalar factor at a frame UV, mirroring
  * GRID_FRAGMENT's pool lines exactly (same constants), so
- * the falloff is unit-testable on the JVM: 0.65 at the pool
- * centre (0.30 fall + 0.35 hotspot), 0.0 at and outside
- * the ellipse edge. The shader is the authority; this is
- * its test oracle, not a second implementation — keep the
- * constants in step with the GLSL. The inputs are in frame
- * UV (y = 0 at the top); the rotation is applied in vTex
- * space (y = 0 at the bottom), the same conversion the
- * grid shader makes, so a rotated pool's tilt reads the
- * same way here as on the picture.
+ * the falloff is unit-testable on the JVM: 0.30 at the pool
+ * centre (0.14 fall + 0.16 hotspot), 0.0 at and outside
+ * the ellipse edge. Retune (Robert, 2026-11-13): the peak
+ * was 0.65 (0.30 fall + 0.35 hotspot) and bleached the
+ * lightest two Jade shades to white at the pool core. The
+ * shader is the authority; this is its test oracle, not a
+ * second implementation — keep the constants in step with
+ * the GLSL. The inputs are in frame UV (y = 0 at the
+ * top); the rotation is applied in vTex space (y = 0 at
+ * the bottom), the same conversion the grid shader makes,
+ * so a rotated pool's tilt reads the same way here as on
+ * the picture.
  */
 fun wormLightPoolFactor(
     center: Offset,
@@ -615,12 +691,102 @@ fun wormLightPoolFactor(
     val e = ex * ex + ey * ey
     val fall = wormLightSmoothstep(1f, 0f, e)
     val hot = wormLightSmoothstep(0.45f, 0f, e)
-    return fall * 0.30f + hot * 0.35f
+    return fall * WORM_LIGHT_POOL_FALL + hot * WORM_LIGHT_POOL_HOT
 }
 
 private fun wormLightSmoothstep(edge0: Float, edge1: Float, x: Float): Float {
     val t = ((x - edge0) / (edge1 - edge0)).coerceIn(0f, 1f)
     return t * t * (3f - 2f * t)
+}
+
+/**
+ * The lamp's head as drawn on a Canvas, so the overlay and
+ * the drag layer in GameScreen can never drift: one set of
+ * numbers, one drawing helper ([DrawScope.drawWormLightHead]).
+ * Everything is in the player area's px space.
+ */
+data class WormLightDragHead(
+    val lensCenter: Offset,
+    val lensRadii: Offset,
+    val lensRotationDeg: Float,
+    val bulbCenter: Offset,
+    val bulbRadii: Offset,
+    val glowRadiusPx: Float,
+    val rimStrokePx: Float,
+    val aimTickPx: Float,
+    val hardwareColorArgb: Int,
+    val hardwareTranslucent: Boolean,
+    val aimMode: Boolean,
+)
+
+/**
+ * Draws the lamp's head: the soft glow, the lens fill (a
+ * touch brighter in aim mode, so the mode is visible),
+ * the rim, the bulb with its hot core, and — in aim mode
+ * only — a short tick from the lens edge outward along
+ * the lens's long axis, pointing where the head is aimed.
+ */
+fun DrawScope.drawWormLightHead(head: WormLightDragHead) {
+    val hardware = Color(head.hardwareColorArgb)
+    rotate(head.lensRotationDeg, pivot = head.lensCenter) {
+        // The glow: a wide, faint halo of the same warm
+        // white as the pool.
+        drawCircle(
+            brush = Brush.radialGradient(
+                colorStops = arrayOf(
+                    0f to WORM_LIGHT_WARM.copy(alpha = 0.28f),
+                    1f to Color.Transparent,
+                ),
+                center = head.lensCenter,
+                radius = head.glowRadiusPx,
+            ),
+            center = head.lensCenter,
+            radius = head.glowRadiusPx,
+        )
+        // The lens: clear plastic — a faint white fill, a
+        // little brighter in aim mode so the mode reads,
+        // with its rim in the hardware colour (the bulb
+        // stays visible through the fill).
+        drawOval(
+            color = Color.White.copy(alpha = if (head.aimMode) 0.30f else 0.14f),
+            topLeft = head.lensCenter - head.lensRadii,
+            size = head.lensRadii * 2f,
+        )
+        // The rim.
+        drawOval(
+            color = if (head.hardwareTranslucent) Color.White.copy(alpha = 0.5f) else hardware,
+            topLeft = head.lensCenter - head.lensRadii,
+            size = head.lensRadii * 2f,
+            style = Stroke(width = head.rimStrokePx),
+        )
+    }
+    // The bulb: a bright warm point with a hot core, drawn
+    // unrotated (it is a point, not a direction).
+    drawCircle(
+        color = Color(0xFFFFF3C4),
+        radius = head.bulbRadii.x,
+        center = head.bulbCenter,
+    )
+    drawCircle(
+        color = Color.White,
+        radius = head.bulbRadii.x * 0.5f,
+        center = head.bulbCenter,
+    )
+    if (head.aimMode) {
+        // The aim tick: a short warm line from the lens edge
+        // outward along the lens's long axis.
+        val rotRad = head.lensRotationDeg * PI.toFloat() / 180f
+        val dir = Offset(cos(rotRad), sin(rotRad))
+        val start = head.lensCenter + dir * head.lensRadii.x
+        val end = start + dir * head.aimTickPx
+        drawLine(
+            color = WORM_LIGHT_WARM.copy(alpha = 0.7f),
+            start = start,
+            end = end,
+            strokeWidth = head.rimStrokePx,
+            cap = StrokeCap.Round,
+        )
+    }
 }
 
 @Composable
@@ -644,6 +810,11 @@ fun WormLightOverlay(
     // hands it to GameGlView.setWormLight) whenever the head
     // moves, so dragging while paused still moves the pool.
     onPoolChange: (WormLightPool) -> Unit = {},
+    // The head, reported up to the player while a drag is
+    // in progress (null otherwise), so the player can draw
+    // it above the controls — a dragged head never
+    // disappears behind the D-pad.
+    onDragHeadChange: (WormLightDragHead?) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     if (!enabled) return
@@ -651,6 +822,15 @@ fun WormLightOverlay(
     var sway by remember { mutableStateOf(0f) }
     var dragStartX by remember { mutableStateOf(0f) }
     var wobbleJob by remember { mutableStateOf<Job?>(null) }
+    // Tap-to-aim (Robert, 2026-11-13): a tap on the head
+    // toggles aim mode, where a drag rotates the head and
+    // the pool instead of moving the head. The aim angle is
+    // the direction from the head to the finger.
+    var aimMode by remember { mutableStateOf(false) }
+    var aimAngleRad by remember { mutableStateOf(0f) }
+    var dragging by remember { mutableStateOf(false) }
+    var pressOnHead by remember { mutableStateOf(false) }
+    var dragDistancePx by remember { mutableStateOf(0f) }
     val scope = rememberCoroutineScope()
     BoxWithConstraints(modifier = modifier.testTag("worm-light")) {
         val width = constraints.maxWidth.toFloat()
@@ -663,57 +843,155 @@ fun WormLightOverlay(
         val g = wormLightGeometry(
             width, height, position, density, gameAspect,
             WORM_LIGHT_STRIP_DP, sway,
+            aimAngleRad = if (aimMode) aimAngleRad else null,
         )
         // The pool reaches the GL view on every move — the
         // shader is what lights the picture (see the file
         // header); the overlay only draws the pool itself on
         // the fallback path.
         LaunchedEffect(g.pool) { onPoolChange(g.pool) }
+        // The head, for the drag layer: while a drag is in
+        // progress the player draws it above the controls.
+        // Outside a drag it reports null and the overlay's
+        // own head drawing (below the controls) is the only
+        // one — the two never double.
+        val dragHead = WormLightDragHead(
+            lensCenter = g.lensCenter,
+            lensRadii = g.lensRadii,
+            lensRotationDeg = g.lensRotationDeg,
+            bulbCenter = g.bulbCenter,
+            bulbRadii = g.bulbRadii,
+            glowRadiusPx = g.lensRadii.x * 1.8f,
+            rimStrokePx = 2f * density,
+            aimTickPx = g.lensRadii.x * 0.55f,
+            hardwareColorArgb = hardwareColor.argb,
+            hardwareTranslucent = hardwareColor.translucent,
+            aimMode = aimMode,
+        )
+        LaunchedEffect(dragging, dragHead) {
+            onDragHeadChange(if (dragging) dragHead else null)
+        }
         Canvas(
             modifier = Modifier
                 .fillMaxSize()
                 .pointerInput(width, height) {
                     detectDragGestures(
-                        onDragStart = {
+                        onDragStart = { press ->
                             // A fresh grab cancels any settle
                             // wobble still running.
                             wobbleJob?.cancel()
                             sway = 0f
                             dragStartX = position.x * width
+                            // Was this press on the head? The
+                            // geometry here is computed from
+                            // the live position state — never
+                            // the g captured by this closure,
+                            // which is stale by the time a
+                            // drag starts.
+                            val pressGeom = wormLightGeometry(
+                                width, height, position, density,
+                                gameAspect, WORM_LIGHT_STRIP_DP, 0f,
+                                aimAngleRad = if (aimMode) aimAngleRad else null,
+                            )
+                            val (halfW, halfH) = lensHalfExtents(
+                                pressGeom.lensRotationDeg * PI.toFloat() / 180f,
+                                density,
+                            )
+                            val grab = WORM_LIGHT_TAP_GRAB_EXTRA_DP * density
+                            pressOnHead =
+                                abs(press.x - pressGeom.lensCenter.x) <= halfW + grab &&
+                                abs(press.y - pressGeom.lensCenter.y) <= halfH + grab
+                            dragDistancePx = 0f
                         },
                         onDragEnd = {
-                            // The coil trails the head; on
-                            // release a spring carries the
-                            // trail back to zero, so the lamp
-                            // settles with a small wobble.
-                            wobbleJob?.cancel()
-                            wobbleJob = scope.launch {
-                                val anim = Animatable(sway)
-                                anim.animateTo(
-                                    0f,
-                                    spring(dampingRatio = 0.25f, stiffness = 300f),
-                                ) { sway = value }
+                            // A tap on the head toggles aim
+                            // mode; a real move drag settles
+                            // with a wobble. An aim-mode drag
+                            // neither toggles nor wobbles.
+                            if (pressOnHead &&
+                                dragDistancePx <= WORM_LIGHT_TAP_MAX_DP * density
+                            ) {
+                                if (!aimMode) {
+                                    // Entering aim mode: start
+                                    // from where the lens
+                                    // already points, so it
+                                    // does not jump — computed
+                                    // fresh from the live
+                                    // position, never the g
+                                    // captured by this closure.
+                                    aimAngleRad = wormLightGeometry(
+                                        width, height, position, density,
+                                        gameAspect, WORM_LIGHT_STRIP_DP, 0f,
+                                    ).pool.rotationRad
+                                }
+                                aimMode = !aimMode
+                            } else if (!aimMode &&
+                                dragDistancePx > WORM_LIGHT_TAP_MAX_DP * density
+                            ) {
+                                // The coil trails the head; on
+                                // release a spring carries the
+                                // trail back to zero, so the
+                                // lamp settles with a small
+                                // wobble.
+                                wobbleJob?.cancel()
+                                wobbleJob = scope.launch {
+                                    val anim = Animatable(sway)
+                                    anim.animateTo(
+                                        0f,
+                                        spring(dampingRatio = 0.25f, stiffness = 300f),
+                                    ) { sway = value }
+                                }
                             }
+                            dragging = false
                         },
                         onDragCancel = {
                             wobbleJob?.cancel()
                             sway = 0f
+                            dragging = false
                         },
                         onDrag = { change, dragAmount ->
                             change.consume()
-                            // Full travel: the raw position is
-                            // only clamped to the box here — the
-                            // geometry clamps the head to the
-                            // perimeter of the display area (the
-                            // strip plus both flanks, never onto
-                            // the game itself), so the drag and
-                            // the clamp stay in one place.
-                            val x = (position.x * width + dragAmount.x)
-                                .coerceIn(0f, width)
-                            val y = (position.y * height + dragAmount.y)
-                                .coerceIn(0f, height)
-                            position = Offset(x / width, y / height)
-                            sway = (x - dragStartX) * WORM_LIGHT_SWAY_DRAG_FACTOR
+                            dragDistancePx += dragAmount.getDistance()
+                            if (aimMode) {
+                                // Aim mode: the drag rotates
+                                // the head and the pool — the
+                                // head never moves. The angle
+                                // is the direction from the
+                                // head to the finger; a press
+                                // need not start on the head.
+                                // The head's centre is computed
+                                // fresh from the live position
+                                // — never the g captured by
+                                // this closure, which is stale.
+                                val geom = wormLightGeometry(
+                                    width, height, position, density,
+                                    gameAspect, WORM_LIGHT_STRIP_DP, sway,
+                                    aimAngleRad = aimAngleRad,
+                                )
+                                val finger = change.position
+                                val dx = finger.x - geom.lensCenter.x
+                                val dy = finger.y - geom.lensCenter.y
+                                if (sqrt(dx * dx + dy * dy) >= 1f) {
+                                    aimAngleRad = atan2(dy, dx)
+                                }
+                            } else {
+                                // The raw position is only
+                                // clamped to the box here — the
+                                // geometry clamps the head to
+                                // the box (free head, Robert,
+                                // 2026-11-13), so the drag and
+                                // the clamp stay in one place.
+                                val x = (position.x * width + dragAmount.x)
+                                    .coerceIn(0f, width)
+                                val y = (position.y * height + dragAmount.y)
+                                    .coerceIn(0f, height)
+                                position = Offset(x / width, y / height)
+                                sway = (x - dragStartX) * WORM_LIGHT_SWAY_DRAG_FACTOR
+                            }
+                            // Set on the first real movement,
+                            // not in onDragStart — so a tap
+                            // never flashes the drag layer.
+                            dragging = true
                         },
                     )
                 },
@@ -756,67 +1034,20 @@ fun WormLightOverlay(
                 g.coilTurnsFirst,
             )
             g.coilSecond?.let { drawCoil(it, g.coilTurnsSecond) }
-            // A soft glow around the head itself — the lens
-            // spilling a little light where it sits.
-            val glowRadius = g.lensRadii.x * 1.8f
-            drawCircle(
-                brush = Brush.radialGradient(
-                    colors = listOf(
-                        WORM_LIGHT_WARM.copy(alpha = 0.28f),
-                        Color.Transparent,
-                    ),
-                    center = g.lensCenter,
-                    radius = glowRadius,
-                ),
-                center = g.lensCenter,
-                radius = glowRadius,
-            )
-            // The lens: a clear oval, rotated so the head
-            // angles down at the game — a faint fill (the
-            // plastic) with its rim in the hardware colour.
-            // The power light draws over the player area's
-            // top-left corner after this overlay, so the coil
-            // passing near it sits behind the light, not over
-            // it.
-            rotate(g.lensRotationDeg, pivot = g.lensCenter) {
-                drawOval(
-                    color = Color.White.copy(alpha = 0.14f),
-                    topLeft = Offset(
-                        g.lensCenter.x - g.lensRadii.x,
-                        g.lensCenter.y - g.lensRadii.y,
-                    ),
-                    size = Size(g.lensRadii.x * 2f, g.lensRadii.y * 2f),
-                )
-                drawOval(
-                    color = hw,
-                    topLeft = Offset(
-                        g.lensCenter.x - g.lensRadii.x,
-                        g.lensCenter.y - g.lensRadii.y,
-                    ),
-                    size = Size(g.lensRadii.x * 2f, g.lensRadii.y * 2f),
-                    style = Stroke(width = 2f * density),
-                )
-            }
-            // The bulb: bright white, visible inside the clear
-            // lens, with a hot core (the filament).
-            drawOval(
-                color = Color.White,
-                topLeft = Offset(
-                    g.bulbCenter.x - g.bulbRadii.x,
-                    g.bulbCenter.y - g.bulbRadii.y,
-                ),
-                size = Size(g.bulbRadii.x * 2f, g.bulbRadii.y * 2f),
-            )
-            drawCircle(
-                color = Color(0xFFFFF6D8),
-                radius = g.bulbRadii.x * 0.45f,
-                center = g.bulbCenter,
-            )
+            // The head itself — drawn by the shared helper,
+            // so the drag layer in GameScreen draws the same
+            // head. The power light draws over the player
+            // area's top-left corner after this overlay, so
+            // the coil passing near it sits behind the light,
+            // not over it.
+            drawWormLightHead(dragHead)
             // Fallback path only: the pool, added with Screen
             // so it lights the picture — the same falloff the
-            // shader adds on the GL path. Clipped to the game
-            // rect, so it never spills onto the black bars or
-            // the flank controls.
+            // shader adds on the GL path (peak 0.30, retuned
+            // 2026-11-13 — stops scaled from the old 0.65 peak
+            // by 0.30/0.65: 0.30, 0.21, 0.07). Clipped to the
+            // game rect, so it never spills onto the black
+            // bars or the flank controls.
             if (drawPool) {
                 clipRect(
                     g.gameRect.left, g.gameRect.top,
@@ -832,9 +1063,9 @@ fun WormLightOverlay(
                             drawCircle(
                                 brush = Brush.radialGradient(
                                     colorStops = arrayOf(
-                                        0f to WORM_LIGHT_WARM.copy(alpha = 0.65f),
-                                        0.4f to WORM_LIGHT_WARM.copy(alpha = 0.45f),
-                                        0.75f to WORM_LIGHT_WARM.copy(alpha = 0.15f),
+                                        0f to WORM_LIGHT_WARM.copy(alpha = 0.30f),
+                                        0.4f to WORM_LIGHT_WARM.copy(alpha = 0.21f),
+                                        0.75f to WORM_LIGHT_WARM.copy(alpha = 0.07f),
                                         1f to Color.Transparent,
                                     ),
                                     center = g.poolCenterPx,

@@ -9,6 +9,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -191,6 +192,12 @@ fun GameScreen(
     // the lamp's hardware — dark medium gray by default. The
     // light itself is always warm white.
     val wormLightColor = remember { appSettings.wormLightColor() }
+    // Worm Light improvements (Robert, 2026-11-13): while a
+    // drag is in progress the overlay reports its head, and
+    // the player draws it above the controls — a dragged
+    // head never disappears behind the D-pad. Outside a
+    // drag this is null and nothing extra is drawn.
+    var wormLightDragHead by remember { mutableStateOf<WormLightDragHead?>(null) }
     val opticsDimming = remember { appSettings.opticsDimmingEnabled() }
 
     // Player chrome (Robert, 2026-11-12) — the top bar hides
@@ -595,6 +602,7 @@ fun GameScreen(
                     paused = paused,
                     wormLight = wormLight,
                     wormLightColor = wormLightColor,
+                    onWormLightDragHeadChange = { wormLightDragHead = it },
                     // Top bar / back swipe (Robert, 2026-11-12):
                     // no tap hook — a tap on the game area
                     // does nothing to the bar; only a back
@@ -689,6 +697,25 @@ fun GameScreen(
                                 },
                             )
                         }
+                    }
+                }
+                // Worm Light improvements (Robert, 2026-11-13):
+                // while a drag is in progress, the lamp's head
+                // draws ABOVE the controls (the overlay's own
+                // head sits below them), so it never disappears
+                // behind the D-pad mid-drag. No pointer input
+                // here — this layer is transparent to input,
+                // and it sits inside the player Box after the
+                // FF/RW Row, so its coordinates match the
+                // overlay's exactly. Outside a drag nothing is
+                // drawn and the existing draw order stays.
+                wormLightDragHead?.let { dragHead ->
+                    Canvas(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .testTag("worm-light-drag-head"),
+                    ) {
+                        drawWormLightHead(dragHead)
                     }
                 }
             }

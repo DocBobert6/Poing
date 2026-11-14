@@ -237,7 +237,7 @@ class DisplayShadersTest {
         assertTrue(src.contains("uWlIntensity"))
         assertTrue(src.contains("smoothstep(1.0, 0.0, wlE)"))
         assertTrue(src.contains("smoothstep(0.45, 0.0, wlE)"))
-        assertTrue(src.contains("uWlIntensity * (wlFall * 0.30 + wlHot * 0.35)"))
+        assertTrue(src.contains("uWlIntensity * (wlFall * 0.14 + wlHot * 0.16)"))
         assertTrue(src.contains("vec3(1.0, 0.82, 0.55)"))
         assertTrue(src.contains("col = clamp(col, vec3(0.0), vec3(1.0))"))
         // The pool comes after the optics: the dim is
@@ -256,7 +256,7 @@ class DisplayShadersTest {
         assertTrue(src.contains("uWlRadii"))
         assertTrue(src.contains("uWlRot"))
         assertTrue(src.contains("uWlIntensity"))
-        assertTrue(src.contains("uWlIntensity * (wlFall * 0.30 + wlHot * 0.35)"))
+        assertTrue(src.contains("uWlIntensity * (wlFall * 0.14 + wlHot * 0.16)"))
         assertTrue(src.contains("vec3(1.0, 0.82, 0.55)"))
         assertTrue(src.contains("texture2D(uTex, vTex)"))
     }

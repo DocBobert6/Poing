@@ -351,6 +351,16 @@ object DisplayShaders {
           // so it is unit-testable on the JVM — keep the
           // constants in step.
           //
+          // Retune (Robert, 2026-11-13): the peak is 0.30
+          // (0.14 fall + 0.16 hotspot), down from 0.65.
+          // At 0.65 the lightest two Jade shades clipped
+          // to white at the pool core — the top of Super
+          // Mario Land 2 bleached to cream in his video
+          // (core measured R 0.97). The lightest Jade
+          // shade clips above a peak of 0.353, so 0.30
+          // keeps it at 0.95 with all four shades
+          // distinct. The fall/hot balance is unchanged.
+          //
           // The centre's y is flipped into vTex space
           // below: on this pass vTex is flipped (uFlipV 1 —
           // the source is the pass-1 framebuffer), so y = 0
@@ -368,7 +378,7 @@ object DisplayShaders {
           float wlE = dot(wlR / uWlRadii, wlR / uWlRadii);
           float wlFall = smoothstep(1.0, 0.0, wlE);
           float wlHot = smoothstep(0.45, 0.0, wlE);
-          col += uWlIntensity * (wlFall * 0.30 + wlHot * 0.35) * vec3(1.0, 0.82, 0.55);
+          col += uWlIntensity * (wlFall * 0.14 + wlHot * 0.16) * vec3(1.0, 0.82, 0.55);
           col = clamp(col, vec3(0.0), vec3(1.0));
           gl_FragColor = vec4(col, 1.0);
         }
@@ -463,7 +473,7 @@ object DisplayShaders {
           float wlE = dot(wlR / uWlRadii, wlR / uWlRadii);
           float wlFall = smoothstep(1.0, 0.0, wlE);
           float wlHot = smoothstep(0.45, 0.0, wlE);
-          col += uWlIntensity * (wlFall * 0.30 + wlHot * 0.35) * vec3(1.0, 0.82, 0.55);
+          col += uWlIntensity * (wlFall * 0.14 + wlHot * 0.16) * vec3(1.0, 0.82, 0.55);
           col = clamp(col, vec3(0.0), vec3(1.0));
           gl_FragColor = vec4(col, 1.0);
         }
