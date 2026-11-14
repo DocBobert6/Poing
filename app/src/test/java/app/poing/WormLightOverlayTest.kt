@@ -49,10 +49,13 @@ class WormLightOverlayTest {
     // Touch tests must not assume the 300x200dp box measures
     // 300x200dp: the Robolectric window is smaller than the
     // requested box (see GameDisplayViewTest), and the
-    // density is not 1 either. Every touch point and every
-    // expectation below is derived from the node's own
-    // measured size (px) at runtime — the default head sits
-    // at (0.5, 0.06) of it, whatever it measures.
+    // density is not 1 either. Every touch point below is
+    // anchored to the scope's own `center` (the node's centre
+    // in the scope's own coordinates, whatever they are) plus
+    // a delta from the node's measured size — never to an
+    // absolute point, which would land off the head if the
+    // node is offset in the root. The default head sits at
+    // (0.5, 0.06) of the node, i.e. centre + (0, -0.44h).
     // fetchSemanticsNode is a member of
     // SemanticsNodeInteraction, not a top-level import.
     private fun wormLightSize(): Pair<Float, Float> {
@@ -60,9 +63,6 @@ class WormLightOverlayTest {
             .fetchSemanticsNode().boundsInRoot
         return bounds.width to bounds.height
     }
-
-    private fun defaultHead(size: Pair<Float, Float>) =
-        Offset(size.first * 0.5f, size.second * 0.06f)
 
     @Test
     fun overlayPresentWhenEnabled() {
@@ -153,10 +153,14 @@ class WormLightOverlayTest {
             }
         }
         composeRule.waitForIdle()
-        val head = defaultHead(wormLightSize())
-        // Tap the head to enter aim mode.
+        val size = wormLightSize()
+        // Tap the head to enter aim mode. The point is
+        // anchored to the scope's own centre: the default
+        // head sits at (0.5, 0.06) of the node, i.e. centre
+        // + (0, -0.44h) — so the tap lands on the head
+        // whatever the node's root offset or measured size.
         composeRule.onNodeWithTag("worm-light").performTouchInput {
-            click(head)
+            click(center + Offset(0f, -0.44f * size.second))
         }
         composeRule.waitForIdle()
         // Drag straight down from the head: in aim mode this
@@ -165,6 +169,7 @@ class WormLightOverlayTest {
         // keeps the down inside the node however small it
         // measures; in aim mode the press may start anywhere.
         composeRule.onNodeWithTag("worm-light").performTouchInput {
+            val head = center + Offset(0f, -0.44f * size.second)
             swipe(head, head + Offset(0f, 90f))
         }
         composeRule.waitForIdle()
@@ -202,8 +207,9 @@ class WormLightOverlayTest {
             }
         }
         composeRule.waitForIdle()
-        val head = defaultHead(wormLightSize())
+        val size = wormLightSize()
         composeRule.onNodeWithTag("worm-light").performTouchInput {
+            val head = center + Offset(0f, -0.44f * size.second)
             swipe(head, head + Offset(60f, 0f))
         }
         composeRule.waitForIdle()
@@ -239,12 +245,12 @@ class WormLightOverlayTest {
         }
         composeRule.waitForIdle()
         val size = wormLightSize()
-        val head = defaultHead(size)
         composeRule.onNodeWithTag("worm-light").performTouchInput {
-            click(Offset(size.first * 0.5f, size.second * 0.95f))
+            click(center + Offset(0f, 0.45f * size.second))
         }
         composeRule.waitForIdle()
         composeRule.onNodeWithTag("worm-light").performTouchInput {
+            val head = center + Offset(0f, -0.44f * size.second)
             swipe(head, head + Offset(size.first * 0.3f, 0f))
         }
         composeRule.waitForIdle()
