@@ -61,6 +61,63 @@ class DisplayChainTest {
         )
     }
 
+    /**
+     * Performance fix 2 (2026-11-14): the edge mode resolves
+     * to CLEAN, so the old chain-only rule never fired while
+     * edge was on — the core corrected AND the edge pass
+     * folded the colour, twice and wrong. Edge on forces the
+     * core correction off even with a clean chain.
+     */
+    @Test
+    fun edgeOnForcesTheCoreCorrectionOff() {
+        val options = mapOf("mgba_color_correction" to "Auto")
+        assertEquals(
+            "OFF",
+            DisplayChain.effectiveCoreOptions(
+                options, DisplayChain.CLEAN, EdgeMode.EDGE,
+            )["mgba_color_correction"],
+        )
+        assertEquals(
+            "OFF",
+            DisplayChain.effectiveCoreOptions(
+                options, DisplayChain.CLEAN, EdgeMode.EDGE_GRID,
+            )["mgba_color_correction"],
+        )
+    }
+
+    /**
+     * Performance fix 2 (2026-11-14): the reconstruction
+     * carries the chains' colour itself, so it owns the
+     * colour like the edge pass does — core correction off
+     * while it is on, even with a clean chain.
+     */
+    @Test
+    fun reconOnForcesTheCoreCorrectionOff() {
+        val options = mapOf("mgba_color_correction" to "Auto")
+        assertEquals(
+            "OFF",
+            DisplayChain.effectiveCoreOptions(
+                options, DisplayChain.CLEAN, EdgeMode.OFF, ReconMode.GBC,
+            )["mgba_color_correction"],
+        )
+    }
+
+    /**
+     * Performance fix 2 (2026-11-14): clean with everything
+     * off still leaves the user's core setting exactly as set
+     * — the new parameters change nothing when they are off.
+     */
+    @Test
+    fun cleanWithEverythingOffStillLeavesTheCoreSettingAlone() {
+        val options = mapOf("mgba_color_correction" to "Auto")
+        assertEquals(
+            options,
+            DisplayChain.effectiveCoreOptions(
+                options, DisplayChain.CLEAN, EdgeMode.OFF, ReconMode.OFF,
+            ),
+        )
+    }
+
     @Test
     fun everyPaletteInTheCoreListHasAMode() {
         // No palette may crash the mapping: anything the core

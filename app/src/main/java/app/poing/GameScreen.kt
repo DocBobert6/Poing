@@ -355,7 +355,9 @@ fun GameScreen(
             // libraries load and before the game loads. While a
             // chain is on, the chain owns the colour (see
             // DisplayChain.effectiveCoreOptions).
-            options = DisplayChain.effectiveCoreOptions(optionsStore.all(), displayChain),
+            options = DisplayChain.effectiveCoreOptions(
+                optionsStore.all(), displayChain, edgeMode, reconMode,
+            ),
             onFrame = { frame ->
                 val view = glView
                 if (view != null) {
@@ -934,7 +936,9 @@ fun GameScreen(
                     store = optionsStore,
                     onValueChanged = {
                         session.applyOptions(
-                            DisplayChain.effectiveCoreOptions(optionsStore.all(), displayChain),
+                            DisplayChain.effectiveCoreOptions(
+                                optionsStore.all(), displayChain, edgeMode, reconMode,
+                            ),
                         )
                     },
                     onBack = { showSettings = false },
@@ -984,7 +988,9 @@ fun GameScreen(
                         if (optionsStore.set("mgba_solar_sensor_level", value)) {
                             solarLevel = value
                             session.applyOptions(
-                                DisplayChain.effectiveCoreOptions(optionsStore.all(), displayChain),
+                                DisplayChain.effectiveCoreOptions(
+                                    optionsStore.all(), displayChain, edgeMode, reconMode,
+                                ),
                             )
                         }
                     },

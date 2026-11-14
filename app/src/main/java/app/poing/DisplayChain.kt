@@ -50,17 +50,27 @@ enum class DisplayChain {
         }
 
         /**
-         * The core options a chain actually runs under. While a
-         * chain is on, the chain owns the colour: the core's own
-         * colour correction is switched off, so a game is never
-         * corrected twice (once by the core, once by the chain).
-         * Clean leaves the user's core setting exactly as set.
+         * The core options a display actually runs under. The
+         * chain, the edge pass and the reconstruction each own
+         * the colour — the chain's colour pass, the edge pass's
+         * colour-fold, the recon engine's own colour-fold — so
+         * the core's own colour correction is switched off
+         * whenever ANY of them is in effect, and a game is
+         * never corrected twice (once by the core, once by the
+         * display pass). Performance fix 2 (2026-11-14): the
+         * old form only looked at the resolved chain, and the
+         * edge mode resolves to CLEAN — so edge on + core
+         * correction on corrected twice and coloured wrong.
+         * Clean with everything off leaves the user's core
+         * setting exactly as set.
          */
         fun effectiveCoreOptions(
             options: Map<String, String>,
             chain: DisplayChain,
+            edge: EdgeMode = EdgeMode.OFF,
+            recon: ReconMode = ReconMode.OFF,
         ): Map<String, String> {
-            if (chain == CLEAN) return options
+            if (chain == CLEAN && edge == EdgeMode.OFF && recon == ReconMode.OFF) return options
             return options + ("mgba_color_correction" to "OFF")
         }
     }
