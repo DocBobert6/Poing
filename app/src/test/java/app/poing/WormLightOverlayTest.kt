@@ -166,25 +166,23 @@ class WormLightOverlayTest {
         // head sits at (0.5, 0.06) of the node, i.e. centre
         // + (0, -0.44h) — so the tap lands on the head
         // whatever the node's root offset or measured size.
-        // The down and the up are injected in SEPARATE
-        // blocks, not as click(): click() sends down+up
-        // back-to-back, and under Robolectric they collapse
-        // so the up never reaches awaitTouchSlopOrCancellation
-        // as its own event — the tap's gesture stalls, the
-        // detector never calls onDragCancel, and the toggle
-        // never runs (the swipe that follows still drags,
-        // because its moves are picked up by the stalled
-        // await — which is why the swipe probe passed while
-        // the aim probe failed). A real tap is two separate
-        // MotionEvents; the split injection is the faithful
-        // one, and the up goes to pointer 0, the pointer the
-        // down opened.
+        // The tap is a 2px swipe, not click() and not a
+        // split down()/up(): click() sends down+up with no
+        // event-time advance between them, and under
+        // Robolectric those collapse so the up never
+        // completes the gesture — the probe above stayed at
+        // 0 drag-head calls, i.e. neither end callback ever
+        // ran. A split down()/up() in separate blocks failed
+        // the same way (the clock never advanced either).
+        // swipe() advances event time between its events, so
+        // its down and up arrive as distinct events. 2px is
+        // a press with ~no movement — far below touch slop,
+        // so the gesture still ends in onDragCancel and the
+        // toggle still sees dragDistancePx (2px) under the
+        // 12dp tap max.
         composeRule.onNodeWithTag("worm-light").performTouchInput {
-            down(center + Offset(0f, -0.44f * size.second))
-        }
-        composeRule.waitForIdle()
-        composeRule.onNodeWithTag("worm-light").performTouchInput {
-            up()
+            val head = center + Offset(0f, -0.44f * size.second)
+            swipe(head, head + Offset(2f, 0f))
         }
         composeRule.waitForIdle()
         assertTrue(
