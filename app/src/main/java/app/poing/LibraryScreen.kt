@@ -15,8 +15,10 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.GridItemSpan
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -48,8 +50,11 @@ import kotlinx.coroutines.withContext
  * folder) import into filesDir/games/; remove deletes the copy and
  * its saves behind a confirm dialog. The BIOS card sits below the
  * list, and the Licences button stays. The whole screen is one
- * LazyColumn, so it scrolls on a small display instead of pushing
- * the BIOS card off-screen.
+ * lazy grid — in list view every item spans the full width, so it
+ * reads exactly like the old LazyColumn; in grid view the games
+ * flow into adaptive columns while the header, message and BIOS
+ * card still span full width — so it scrolls on a small display
+ * instead of pushing the BIOS card off-screen.
  *
  * Imports run on Dispatchers.IO — a folder scan reads every file
  * it finds, and that must never happen on the main thread.
@@ -77,6 +82,12 @@ fun LibraryScreen(
     val playtime = remember { PlaytimeStore(context.filesDir) }
     var games by remember { mutableStateOf(store.list()) }
     var filter by remember { mutableStateOf<GameSystem?>(null) }
+    // The library's shape (Robert, 2026-11-14): list rows or a
+    // grid of cover tiles. List by default, the choice persisted
+    // in AppSettingsStore, so it survives a restart.
+    var libraryView by remember {
+        mutableStateOf(AppSettingsStore(context.filesDir).libraryView())
+    }
     var biosInstalled by remember {
         mutableStateOf(BiosKind.entries.associateWith { bios.isInstalled(it) })
     }
@@ -164,8 +175,16 @@ fun LibraryScreen(
     // The exit hint overlays the bottom of the list, so it is
     // visible without scrolling — the list itself is untouched.
     Box(modifier = Modifier.fillMaxSize()) {
-        LazyColumn(modifier = Modifier.fillMaxSize()) {
-        item {
+        // One lazy grid serves both views: in list view every
+        // item spans the full width, so it reads exactly like
+        // the old LazyColumn; in grid view only the header,
+        // message and BIOS card span full width and the games
+        // flow into adaptive columns. One scroll, one header.
+        LazyVerticalGrid(
+            columns = GridCells.Adaptive(minSize = 160.dp),
+            modifier = Modifier.fillMaxSize(),
+        ) {
+        item(span = { GridItemSpan(maxLineSpan) }) {
             // Top bar: the power light. No game is loaded on the
             // library, so the light is off — it turns green in the
             // player and amber while paused (see GameScreen).
@@ -195,7 +214,7 @@ fun LibraryScreen(
                 Text("Game Boy · Game Boy Color · Game Boy Advance")
             }
         }
-        item {
+        item(span = { GridItemSpan(maxLineSpan) }) {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -221,7 +240,7 @@ fun LibraryScreen(
                 }
             }
         }
-        item {
+        item(span = { GridItemSpan(maxLineSpan) }) {
             // The L/R shoulders as the system filter (idea 5):
             // silver shoulder tabs at the top of the library. ALL
             // shows every system; a system tab shows only its games.
@@ -236,9 +255,29 @@ fun LibraryScreen(
                     ShoulderTab(system.label, filter == system) { filter = system }
                 }
             }
+            // The view switch (Robert, 2026-11-14): list rows or a
+            // grid of cover tiles. It sits directly under the
+            // filter shoulders as its own small row: the top bar
+            // holds only the power light, and the shoulder row
+            // already holds four tabs, so neither is a good home.
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
+            ) {
+                ViewTab("List", libraryView == LibraryView.LIST) {
+                    libraryView = LibraryView.LIST
+                    AppSettingsStore(context.filesDir).setLibraryView(LibraryView.LIST)
+                }
+                ViewTab("Grid", libraryView == LibraryView.GRID) {
+                    libraryView = LibraryView.GRID
+                    AppSettingsStore(context.filesDir).setLibraryView(LibraryView.GRID)
+                }
+            }
         }
         message?.let {
-            item {
+            item(span = { GridItemSpan(maxLineSpan) }) {
                 Text(
                     it,
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
@@ -246,7 +285,7 @@ fun LibraryScreen(
             }
         }
         if (games.isEmpty()) {
-            item {
+            item(span = { GridItemSpan(maxLineSpan) }) {
                 Text(
                     "No games yet — add a game to start.",
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
@@ -255,25 +294,42 @@ fun LibraryScreen(
         } else {
             val shown = filterGames(games, filter)
             if (shown.isEmpty()) {
-                item {
+                item(span = { GridItemSpan(maxLineSpan) }) {
                     Text(
                         "No ${filter?.label} games yet.",
                         modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
                     )
                 }
             }
-            items(shown, key = { it.id }) { game ->
-                GameRow(
-                    game = game,
-                    coverFile = art.coverFile(game).takeIf { it.exists() },
-                    onPlay = { onPlay(game) },
-                    onRemove = { pendingRemove = game },
-                    playtimeSeconds = playtime.get(game.id),
-                    onSaveManager = { onSaveManager(game) },
-                )
+            // The library's shape: list rows span the full width;
+            // grid cells flow into the adaptive columns. Tap to
+            // play, Saves and Remove (behind a confirm) work the
+            // same in both views.
+            if (libraryView == LibraryView.LIST) {
+                items(shown, key = { it.id }, span = { GridItemSpan(maxLineSpan) }) { game ->
+                    GameRow(
+                        game = game,
+                        coverFile = art.coverFile(game).takeIf { it.exists() },
+                        onPlay = { onPlay(game) },
+                        onRemove = { pendingRemove = game },
+                        playtimeSeconds = playtime.get(game.id),
+                        onSaveManager = { onSaveManager(game) },
+                    )
+                }
+            } else {
+                items(shown, key = { it.id }) { game ->
+                    GameGridCell(
+                        game = game,
+                        coverFile = art.coverFile(game).takeIf { it.exists() },
+                        onPlay = { onPlay(game) },
+                        onRemove = { pendingRemove = game },
+                        playtimeSeconds = playtime.get(game.id),
+                        onSaveManager = { onSaveManager(game) },
+                    )
+                }
             }
         }
-        item {
+        item(span = { GridItemSpan(maxLineSpan) }) {
             BiosCard(
                 installed = biosInstalled,
                 onImport = { kind ->
@@ -326,6 +382,32 @@ fun LibraryScreen(
                     Text("Cancel")
                 }
             },
+        )
+    }
+}
+
+/**
+ * The view switch (Robert, 2026-11-14): list rows or a grid of
+ * cover tiles. Same chrome as the shoulder tabs — selected is
+ * solid silver with black dot-matrix text, unselected dark chrome
+ * with silver text — so the switch reads as part of the same row
+ * family rather than a new control.
+ */
+@Composable
+private fun ViewTab(label: String, selected: Boolean, onClick: () -> Unit) {
+    Box(
+        modifier = Modifier
+            .testTag("view-${label.lowercase()}")
+            .clip(RoundedCornerShape(8.dp))
+            .background(if (selected) PoingSilver else Color(0xFF2A2A2A))
+            .clickable(onClick = onClick)
+            .padding(horizontal = 16.dp, vertical = 8.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            label,
+            style = displayTextStyle(DisplaySizeSmall),
+            color = if (selected) Color.Black else PoingSilver,
         )
     }
 }

@@ -265,4 +265,24 @@ class AppSettingsStoreTest {
         file.writeText(text)
         assertEquals(WormLightColor.DEFAULT, AppSettingsStore(temp.root).wormLightColor())
     }
+
+    @Test
+    fun libraryViewDefaultsToListAndRoundTrips() {
+        // List by default — nothing changes for him unless he
+        // switches — and the choice survives a restart.
+        val s = store()
+        assertEquals(LibraryView.LIST, s.libraryView())
+        s.setLibraryView(LibraryView.GRID)
+        assertEquals(LibraryView.GRID, s.libraryView())
+        assertEquals(LibraryView.GRID, AppSettingsStore(temp.root).libraryView())
+        s.setLibraryView(LibraryView.LIST)
+        assertEquals(LibraryView.LIST, s.libraryView())
+    }
+
+    @Test
+    fun unknownLibraryViewReadsAsList() {
+        // A stale or hand-edited value never breaks the library.
+        File(temp.root, "app-settings.properties").writeText("library_view=banana\n")
+        assertEquals(LibraryView.LIST, store().libraryView())
+    }
 }

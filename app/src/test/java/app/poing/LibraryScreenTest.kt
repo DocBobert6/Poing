@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
+import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
@@ -101,5 +102,56 @@ class LibraryScreenTest {
         composeRule.onNodeWithText("Native libraries failed to load.", substring = true)
             .assertIsDisplayed()
         composeRule.onNodeWithText("Poing!").assertIsDisplayed()
+    }
+
+    /**
+     * The view switch (Robert, 2026-11-14): List is the default
+     * and shows rows; Grid shows cover tiles instead, with the
+     * same title, badge and actions.
+     */
+    @Test
+    fun gridToggleSwitchesToGridCells() {
+        seedGame()
+        composeRule.waitForText("TETRIS")
+        composeRule.onAllNodesWithTag("game-row").assertCountEquals(1)
+        composeRule.onAllNodesWithTag("game-grid-cell").assertCountEquals(0)
+        composeRule.onNodeWithTag("view-grid").performClick()
+        composeRule.onAllNodesWithTag("game-grid-cell").assertCountEquals(1)
+        composeRule.onAllNodesWithTag("game-row").assertCountEquals(0)
+        composeRule.onNodeWithText("TETRIS").assertIsDisplayed()
+        composeRule.onNodeWithText("GB · tetris.gb").assertIsDisplayed()
+        composeRule.onNodeWithTag("view-list").performClick()
+        composeRule.onAllNodesWithTag("game-row").assertCountEquals(1)
+        composeRule.onAllNodesWithTag("game-grid-cell").assertCountEquals(0)
+    }
+
+    @Test
+    fun gridChoicePersistsAcrossRecreate() {
+        seedGame()
+        composeRule.waitForText("TETRIS")
+        composeRule.onNodeWithTag("view-grid").performClick()
+        composeRule.activityRule.scenario.recreate()
+        composeRule.waitForText("TETRIS")
+        composeRule.onAllNodesWithTag("game-grid-cell").assertCountEquals(1)
+        composeRule.onAllNodesWithTag("game-row").assertCountEquals(0)
+    }
+
+    @Test
+    fun shoulderFilterWorksInGrid() {
+        seedTwoGames()
+        composeRule.waitForText("TETRIS")
+        composeRule.onNodeWithTag("view-grid").performClick()
+        // Only one cell survives the GBC filter, so it is the
+        // first item after the header and always composed.
+        composeRule.onNodeWithTag("filter-GBC").performClick()
+        composeRule.onNodeWithText("POKEMON").assertIsDisplayed()
+        composeRule.onAllNodesWithText("TETRIS").assertCountEquals(0)
+        composeRule.onAllNodesWithTag("game-grid-cell").assertCountEquals(1)
+        composeRule.onNodeWithTag("filter-ALL").performClick()
+        // ALL restores the first cell; the second cell's
+        // visibility depends on the column count, so only the
+        // first is pinned here — the list-view filter test
+        // already pins both rows coming back.
+        composeRule.onNodeWithText("TETRIS").assertIsDisplayed()
     }
 }

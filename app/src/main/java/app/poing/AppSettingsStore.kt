@@ -15,6 +15,12 @@ import java.util.Properties
  * Pure java.io — no Android APIs — so the whole store runs under
  * plain JVM unit tests.
  */
+/** The library's shape: the list rows, or a grid of cover tiles. List is the default. */
+enum class LibraryView {
+    LIST,
+    GRID,
+}
+
 class AppSettingsStore(private val root: File) {
     private val file: File get() = File(root, "app-settings.properties")
 
@@ -33,6 +39,7 @@ class AppSettingsStore(private val root: File) {
         const val KEY_WORM_LIGHT_COLOR = "display_worm_light_color"
         const val KEY_OPTICS_DIMMING = "display_optics_dimming"
         const val KEY_DEV_STATS = "dev_stats_visible"
+        const val KEY_LIBRARY_VIEW = "library_view"
         const val DEFAULT_FF_SPEED = 2
         val FF_SPEEDS = setOf(2, 3, 4)
     }
@@ -134,6 +141,21 @@ class AppSettingsStore(private val root: File) {
      */
     fun devStatsEnabled(): Boolean = readBoolean(KEY_DEV_STATS, false)
     fun setDevStatsEnabled(enabled: Boolean) = write(KEY_DEV_STATS, enabled.toString())
+
+    /**
+     * The library's shape (Robert, 2026-11-14): the list rows,
+     * or a grid of cover tiles. List by default — nothing
+     * changes for him unless he switches. A stale or hand-edited
+     * value reads as the list.
+     */
+    fun libraryView(): LibraryView {
+        return when (readAll()[KEY_LIBRARY_VIEW]?.lowercase()) {
+            "grid" -> LibraryView.GRID
+            else -> LibraryView.LIST
+        }
+    }
+
+    fun setLibraryView(view: LibraryView) = write(KEY_LIBRARY_VIEW, view.name.lowercase())
 
     /**
      * Phase 8 — whether a chain is on. Clean is never gated

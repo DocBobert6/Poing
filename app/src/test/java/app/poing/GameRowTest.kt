@@ -5,6 +5,9 @@ import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.performClick
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -66,5 +69,74 @@ class GameRowTest {
         }
         composeRule.onNodeWithText("TETRIS").assertIsDisplayed()
         composeRule.onAllNodesWithText("Played", substring = true).assertCountEquals(0)
+    }
+
+    @Test
+    fun sampleSizeBringsTheLongSideTo512() {
+        assertEquals(1, sampleSizeFor(240, 160))
+        assertEquals(1, sampleSizeFor(512, 512))
+        assertEquals(2, sampleSizeFor(513, 513))
+        assertEquals(2, sampleSizeFor(1024, 1024))
+        assertEquals(4, sampleSizeFor(2048, 1024))
+        assertEquals(8, sampleSizeFor(4096, 300))
+    }
+
+    /**
+     * The grid cell shows the same title, badge, playtime and
+     * actions as the row — it is the same game, only laid out
+     * as a tile.
+     */
+    @Test
+    fun gridCellShowsPlaytimeWhenPlayed() {
+        composeRule.setContent {
+            PoingTheme {
+                GameGridCell(
+                    game = game(),
+                    coverFile = null,
+                    onPlay = {},
+                    onRemove = {},
+                    playtimeSeconds = 7500,
+                )
+            }
+        }
+        composeRule.onNodeWithText("TETRIS").assertIsDisplayed()
+        composeRule.onNodeWithText("GB · tetris.gb").assertIsDisplayed()
+        composeRule.onNodeWithText("Played 2h 5m").assertIsDisplayed()
+        composeRule.onNodeWithText("Saves").assertIsDisplayed()
+        composeRule.onNodeWithText("Remove").assertIsDisplayed()
+    }
+
+    @Test
+    fun gridCellShowsNoPlaytimeLineWhenNeverPlayed() {
+        composeRule.setContent {
+            PoingTheme {
+                GameGridCell(
+                    game = game(),
+                    coverFile = null,
+                    onPlay = {},
+                    onRemove = {},
+                    playtimeSeconds = 0,
+                )
+            }
+        }
+        composeRule.onNodeWithText("TETRIS").assertIsDisplayed()
+        composeRule.onAllNodesWithText("Played", substring = true).assertCountEquals(0)
+    }
+
+    @Test
+    fun gridCellTapPlays() {
+        var played = false
+        composeRule.setContent {
+            PoingTheme {
+                GameGridCell(
+                    game = game(),
+                    coverFile = null,
+                    onPlay = { played = true },
+                    onRemove = {},
+                )
+            }
+        }
+        composeRule.onNodeWithText("TETRIS").performClick()
+        assertTrue(played)
     }
 }
