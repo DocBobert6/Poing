@@ -154,23 +154,32 @@ class DisplayRendererTest {
 
     /**
      * Performance fix 9 — the chain, edge and recon programs
-     * are built lazily on first use. Under Robolectric there
-     * is no GL context, so a build fails; the ensure
-     * functions must report false (and the caller falls back
-     * to plain), not throw — and a failed build is attempted
-     * once, so a second call still reports false without
-     * retrying the compile.
+     * are built lazily on first use. Robolectric's GLES20
+     * stubs report a successful compile, so the ensure
+     * functions report true here (the first version of this
+     * test assumed the stubs fail — they do not); what this
+     * pins is the lazy contract itself: the first call
+     * builds, a second call reuses the built program, and
+     * onSurfaceCreated resets the handles and the attempted
+     * flags, so a lost EGL context builds again instead of
+     * trusting a dead handle. A failed build on a real device
+     * still falls back to plain — the callers check the
+     * handles, not the return value.
      */
     @Test
-    fun ensureProgramsReportFalseWithoutAGlContext() {
+    fun ensureProgramsBuildLazilyAndRebuildAfterSurfaceRecreation() {
         val renderer = DisplayRenderer()
-        assertFalse(renderer.ensureColourProgram())
-        assertFalse(renderer.ensureGridProgram())
-        assertFalse(renderer.ensureChainPrograms())
-        assertFalse(renderer.ensureEdgeProgram())
-        assertFalse(renderer.ensureReconPrograms())
-        // No retry: the attempted flags hold.
-        assertFalse(renderer.ensureColourProgram())
-        assertFalse(renderer.ensureReconPrograms())
+        assertTrue(renderer.ensureColourProgram())
+        assertTrue(renderer.ensureColourProgram())
+        assertTrue(renderer.ensureGridProgram())
+        assertTrue(renderer.ensureChainPrograms())
+        assertTrue(renderer.ensureEdgeProgram())
+        assertTrue(renderer.ensureReconPrograms())
+        // A lost EGL context: onSurfaceCreated resets the
+        // handles and the attempted flags, so the next use
+        // builds again instead of trusting a dead handle.
+        renderer.onSurfaceCreated(null, null)
+        assertTrue(renderer.ensureColourProgram())
+        assertTrue(renderer.ensureReconPrograms())
     }
 }
