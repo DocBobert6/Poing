@@ -147,19 +147,35 @@ class LibraryScreenTest {
     }
 
     private fun assertButtonsBelowAddRow() {
-        val addBottom = composeRule.onNodeWithText("Add game")
-            .fetchSemanticsNode().boundsInRoot.bottom
+        val add = composeRule.onNodeWithText("Add game")
+            .fetchSemanticsNode().boundsInRoot
         val licencesTop = composeRule.onNodeWithText("Licences")
             .fetchSemanticsNode().boundsInRoot.top
         val settingsTop = composeRule.onNodeWithText("Settings")
             .fetchSemanticsNode().boundsInRoot.top
+        // Stacked rows touch exactly: the second row's top
+        // EQUALS the first row's bottom, so the no-overlap bar
+        // is >=, not > (the first version used > and failed on
+        // the fixed layout, 2026-11-14 — the equality is the
+        // proof the rows stack). On the old shared-item layout
+        // both rows started at the same top, so the
+        // Licences/Settings tops sat at the Add button's top —
+        // inside the Add row, not below it — and both bars fail.
         assertTrue(
-            "Licences top ($licencesTop) must sit below the Add row bottom ($addBottom)",
-            licencesTop > addBottom,
+            "Licences top ($licencesTop) must sit at or below the Add row bottom (${add.bottom})",
+            licencesTop >= add.bottom,
         )
         assertTrue(
-            "Settings top ($settingsTop) must sit below the Add row bottom ($addBottom)",
-            settingsTop > addBottom,
+            "Settings top ($settingsTop) must sit at or below the Add row bottom (${add.bottom})",
+            settingsTop >= add.bottom,
+        )
+        assertTrue(
+            "Licences top ($licencesTop) must sit below the Add row top (${add.top})",
+            licencesTop > add.top,
+        )
+        assertTrue(
+            "Settings top ($settingsTop) must sit below the Add row top (${add.top})",
+            settingsTop > add.top,
         )
     }
 
