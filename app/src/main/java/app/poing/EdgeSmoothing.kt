@@ -104,15 +104,14 @@ package app.poing
  *    sim proves it does not fringe (max |R-G| 0.0000 in
  *    the band on a greyscale vertical edge).
  *
- * NOT YET (later items in the same rework): the
- * colour-fold (item 4 — each system's colour model
- * folded into the edge pass, so edge mode does not lose
- * the chains' researched colour) and the dev-stats
- * readout showing whether the edge program is actually
- * active vs silently fallen back (item 5). Until item 4
- * lands, edge mode shows the core's generic colour
- * correction, not the chains' model — the same gap the
- * rework was ordered to close, closed in item 4.
+ * LANDED (the rework's later items): the colour-fold
+ * (item 4 — each system's colour model folded into the
+ * edge pass, so edge mode does not lose the chains'
+ * researched colour) and the dev-stats readout (item 5
+ * — the diagnostic line shows which program actually
+ * drew the last frame, so a silent fallback to the
+ * plain blit reads as "plain (edge fell back)", never
+ * as a quiet "plain").
  *
  * Honest limits (not built, same as the plan):
  * layer-aware smoothing is not feasible from the

@@ -67,4 +67,12 @@ class GameGlView @JvmOverloads constructor(
     fun setWormLight(pool: WormLightPool) {
         if (renderer.setWormLight(pool)) requestRender()
     }
+
+    /**
+     * Edge smoothing, item 5 (2026-11-14) — the dev-stats
+     * readout: which program actually drew the last frame.
+     * The renderer's record, read on the main thread when
+     * the once-a-second stats arrive.
+     */
+    fun drawPath(): DrawPath = renderer.lastDrawPath
 }

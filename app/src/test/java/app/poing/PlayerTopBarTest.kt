@@ -33,7 +33,7 @@ class PlayerTopBarTest {
         sampleRate = 48000,
     )
 
-    private fun setContent(lux: Int?) {
+    private fun setContent(lux: Int? = null, drawPath: DrawPath? = null, edgeOn: Boolean = false) {
         composeRule.setContent {
             PoingTheme {
                 TopBarRow(
@@ -43,6 +43,8 @@ class PlayerTopBarTest {
                     buttonLabel = "Pause",
                     onButtonClick = {},
                     lux = lux,
+                    drawPath = drawPath,
+                    edgeOn = edgeOn,
                 )
             }
         }
@@ -61,5 +63,51 @@ class PlayerTopBarTest {
     fun diagnosticLineHidesLuxWithoutAReading() {
         setContent(lux = null)
         composeRule.onAllNodesWithText("lx", substring = true).assertCountEquals(0)
+    }
+
+    @Test
+    fun diagnosticLineShowsEdgeWhenTheEdgeProgramDrew() {
+        // Edge smoothing, item 5 (2026-11-14): the
+        // dev-stats readout — the line names the program
+        // that actually drew the last frame.
+        setContent(drawPath = DrawPath.EDGE, edgeOn = true)
+        composeRule.onNodeWithText("edge", substring = true).assertExists()
+        composeRule.onAllNodesWithText("fell back", substring = true).assertCountEquals(0)
+    }
+
+    @Test
+    fun diagnosticLineShowsEdgeGridForTheCombinedMode() {
+        setContent(drawPath = DrawPath.EDGE_GRID, edgeOn = true)
+        composeRule.onNodeWithText("edge+grid", substring = true).assertExists()
+    }
+
+    @Test
+    fun diagnosticLineShowsChainWhenTheChainDrew() {
+        setContent(drawPath = DrawPath.CHAIN, edgeOn = false)
+        composeRule.onNodeWithText("chain", substring = true).assertExists()
+    }
+
+    @Test
+    fun diagnosticLineNamesTheFallbackWhenEdgeWasRequestedButPlainDrew() {
+        // The settler: edge on, picture plain — the line
+        // must say the edge fell back, not read as a quiet
+        // "plain".
+        setContent(drawPath = DrawPath.PLAIN, edgeOn = true)
+        composeRule.onNodeWithText("plain (edge fell back)", substring = true).assertExists()
+    }
+
+    @Test
+    fun diagnosticLineShowsPlainWithoutTheFallbackNoteWhenEdgeIsOff() {
+        setContent(drawPath = DrawPath.PLAIN, edgeOn = false)
+        composeRule.onNodeWithText("plain", substring = true).assertExists()
+        composeRule.onAllNodesWithText("fell back", substring = true).assertCountEquals(0)
+    }
+
+    @Test
+    fun diagnosticLineShowsNoDrawPathTokenWithoutAReading() {
+        setContent()
+        composeRule.onAllNodesWithText("edge", substring = true).assertCountEquals(0)
+        composeRule.onAllNodesWithText("chain", substring = true).assertCountEquals(0)
+        composeRule.onAllNodesWithText("plain", substring = true).assertCountEquals(0)
     }
 }

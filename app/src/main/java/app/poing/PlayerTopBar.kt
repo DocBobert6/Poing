@@ -55,6 +55,12 @@ fun TopBarRow(
     // on (the caller passes null otherwise). Null means no
     // reading yet, or dev stats off.
     lux: Int? = null,
+    // Edge smoothing, item 5 (2026-11-14): which program
+    // actually drew the last frame, for the diagnostic
+    // line. Null until the first stats — no token then,
+    // rather than a guessed one.
+    drawPath: DrawPath? = null,
+    edgeOn: Boolean = false,
 ) {
     Row(
         modifier = Modifier
@@ -76,7 +82,7 @@ fun TopBarRow(
             )
             Spacer(Modifier.width(8.dp))
         }
-        DiagnosticLine(stats = stats, lux = lux, modifier = Modifier.weight(1f))
+        DiagnosticLine(stats = stats, lux = lux, drawPath = drawPath, edgeOn = edgeOn, modifier = Modifier.weight(1f))
         // The tag lets tests tell the bar's button apart from
         // the pause menu's own Resume button (same text, two
         // nodes when paused).
@@ -132,9 +138,15 @@ fun FloatingPlayerStatus(
  * ambient-light reading joins them (whole lux), so the room's
  * light — and whether the dim engages — is visible on the
  * screen itself (Screen Optics dim fix, Robert, 2026-11-12).
+ * Edge smoothing, item 5 (2026-11-14): which program actually
+ * drew the last frame joins them too ("edge", "edge+grid",
+ * "chain", "plain") — so on/off is never a guess on device
+ * again. When edge was requested but the frame came out
+ * plain, the token says so outright ("plain (edge fell
+ * back)"): the silent fallback, named.
  */
 @Composable
-private fun DiagnosticLine(stats: PlayerStats?, lux: Int? = null, modifier: Modifier = Modifier) {
+private fun DiagnosticLine(stats: PlayerStats?, lux: Int? = null, drawPath: DrawPath? = null, edgeOn: Boolean = false, modifier: Modifier = Modifier) {
     if (stats == null) {
         Text("starting…", style = terminalTextStyle(), color = Color.White, modifier = modifier)
         return
@@ -149,6 +161,10 @@ private fun DiagnosticLine(stats: PlayerStats?, lux: Int? = null, modifier: Modi
             withStyle(SpanStyle(fontFamily = Vt323)) { append("fps ") }
             withStyle(SpanStyle(fontFamily = Dseg7)) { append("${stats.framesDrawn}") }
             withStyle(SpanStyle(fontFamily = Vt323)) { append(" frames") }
+            if (drawPath != null) {
+                withStyle(SpanStyle(fontFamily = Vt323)) { append(" ") }
+                withStyle(SpanStyle(fontFamily = Vt323)) { append(drawPath.displayLabel(edgeOn)) }
+            }
             if (lux != null) {
                 withStyle(SpanStyle(fontFamily = Vt323)) { append(" ") }
                 withStyle(SpanStyle(fontFamily = Dseg7)) { append("$lux") }

@@ -87,6 +87,15 @@ fun GameScreen(
     val activity = context as? ComponentActivity
     var bitmap by remember { mutableStateOf<Bitmap?>(null) }
     var stats by remember { mutableStateOf<PlayerStats?>(null) }
+    // Edge smoothing, item 5 (2026-11-14) — the dev-stats
+    // readout: which program actually drew the last frame.
+    // Read from the GL view when the stats arrive (both on
+    // the main thread), so the diagnostic line shows the
+    // truth about the picture, not the request. Null until
+    // the first stats — or when there is no GL view at all
+    // (the Compose-Image fallback), when the line shows no
+    // token rather than a guessed one.
+    var drawPath by remember { mutableStateOf<DrawPath?>(null) }
     var paused by remember { mutableStateOf(false) }
     var showSettings by remember { mutableStateOf(false) }
     var showCheats by remember { mutableStateOf(false) }
@@ -326,7 +335,7 @@ fun GameScreen(
             // DisplayChain.effectiveCoreOptions).
             options = DisplayChain.effectiveCoreOptions(optionsStore.all(), displayChain),
             onFrame = { bitmap = it; glView?.setFrame(it) },
-            onStats = { stats = it },
+            onStats = { stats = it; drawPath = glView?.drawPath() },
             onError = onError,
         )
     }
@@ -586,6 +595,12 @@ fun GameScreen(
                     // only when dev stats are on — the line is
                     // the dev-stats display.
                     lux = if (devStats) latestLux else null,
+                    // Edge smoothing, item 5: which program
+                    // actually drew the last frame — the
+                    // dev-stats readout, so edge on is never
+                    // again a guess on device.
+                    drawPath = drawPath,
+                    edgeOn = edgeMode != EdgeMode.OFF,
                     recording = recording,
                     recordingElapsed = recordingElapsed,
                     buttonLabel = if (paused) "Resume" else "Pause",

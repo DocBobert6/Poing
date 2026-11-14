@@ -72,6 +72,23 @@ class DisplayRenderer : GLSurfaceView.Renderer {
     private var edgeSystem: GameSystem = GameSystem.GB
 
     /**
+     * Edge smoothing, item 5 (2026-11-14) — the dev-stats
+     * readout: which program actually drew the last frame.
+     * Written on the GL thread at each draw decision (the
+     * plain blit, the edge pass, the chain passes); read
+     * on the main thread when the once-a-second stats
+     * arrive (GameGlView.drawPath). The value is the
+     * truth about the picture, not the request: edge on
+     * with a failed program or a failed framebuffer still
+     * records PLAIN, so the diagnostic line can say the
+     * edge fell back instead of letting "edge on" in the
+     * settings stand for a picture that is silently
+     * plain. Starts PLAIN — nothing has drawn yet.
+     */
+    @Volatile
+    var lastDrawPath: DrawPath = DrawPath.PLAIN
+
+    /**
      * Phase 8 — Screen Optics: the ambient light's
      * brightness / contrast / gamma for the active chain.
      * Neutral until the first lux reading arrives.
@@ -349,6 +366,8 @@ class DisplayRenderer : GLSurfaceView.Renderer {
         GLES20.glActiveTexture(GLES20.GL_TEXTURE0)
         GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, fboTextureId)
         drawQuad(gridProgram)
+        // Item 5 — the dev-stats readout: the chain drew.
+        lastDrawPath = DrawPath.CHAIN
     }
 
     /** The Worm Light's pool uniforms, shared by the grid and the plain programs. */
@@ -482,13 +501,27 @@ class DisplayRenderer : GLSurfaceView.Renderer {
             GLES20.glActiveTexture(GLES20.GL_TEXTURE0)
             GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, fboTextureId)
             drawQuad(gridProgram)
+            // Item 5 — the dev-stats readout: the edge pass
+            // ran, with the light grid over it.
+            lastDrawPath = DrawPath.EDGE_GRID
         } else {
             drawPlainFromFbo()
+            // Item 5 — the dev-stats readout: the edge pass
+            // ran (the plain blit here is only pass 2 — the
+            // smoothed frame still shows, just without the
+            // grid — so this is EDGE, not a fallback).
+            lastDrawPath = DrawPath.EDGE
         }
     }
 
     /** The chain off: the frame exactly as the core rendered it, straight to the screen. */
     private fun drawPlain() {
+        // Item 5 — the dev-stats readout: the plain blit
+        // drew. Every fallback in onDrawFrame and drawEdge
+        // flows through here (failed edge program, failed
+        // framebuffer, chain off or failed), so the record
+        // is the truth about the picture, not the request.
+        lastDrawPath = DrawPath.PLAIN
         drawPlainSource(frameTextureId, 0f, 0f)
     }
 
