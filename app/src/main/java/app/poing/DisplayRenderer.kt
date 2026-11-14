@@ -534,8 +534,13 @@ class DisplayRenderer : GLSurfaceView.Renderer {
         )
         val params = EdgeSmoothing.edgeParamsFor(reconSystem)
         // Pass A1 — detectors + colour-fold, native size,
-        // into texA. The source is the frame Bitmap, so V
-        // stays unflipped (uFlipV 0).
+        // into texA. The source is the frame Bitmap, and a
+        // Bitmap texture reads true row v — but the pass
+        // WRITES into an FBO, whose rows run bottom-first,
+        // so the stored texture comes out flipped unless
+        // uFlipV is 1 (the same rule as the edge colour
+        // pass). Task 6 shipped 0 here and the recon came
+        // out upside down on device; see RECON_A1_FLIP_V.
         GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, reconFboId)
         GLES20.glFramebufferTexture2D(
             GLES20.GL_FRAMEBUFFER, GLES20.GL_COLOR_ATTACHMENT0,
@@ -543,7 +548,7 @@ class DisplayRenderer : GLSurfaceView.Renderer {
         )
         GLES20.glViewport(0, 0, frameW, frameH)
         GLES20.glUseProgram(reconA1Program)
-        GLES20.glUniform1f(uniform(reconA1Program, "uFlipV"), 0f)
+        GLES20.glUniform1f(uniform(reconA1Program, "uFlipV"), if (RECON_A1_FLIP_V) 1f else 0f)
         GLES20.glUniform1i(uniform(reconA1Program, "uTex"), 0)
         GLES20.glUniform2f(
             uniform(reconA1Program, "uTexSize"),
@@ -567,14 +572,17 @@ class DisplayRenderer : GLSurfaceView.Renderer {
         drawQuad(reconA1Program)
         // Pass A2 — field + class + collapse, native size,
         // into texB. Reads texA (unit 0) and the raw frame
-        // (unit 1, for the text ring's raw luma).
+        // (unit 1, for the text ring's raw luma). texA is
+        // stored unflipped now (A1's uFlipV 1), so the two
+        // inputs agree row for row — with A1 at 0 they
+        // were vertically mirrored.
         GLES20.glFramebufferTexture2D(
             GLES20.GL_FRAMEBUFFER, GLES20.GL_COLOR_ATTACHMENT0,
             GLES20.GL_TEXTURE_2D, reconTexBId, 0,
         )
         GLES20.glViewport(0, 0, frameW, frameH)
         GLES20.glUseProgram(reconA2Program)
-        GLES20.glUniform1f(uniform(reconA2Program, "uFlipV"), 0f)
+        GLES20.glUniform1f(uniform(reconA2Program, "uFlipV"), if (RECON_A2_FLIP_V) 1f else 0f)
         GLES20.glUniform1i(uniform(reconA2Program, "uTex"), 0)
         GLES20.glUniform1i(uniform(reconA2Program, "uRawTex"), 1)
         GLES20.glUniform2f(
@@ -598,7 +606,7 @@ class DisplayRenderer : GLSurfaceView.Renderer {
         GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, 0)
         GLES20.glViewport(0, 0, viewW, viewH)
         GLES20.glUseProgram(reconBProgram)
-        GLES20.glUniform1f(uniform(reconBProgram, "uFlipV"), 1f)
+        GLES20.glUniform1f(uniform(reconBProgram, "uFlipV"), if (RECON_B_FLIP_V) 1f else 0f)
         GLES20.glUniform1i(uniform(reconBProgram, "uTex"), 0)
         GLES20.glUniform2f(
             uniform(reconBProgram, "uTexSize"),
@@ -1099,5 +1107,81 @@ class DisplayRenderer : GLSurfaceView.Renderer {
 
         /** Worm Light: a smaller pool move than this is a no-op report, not a new picture. */
         private const val WL_EPSILON = 0.005f
+
+        /**
+         * The reconstruction's V-flip contract (the
+         * 2026-11-14 upside-down bug). A pass's uFlipV
+         * depends on what it READS, not on what it writes:
+         * a Bitmap texture stores its top row first, so
+         * sampling it at v returns true row v; a
+         * framebuffer texture stores its bottom row first,
+         * so sampling it at v returns true row (1 - v) of
+         * what was written. A pass into an FBO therefore
+         * stores its output flipped exactly when
+         * (inputFlipped == uFlipV), and a pass to the
+         * screen shows it right-side up exactly when
+         * (uFlipV == inputFlipped). The chain proves the
+         * rule (pass 1 reads the Bitmap with 0, pass 2
+         * reads the FBO with 1), and the edge path follows
+         * it too (colour pass 1, work pass 0, blit 1).
+         * Task 6's recon broke it in exactly one place:
+         * A1 read the Bitmap with 0, so texA stored the
+         * frame upside down, A2 read texA and the raw
+         * frame with one varying (the two inputs
+         * vertically mirrored, so the text ring's rows
+         * came from the wrong rows), and Pass B displayed
+         * the mirrored field upside down on device —
+         * V-Rally's HUD read upside down, left-to-right
+         * (TIME / BEST / LAPS), a V flip, not a
+         * 180-degree rotation: the horizontal axis was
+         * never wrong (a vertical flip of the screenshot
+         * restores the text exactly; a 180-degree
+         * rotation gives mirrored garbage). The three
+         * flips below are the single source of truth
+         * drawRecon uses, so the unit test pins them.
+         */
+        internal const val RECON_A1_FLIP_V = true
+        internal const val RECON_A2_FLIP_V = false
+        internal const val RECON_B_FLIP_V = true
+
+        /**
+         * A pass into an FBO stores its output flipped
+         * exactly when (inputFlipped == flipV): the
+         * Bitmap (unflipped) written with 0 comes out
+         * flipped, written with 1 comes out unflipped;
+         * an FBO texture written with the same flip it
+         * was read with keeps its orientation.
+         */
+        internal fun fboOutputFlipped(inputFlipped: Boolean, flipV: Boolean): Boolean =
+            inputFlipped == flipV
+
+        /**
+         * A pass to the screen is right-side up exactly
+         * when (flipV == inputFlipped): the Bitmap drawn
+         * with 0, an FBO texture drawn with 1.
+         */
+        internal fun displayIsCorrect(inputFlipped: Boolean, flipV: Boolean): Boolean =
+            flipV == inputFlipped
+
+        /**
+         * The reconstruction's orientation composition:
+         * A2's two inputs (texA and the raw frame) must
+         * agree row for row, and Pass B's display must be
+         * right-side up. False for the triple Task 6
+         * shipped (A1 0, A2 0, B 1) — the upside-down
+         * bug — and true for the flips drawRecon uses now.
+         */
+        internal fun reconOrientationIsCorrect(
+            a1FlipV: Boolean = RECON_A1_FLIP_V,
+            a2FlipV: Boolean = RECON_A2_FLIP_V,
+            bFlipV: Boolean = RECON_B_FLIP_V,
+        ): Boolean {
+            val rawFlipped = false
+            val texAFlipped = fboOutputFlipped(rawFlipped, a1FlipV)
+            val inputsAgree = texAFlipped == rawFlipped
+            val texBFlipped = fboOutputFlipped(texAFlipped, a2FlipV)
+            val displayCorrect = displayIsCorrect(texBFlipped, bFlipV)
+            return inputsAgree && displayCorrect
+        }
     }
 }
