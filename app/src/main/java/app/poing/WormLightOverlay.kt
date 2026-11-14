@@ -23,6 +23,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.graphics.drawscope.rotate
@@ -750,13 +751,13 @@ fun DrawScope.drawWormLightHead(head: WormLightDragHead) {
         drawOval(
             color = Color.White.copy(alpha = if (head.aimMode) 0.30f else 0.14f),
             topLeft = head.lensCenter - head.lensRadii,
-            size = head.lensRadii * 2f,
+            size = Size(head.lensRadii.x * 2f, head.lensRadii.y * 2f),
         )
         // The rim.
         drawOval(
             color = if (head.hardwareTranslucent) Color.White.copy(alpha = 0.5f) else hardware,
             topLeft = head.lensCenter - head.lensRadii,
-            size = head.lensRadii * 2f,
+            size = Size(head.lensRadii.x * 2f, head.lensRadii.y * 2f),
             style = Stroke(width = head.rimStrokePx),
         )
     }
