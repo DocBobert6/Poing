@@ -174,7 +174,11 @@ class GameScreenLayoutTest {
         val start = composeRule.onNodeWithTag("hold-Start").fetchSemanticsNode().boundsInRoot
         val select = composeRule.onNodeWithTag("hold-Select").fetchSemanticsNode().boundsInRoot
         assertEquals(start.top, select.top, 2f * d)
-        assertTrue("Start should sit left of Select", start.right <= select.left)
+        // Centres, not edges: the pills sit 0.0824 of the screen
+        // apart, so on a narrow screen they may touch — what
+        // this pins is that Start sits left of Select at the
+        // same height, side by side at the bottom centre.
+        assertTrue("Start centre should sit left of Select", start.center.x < select.center.x)
     }
 
     /**

@@ -3,6 +3,7 @@ package app.poing
 import androidx.activity.ComponentActivity
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
@@ -128,11 +129,14 @@ class LayoutEditorTest {
         composeRule.onNodeWithTag("editor-a").performTouchInput {
             swipe(start = center, end = center + Offset(20f, 0f), durationMillis = 300)
         }
-        composeRule.onNodeWithText("64dp").assertIsDisplayed()
+        // The stepper pill, by tag: the selected control shows
+        // its size inside itself too, so a bare text lookup
+        // would find two "64dp" nodes.
+        composeRule.onNodeWithTag("editor-size-value").assertTextEquals("64dp")
         composeRule.onNodeWithTag("editor-size-plus").performClick()
-        composeRule.onNodeWithText("65dp").assertIsDisplayed()
+        composeRule.onNodeWithTag("editor-size-value").assertTextEquals("65dp")
         composeRule.onNodeWithTag("editor-size-minus").performClick()
-        composeRule.onNodeWithText("64dp").assertIsDisplayed()
+        composeRule.onNodeWithTag("editor-size-value").assertTextEquals("64dp")
     }
 
     @Test
@@ -148,10 +152,13 @@ class LayoutEditorTest {
     fun resetRestoresTheDefaults() {
         setContent()
         val aBefore = centreX("editor-a")
+        // Left, not right: A sits at 0.948 already, so a
+        // rightward drag clamps at 0.97 after a few pixels and
+        // the move is too small to assert on; left has room.
         composeRule.onNodeWithTag("editor-a").performTouchInput {
-            swipe(start = center, end = center + Offset(200f, 0f), durationMillis = 300)
+            swipe(start = center, end = center + Offset(-200f, 0f), durationMillis = 300)
         }
-        assertTrue(centreX("editor-a") > aBefore + 10f)
+        assertTrue(centreX("editor-a") < aBefore - 10f)
         composeRule.onNodeWithTag("editor-reset").performClick()
         assertEquals("Reset should put A back at its default spot", aBefore, centreX("editor-a"), 2f)
     }

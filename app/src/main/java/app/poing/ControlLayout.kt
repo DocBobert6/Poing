@@ -167,7 +167,9 @@ data class ControlLayout(
          * power light), Start/Select pills side by side at the
          * bottom centre (64x32dp, 16dp up). Written out from the
          * dp spots so the numbers stay checkable, not magic
-         * decimals.
+         * decimals. Listed in ControlId order — the store loads
+         * in that order, and list equality is order-sensitive, so
+         * a save/load round-trip depends on it.
          */
         val DEFAULT: ControlLayout = run {
             fun spec(id: ControlId, centreXDp: Float, centreYDp: Float, sizeDp: Int) =
@@ -180,8 +182,8 @@ data class ControlLayout(
             ControlLayout(
                 controls = listOf(
                     spec(ControlId.DPAD, 16f + 72f, 411f / 2f, 144),
-                    spec(ControlId.B, 923f - 16f - 140f + 32f, 411f / 2f, 64),
                     spec(ControlId.A, 923f - 16f - 32f, 411f / 2f, 64),
+                    spec(ControlId.B, 923f - 16f - 140f + 32f, 411f / 2f, 64),
                     spec(ControlId.L, 16f + 48f, 60f + 24f, 96),
                     spec(ControlId.R, 923f - 16f - 48f, 60f + 24f, 96),
                     spec(ControlId.START, (923f - 140f) / 2f + 32f, 411f - 16f - 16f, 64),

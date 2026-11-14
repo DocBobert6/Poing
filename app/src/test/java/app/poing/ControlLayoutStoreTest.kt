@@ -158,10 +158,13 @@ class ControlLayoutStoreTest {
 
     @Test
     fun `migration of one group leaves the others at their defaults`() {
-        store.file("abc123").writeText("ab.x=92.3\nab.y=0\n")
+        // Left, not right: A sits at 0.948 already, so a +0.1
+        // offset would clamp at 0.97 and the test would pin the
+        // clamp, not the migration.
+        store.file("abc123").writeText("ab.x=-92.3\nab.y=0\n")
         val loaded = store.load("abc123")
         assertEquals(
-            ControlLayout.DEFAULT.control(ControlId.A).cx + 0.1f,
+            ControlLayout.DEFAULT.control(ControlId.A).cx - 0.1f,
             loaded.control(ControlId.A).cx,
             0.001f,
         )
