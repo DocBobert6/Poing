@@ -276,6 +276,27 @@ class EdgeRenderGeometryTest {
         return out
     }
 
+    /**
+     * The display pixels nearest each native texel's centre
+     * — the texels' effective values after the pass, as the
+     * numeric replica measures them (sim2.py's
+     * _effective_texels). The centre of a texel keeps its
+     * own colour for the edge blend (wAlong 0 there), but a
+     * patterned texel blends to its dither average there,
+     * so the centres are where the dither blend is read.
+     */
+    private fun effectiveTexels(out: Array<Rgb>, w: Int, h: Int, viewW: Int, viewH: Int): Array<Rgb> {
+        val eff = Array(w * h) { Rgb(0f, 0f, 0f) }
+        for (y in 0 until h) {
+            val jy = ((y + 0.5f) * viewH / h - 0.5f).toInt().coerceIn(0, viewH - 1)
+            for (x in 0 until w) {
+                val ix = ((x + 0.5f) * viewW / w - 0.5f).toInt().coerceIn(0, viewW - 1)
+                eff[y * w + x] = out[jy * viewW + ix]
+            }
+        }
+        return eff
+    }
+
     private fun changedPixels(a: Array<Rgb>, b: Array<Rgb>): Int {
         var n = 0
         for (i in a.indices) {
@@ -382,6 +403,71 @@ class EdgeRenderGeometryTest {
         // And the band holds intermediates, not just the 4 shades.
         val distinct = out.map { (it.r * 1000).toInt() }.toSet().size
         assertTrue("GB band must hold intermediate greys, distinct=$distinct", distinct > 4)
+    }
+
+    @Test
+    fun gbcColourCheckerboardBlendsToTheAverage() {
+        // GBC at 2x: a 2-colour checkerboard (dither in
+        // colour) blends to the average colour — the
+        // real-LCD look — not preserved as noise and not
+        // blurred into a third colour. The average is then
+        // 15-bit snapped (GBC snap15), so the tolerance
+        // allows the snap step (<= 0.016 a channel).
+        val w = 16
+        val h = 16
+        val red = Rgb(0.8f, 0.1f, 0.1f)
+        val blue = Rgb(0.1f, 0.1f, 0.8f)
+        val frame = Array(w * h) { idx ->
+            val x = idx % w
+            val y = idx / w
+            if ((x + y) % 2 == 0) red else blue
+        }
+        val params = EdgeSmoothing.edgeParamsFor(GameSystem.GBC)
+        val out = renderEdge(frame, w, h, w * 2, h * 2, params)
+        val eff = effectiveTexels(out, w, h, w * 2, h * 2)
+        val avg = Rgb(0.45f, 0.1f, 0.45f)
+        // Interior only: the 1-texel frame border is sampled
+        // clamped (GL_CLAMP_TO_EDGE), so a border texel's
+        // neighbours include itself and the checker does not
+        // fire there — the same border the flat-area check
+        // excludes. The interior is where the blend is read.
+        for (y in 1 until h - 1) {
+            for (x in 1 until w - 1) {
+                val px = eff[y * w + x]
+                assertTrue("a GBC dither texel must blend to the average colour, got $px", px.dist(avg) <= 0.03f)
+            }
+        }
+        // And the base is NOT the average: the checkerboard
+        // really is two colours before the blend.
+        val base = nearest(frame, w, h, w * 2, h * 2)
+        val baseEff = effectiveTexels(base, w, h, w * 2, h * 2)
+        assertTrue("the base checkerboard must hold two colours", baseEff.any { it.dist(red) <= 0.001f } && baseEff.any { it.dist(blue) <= 0.001f })
+    }
+
+    @Test
+    fun gbcBlendedOutputsQuantizeTo15Bit() {
+        // GBC at 2x: the diagonal blends, and every
+        // changed output pixel is 15-bit quantized (each
+        // channel k/31) — the snap15 the rework kept for
+        // GBC (GB has no snap; see
+        // gbDiagonalBlendsWithIntermediateGreys).
+        val w = 240
+        val h = 160
+        val light = Rgb(0.9f, 0.9f, 0.9f)
+        val dark = Rgb(0.1f, 0.1f, 0.1f)
+        val frame = diagonalFrame(w, h, light, dark)
+        val params = EdgeSmoothing.edgeParamsFor(GameSystem.GBC)
+        val out = renderEdge(frame, w, h, 480, 320, params)
+        val base = nearest(frame, w, h, 480, 320)
+        val changed = changedPixels(out, base)
+        assertTrue("a GBC diagonal must blend, changed=$changed", changed > 100)
+        for (i in out.indices) {
+            if (out[i].dist(base[i]) <= 0.001f) continue
+            for (c in listOf(out[i].r, out[i].g, out[i].b)) {
+                val q = floor(c * 31f + 0.5f) / 31f
+                assertTrue("a changed GBC output must be 15-bit quantized, got $c", abs(c - q) <= 0.001f)
+            }
+        }
     }
 
     @Test
