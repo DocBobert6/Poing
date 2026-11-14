@@ -81,4 +81,12 @@ class GameGlView @JvmOverloads constructor(
      * the once-a-second stats arrive.
      */
     fun drawPath(): DrawPath = renderer.lastDrawPath
+
+    /**
+     * Performance fix 5 — whether the GL thread has consumed
+     * the last frame handed to it. The emu thread reads it
+     * (through the session's frameConsumed supplier) to
+     * decide whether the next frame is worth copying.
+     */
+    fun isFrameConsumed(): Boolean = renderer.frameConsumed
 }

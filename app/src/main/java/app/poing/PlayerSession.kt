@@ -71,6 +71,14 @@ class PlayerSession(
     private val onFrame: (Bitmap) -> Unit,
     private val onStats: (PlayerStats) -> Unit,
     private val onError: (String) -> Unit,
+    // Performance fix 5 — backpressure: true when the GL
+    // thread has consumed the previous frame. The emu loop
+    // skips the copy chain while it is false (frames are
+    // dropped, not queued), unless a recording is running —
+    // the encoder needs every frame it can get. Defaults to
+    // always-true: the no-GL fallback path has no consumer
+    // to wait on, and tests construct sessions without a view.
+    private val frameConsumed: () -> Boolean = { true },
 ) {
     companion object {
         private const val TAG = "Poing"
@@ -859,7 +867,32 @@ class PlayerSession(
                 framesSinceRewindCapture = 0
                 captureRewindSnapshot()
             }
-            if (Bridge.nativeGetFrame(pixels, dims)) {
+            // Performance fix 5 — the counters measure frames
+            // the core PRODUCED (one per retro_run above), not
+            // frames handed out: after this fix a static screen
+            // skips the copy and a behind GL thread drops the
+            // frame, so counting hand-outs would read 0 fps on
+            // a title screen while the game is running fine.
+            // Before this fix produced == handed out, so the
+            // dev-stats meaning is unchanged.
+            framesDrawn++
+            statWindowFrames++
+            // Performance fix 5 — backpressure + dirty
+            // detection: nativeGetFrame returns false when the
+            // picture is unchanged (the bridge compares it
+            // against the last handed-out frame), so a static
+            // screen skips the whole copy chain below. When the
+            // GL thread has not consumed the previous frame,
+            // do not even ask the bridge — the frame would be
+            // overwritten before it is ever drawn, so the copy
+            // is pure waste; the game still advanced (retro_run
+            // above), the dropped frame is simply never shown.
+            // A running recording bypasses the consumed check:
+            // the encoder needs every frame it can get, and its
+            // timestamps are wall-clock, so a skipped duplicate
+            // only holds the previous frame longer.
+            val mayCopy = videoRecorder.isRecording || frameConsumed()
+            if (mayCopy && Bridge.nativeGetFrame(pixels, dims)) {
                 val w = dims[0]
                 val h = dims[1]
                 if (w == width && h == height) {
@@ -875,8 +908,6 @@ class PlayerSession(
                     // next frame writes the other buffer).
                     if (videoRecorder.isRecording) videoRecorder.recordFrame(frame)
                     mainHandler.post { onFrame(frame) }
-                    framesDrawn++
-                    statWindowFrames++
                 } else {
                     // Geometry changed mid-game; the spike drops the
                     // frame rather than guessing.

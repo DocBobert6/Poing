@@ -106,6 +106,16 @@ static uint32_t *g_frame = NULL; // ARGB, max SGB size (256x224)
 static int g_frame_w = 0;
 static int g_frame_h = 0;
 static volatile bool g_frame_ready = false;
+// Performance fix 5 — the last frame handed out to Kotlin, for
+// dirty detection in nativeGetFrame: when the core produces the
+// same picture twice (a static screen), the whole JNI/Bitmap/
+// texture copy chain is skipped. Allocated beside g_frame;
+// validity is forgotten on unload so the next game's first
+// frame can never falsely match the previous game's last one.
+static uint32_t *g_frame_last = NULL;
+static int g_frame_last_w = 0;
+static int g_frame_last_h = 0;
+static bool g_frame_last_valid = false;
 static pthread_mutex_t g_frame_mutex = PTHREAD_MUTEX_INITIALIZER;
 
 #define FRAME_MAX_W 256
@@ -745,6 +755,12 @@ Java_app_poing_Bridge_nativeInit(JNIEnv *env, jobject /* thiz */,
                                  sizeof(uint32_t));
     if (!g_frame)
         return JNI_FALSE;
+    // Performance fix 5 — the dirty-detection copy. A failed
+    // allocation only disables the check (frame_is_new returns
+    // true when g_frame_last is NULL), so init does not fail
+    // over it.
+    g_frame_last = (uint32_t *)calloc((size_t)FRAME_MAX_W * FRAME_MAX_H,
+                                      sizeof(uint32_t));
 
     // Seed the option table before the core reads it in retro_init.
     bridge_options_init();
@@ -812,6 +828,29 @@ Java_app_poing_Bridge_nativeRunFrame(JNIEnv * /* env */,
         retro_run();
 }
 
+// Performance fix 5 — dirty detection. True when the frame in
+// g_frame differs from the last frame handed out, and snapshots
+// it as the new last-handed-out frame. A static screen then
+// costs one memcmp — which early-outs on the first differing
+// pixel while the picture IS changing — instead of the whole
+// JNI/Bitmap/texture copy chain. Called with g_frame_mutex
+// held; both buffers are FRAME_MAX-sized, so w*h always fits.
+// When g_frame_last was never allocated, every frame is new:
+// the check is disabled, never a crash.
+static bool frame_is_new(int w, int h) {
+    if (!g_frame_last)
+        return true;
+    if (g_frame_last_valid && w == g_frame_last_w && h == g_frame_last_h &&
+        memcmp(g_frame, g_frame_last, (size_t)w * h * sizeof(uint32_t)) == 0) {
+        return false;
+    }
+    memcpy(g_frame_last, g_frame, (size_t)w * h * sizeof(uint32_t));
+    g_frame_last_w = w;
+    g_frame_last_h = h;
+    g_frame_last_valid = true;
+    return true;
+}
+
 JNIEXPORT jboolean JNICALL
 Java_app_poing_Bridge_nativeGetFrame(JNIEnv *env, jobject /* thiz */,
                                      jintArray pixels, jintArray dims) {
@@ -822,6 +861,14 @@ Java_app_poing_Bridge_nativeGetFrame(JNIEnv *env, jobject /* thiz */,
     int h = g_frame_h;
     jsize len = env->GetArrayLength(pixels);
     if (len < w * h) {
+        pthread_mutex_unlock(&g_frame_mutex);
+        return JNI_FALSE;
+    }
+    // Unchanged picture: leave g_frame_ready set (the frame is
+    // still the current one) and tell Kotlin to skip the whole
+    // copy chain — setPixels, the main-thread post, the
+    // requestRender. The display keeps showing the same pixels.
+    if (!frame_is_new(w, h)) {
         pthread_mutex_unlock(&g_frame_mutex);
         return JNI_FALSE;
     }
@@ -919,6 +966,10 @@ Java_app_poing_Bridge_nativeUnloadGame(JNIEnv * /* env */,
     g_audio_head = g_audio_tail = g_audio_count = 0;
     pthread_mutex_unlock(&g_audio_mutex);
     g_frame_ready = false;
+    // Performance fix 5 — forget the last handed-out frame with
+    // the game, so the next game's first frame can never falsely
+    // match the previous game's last one.
+    g_frame_last_valid = false;
 }
 
 // ---------------------------------------------------------------------------
@@ -1102,6 +1153,9 @@ Java_app_poing_Bridge_nativeDeinit(JNIEnv * /* env */,
     g_cam_frame_cb = NULL;
     free(g_frame);
     g_frame = NULL;
+    free(g_frame_last);
+    g_frame_last = NULL;
+    g_frame_last_valid = false;
     free(g_system_dir);
     g_system_dir = NULL;
     free(g_save_dir);

@@ -158,8 +158,25 @@ class DisplayRenderer : GLSurfaceView.Renderer {
     /** Uniform locations, cached at link time. */
     private val uniformLocs = HashMap<String, Int>()
 
+    /**
+     * Performance fix 5 — backpressure: true once the GL
+     * thread has consumed the pending frame. setFrame clears
+     * it; onDrawFrame sets it when it actually takes a
+     * pendingBitmap. The emu thread reads it through
+     * GameGlView to decide whether the next frame is worth
+     * copying at all — when the GL thread is behind, frames
+     * are dropped, not queued. Volatile: written on the main
+     * thread (setFrame) and the GL thread (onDrawFrame),
+     * read on the emu thread. Starts true so the first frame
+     * is always produced.
+     */
+    @Volatile
+    var frameConsumed: Boolean = true
+        private set
+
     fun setFrame(bitmap: Bitmap) {
         pendingBitmap = bitmap
+        frameConsumed = false
     }
 
     /**
@@ -320,6 +337,9 @@ class DisplayRenderer : GLSurfaceView.Renderer {
         val bmp = pendingBitmap
         if (bmp != null) {
             pendingBitmap = null
+            // Performance fix 5 — the pending frame is now
+            // consumed: the emu thread may produce the next one.
+            frameConsumed = true
             if (frameTextureId != 0) {
                 GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, frameTextureId)
                 if (bmp.width == uploadedW && bmp.height == uploadedH) {

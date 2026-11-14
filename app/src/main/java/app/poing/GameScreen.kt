@@ -377,6 +377,11 @@ fun GameScreen(
             },
             onStats = { stats = it; drawPath = glView?.drawPath() },
             onError = onError,
+            // Performance fix 5 — backpressure: the emu loop
+            // skips the copy chain while the GL thread has not
+            // consumed the previous frame. No GL view (the
+            // no-GL fallback path) means no consumer to wait on.
+            frameConsumed = { glView?.isFrameConsumed() ?: true },
         )
     }
 

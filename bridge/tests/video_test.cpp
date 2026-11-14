@@ -16,7 +16,19 @@
  * bridge_video; the core is NOT linked — the retro_* entry
  * points are stubbed below, and the real ra_client.c /
  * sensors.c / rcheevos sources are compiled alongside, exactly
- * as in bridge/jni/CMakeLists.txt. Run from bridge/tests/:
+ * as in bridge/jni/CMakeLists.txt.
+ *
+ * Performance fix 5 (2026-11-14) adds the dirty check to the
+ * same harness: frame_is_new() compares g_frame against the
+ * last handed-out copy and returns false for an unchanged
+ * picture, so the whole JNI/Bitmap/texture copy chain is
+ * skipped on static screens. The test drives bridge_video
+ * twice with the same picture and expects new-then-unchanged,
+ * then changes one pixel and expects new again, then changes
+ * geometry and expects new, then forgets the last frame (as
+ * nativeUnloadGame does) and expects the same picture to be
+ * new again — the next game's first frame can never falsely
+ * match the previous game's last one. Run from bridge/tests/:
  *
  *   HOSTINC=host-include
  *   INC="-I$HOSTINC -I../../src/platform/libretro -I../jni \
@@ -252,6 +264,37 @@ static void test_null_and_zero(void) {
     CHECK(g_frame_ready == false);
 }
 
+static void test_dirty_detection(void) {
+    static uint16_t src[240 * 160];
+    memset(src, 0, sizeof(src));
+    src[0] = 0xF800;
+
+    /* First frame of a game is always new. */
+    g_frame_last_valid = false;
+    bridge_video(src, 160, 144, 160 * sizeof(uint16_t));
+    CHECK(frame_is_new(g_frame_w, g_frame_h) == true);
+    /* Same picture again: not new — the copy chain is skipped. */
+    bridge_video(src, 160, 144, 160 * sizeof(uint16_t));
+    CHECK(frame_is_new(g_frame_w, g_frame_h) == false);
+    /* One pixel changes: new again, then unchanged once more. */
+    src[100] = 0x07E0;
+    bridge_video(src, 160, 144, 160 * sizeof(uint16_t));
+    CHECK(frame_is_new(g_frame_w, g_frame_h) == true);
+    bridge_video(src, 160, 144, 160 * sizeof(uint16_t));
+    CHECK(frame_is_new(g_frame_w, g_frame_h) == false);
+    /* Geometry change: new even though the pixels match. */
+    bridge_video(src, 240, 160, 240 * sizeof(uint16_t));
+    CHECK(frame_is_new(g_frame_w, g_frame_h) == true);
+    bridge_video(src, 240, 160, 240 * sizeof(uint16_t));
+    CHECK(frame_is_new(g_frame_w, g_frame_h) == false);
+    /* Unload forgets the last frame: the same picture is new
+     * again, so a new game's first frame can never falsely
+     * match the previous game's last one. */
+    g_frame_last_valid = false;
+    bridge_video(src, 160, 144, 160 * sizeof(uint16_t));
+    CHECK(frame_is_new(g_frame_w, g_frame_h) == true);
+}
+
 int main(void) {
     g_frame = (uint32_t *)calloc((size_t)FRAME_MAX_W * FRAME_MAX_H,
                                  sizeof(uint32_t));
@@ -259,14 +302,23 @@ int main(void) {
         printf("video_test: g_frame calloc failed\n");
         return EXIT_FAILURE;
     }
+    g_frame_last = (uint32_t *)calloc((size_t)FRAME_MAX_W * FRAME_MAX_H,
+                                      sizeof(uint32_t));
+    if (!g_frame_last) {
+        printf("video_test: g_frame_last calloc failed\n");
+        return EXIT_FAILURE;
+    }
 
     test_sgb_frame();
     test_old_sizes_still_pass();
     test_oversize_still_drops();
     test_null_and_zero();
+    test_dirty_detection();
 
     free(g_frame);
     g_frame = NULL;
+    free(g_frame_last);
+    g_frame_last = NULL;
 
     if (g_failures) {
         printf("video_test: %d FAILURES\n", g_failures);
