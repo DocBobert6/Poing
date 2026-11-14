@@ -84,12 +84,21 @@ class LayoutEditorTest {
         composeRule.onNodeWithTag("editor-r").assertDoesNotExist()
     }
 
+    // A and B overlap in the narrow test window (their centres
+    // sit 0.082 of the screen apart and both are 64dp wide), and
+    // B is drawn on top of A, so a drag that starts on A's
+    // centre grabs B. A-drags start on A's right strip instead:
+    // inside A, clear of B in any window.
+    private fun aDragStart(center: Offset, width: Int) =
+        center + Offset(width * 0.35f, 0f)
+
     @Test
     fun draggingAMovesBTogetherByDefault() {
         setContent()
         val bBefore = centreX("editor-b")
         composeRule.onNodeWithTag("editor-a").performTouchInput {
-            swipe(start = center, end = center + Offset(200f, 0f), durationMillis = 300)
+            val start = aDragStart(center, width)
+            swipe(start = start, end = start + Offset(200f, 0f), durationMillis = 300)
         }
         val bAfter = centreX("editor-b")
         assertTrue("B should move right with A when grouped, was $bBefore now $bAfter", bAfter > bBefore + 10f)
@@ -107,7 +116,8 @@ class LayoutEditorTest {
         composeRule.onNodeWithTag("editor-together").performClick()
         val bBefore = centreX("editor-b")
         composeRule.onNodeWithTag("editor-a").performTouchInput {
-            swipe(start = center, end = center + Offset(200f, 0f), durationMillis = 300)
+            val start = aDragStart(center, width)
+            swipe(start = start, end = start + Offset(200f, 0f), durationMillis = 300)
         }
         val bAfter = centreX("editor-b")
         assertEquals("B should not move when Together is off", bBefore, bAfter, 2f)
@@ -125,9 +135,11 @@ class LayoutEditorTest {
     fun sizeStepperChangesTheSelectedSizeOneDpAtATime() {
         setContent()
         // A drag selects the control (Mariner's model), so the
-        // size stepper appears.
+        // size stepper appears. 40px, not 20: 20px sits below
+        // touch slop and selects nothing.
         composeRule.onNodeWithTag("editor-a").performTouchInput {
-            swipe(start = center, end = center + Offset(20f, 0f), durationMillis = 300)
+            val start = aDragStart(center, width)
+            swipe(start = start, end = start + Offset(40f, 0f), durationMillis = 300)
         }
         // The stepper pill, by tag: the selected control shows
         // its size inside itself too, so a bare text lookup
@@ -156,7 +168,8 @@ class LayoutEditorTest {
         // rightward drag clamps at 0.97 after a few pixels and
         // the move is too small to assert on; left has room.
         composeRule.onNodeWithTag("editor-a").performTouchInput {
-            swipe(start = center, end = center + Offset(-200f, 0f), durationMillis = 300)
+            val start = aDragStart(center, width)
+            swipe(start = start, end = start + Offset(-200f, 0f), durationMillis = 300)
         }
         assertTrue(centreX("editor-a") < aBefore - 10f)
         composeRule.onNodeWithTag("editor-reset").performClick()
