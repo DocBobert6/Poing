@@ -450,6 +450,7 @@ object DisplayShaders {
         uniform float uGammaRow;
         uniform vec2 uTexSize;
         uniform float uDitherTol;
+        uniform float uDitherGuardHi;
         uniform float uEdgeLo;
         uniform float uEdgeHi;
         uniform float uBlendMax;
@@ -738,8 +739,46 @@ object DisplayShaders {
           // textGated: patternEff replaces the texel (see
           // the stroke-length gate above), so it must keep
           // the old protection — only the edge blend takes
-          // the gated bypass.
-          float patternEff = pattern * (1.0 - isolated) * (1.0 - text);
+          // the gated bypass. And the shade-distance guard
+          // (Task 4 item 4): the flattening only runs when
+          // the shades it would average are close enough
+          // to be one intended grey. shadeDist is the
+          // distance between those shades (ditherAvg's
+          // inputs, same priority): bayer4 -> the farthest
+          // of the 3x3 from the centre; bayer2 -> the
+          // farthest pair of the 2x2 block; stripeH ->
+          // centre to north; checker / stripeV -> centre
+          // to east. The bound is 0.7 for all three systems
+          // (uDitherGuardHi), set by the sim: GB adjacent
+          // pairs sit at 0.22-0.32 and 0-2 skips at
+          // 0.54-0.62 (real logo / frame shading — the
+          // "adjacent only" rule would leave the SML2 title
+          // logo checkerboarded), extremes at 0.84-0.93;
+          // the 0.35 first guess would stop the same logo
+          // shading from flattening, so it was rejected.
+          // Above the bound the pattern stays sharp: map
+          // trees, the TEST DRIVE letter bevel, foliage
+          // texture. A low-distance transparency mesh (the
+          // Danny Phantom fence, median 0.274) is NOT
+          // protected by any distance bound — that needs
+          // transparency detection, a later mechanism, not
+          // a distance cut.
+          float shadeDist;
+          if (bayer4 > 0.5) {
+            shadeDist = max(distance(c0, cN), distance(c0, cS));
+            shadeDist = max(shadeDist, max(distance(c0, cE), distance(c0, cW)));
+            shadeDist = max(shadeDist, max(distance(c0, cNE), distance(c0, cNW)));
+            shadeDist = max(shadeDist, max(distance(c0, cSE), distance(c0, cSW)));
+          } else if (bayer2 > 0.5) {
+            shadeDist = max(max(distance(c0, cE), distance(c0, cN)), distance(c0, cNE));
+            shadeDist = max(shadeDist, max(distance(cE, cN), distance(cE, cNE)));
+            shadeDist = max(shadeDist, distance(cN, cNE));
+          } else if (stripeH > 0.5) {
+            shadeDist = distance(c0, cN);
+          } else {
+            shadeDist = distance(c0, cE);
+          }
+          float patternEff = pattern * (1.0 - isolated) * (1.0 - text) * step(shadeDist, uDitherGuardHi);
           col = mix(col, ditherAvg, patternEff);
           // 15-bit snap-back, GBC / GBA only (uSnap15): the
           // blend's intermediates are never left as they

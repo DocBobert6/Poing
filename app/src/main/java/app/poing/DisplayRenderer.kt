@@ -424,6 +424,7 @@ class DisplayRenderer : GLSurfaceView.Renderer {
             frameH.toFloat(),
         )
         GLES20.glUniform1f(uniform(edgeProgram, "uDitherTol"), params.ditherTol)
+        GLES20.glUniform1f(uniform(edgeProgram, "uDitherGuardHi"), params.ditherGuardHi)
         GLES20.glUniform1f(uniform(edgeProgram, "uEdgeLo"), params.edgeLo)
         GLES20.glUniform1f(uniform(edgeProgram, "uEdgeHi"), params.edgeHi)
         GLES20.glUniform1f(uniform(edgeProgram, "uBlendMax"), params.blendMax)

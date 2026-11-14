@@ -300,7 +300,22 @@ class EdgeRenderGeometryTest {
         // The text bypass here is the UNGATED one, not
         // textGated: patternEff replaces the texel (see the
         // gate above), so it keeps the old protection.
-        val patternEff = pattern * (1f - isolated) * (1f - text)
+        // And the shade-distance guard (Task 4 item 4): the
+        // flattening only runs when the shades it would
+        // average are close enough to be one intended grey
+        // — same priority as ditherAvg above, same 0.7 bound
+        // for all systems (params.ditherGuardHi).
+        val shadeDist: Float = when {
+            bayer4 > 0.5f -> listOf(cN, cS, cE, cW, cNE, cNW, cSE, cSW).maxOf { c0.dist(it) }
+            bayer2 > 0.5f -> listOf(
+                c0.dist(cE), c0.dist(cN), c0.dist(cNE),
+                cE.dist(cN), cE.dist(cNE), cN.dist(cNE),
+            ).max()
+            stripeH > 0.5f -> c0.dist(cN)
+            else -> c0.dist(cE)
+        }
+        val guard = if (shadeDist <= params.ditherGuardHi) 1f else 0f
+        val patternEff = pattern * (1f - isolated) * (1f - text) * guard
         col = Rgb(
             mix(col.r, ditherAvg.r, patternEff),
             mix(col.g, ditherAvg.g, patternEff),
@@ -588,11 +603,19 @@ class EdgeRenderGeometryTest {
         val w = 16
         val h = 16
         val red = Rgb(0.8f, 0.1f, 0.1f)
-        val blue = Rgb(0.1f, 0.1f, 0.8f)
+        // Task 4 item 4: the old second colour was blue
+        // (0.1, 0.1, 0.8) — but red/blue's CORRECTED
+        // distance is 0.906, past the 0.7 guard, so the
+        // guard keeps that checkerboard sharp by design
+        // (see the extreme test below). The colour-blend
+        // mechanism is pinned on red/purple instead:
+        // corrected distance 0.393, inside the guard, and
+        // the average is a distinct third colour.
+        val purple = Rgb(0.5f, 0.1f, 0.6f)
         val frame = Array(w * h) { idx ->
             val x = idx % w
             val y = idx / w
-            if ((x + y) % 2 == 0) red else blue
+            if ((x + y) % 2 == 0) red else purple
         }
         val params = EdgeSmoothing.edgeParamsFor(GameSystem.GBC)
         val out = renderEdge(frame, w, h, w * 2, h * 2, params, 2)
@@ -601,11 +624,11 @@ class EdgeRenderGeometryTest {
         // before the dither blend), then 15-bit snapped
         // (GBC snap15) — the tolerance allows the snap step.
         val redC = colourCorrect(red, 2)
-        val blueC = colourCorrect(blue, 2)
+        val purpleC = colourCorrect(purple, 2)
         val avg = Rgb(
-            floor(((redC.r + blueC.r) * 0.5f) * 31f + 0.5f) / 31f,
-            floor(((redC.g + blueC.g) * 0.5f) * 31f + 0.5f) / 31f,
-            floor(((redC.b + blueC.b) * 0.5f) * 31f + 0.5f) / 31f,
+            floor(((redC.r + purpleC.r) * 0.5f) * 31f + 0.5f) / 31f,
+            floor(((redC.g + purpleC.g) * 0.5f) * 31f + 0.5f) / 31f,
+            floor(((redC.b + purpleC.b) * 0.5f) * 31f + 0.5f) / 31f,
         )
         // Interior only: the 1-texel frame border is sampled
         // clamped (GL_CLAMP_TO_EDGE), so a border texel's
@@ -620,10 +643,10 @@ class EdgeRenderGeometryTest {
         }
         // And the base is NOT the average: the checkerboard
         // really is two colours before the blend (the
-        // corrected red and blue).
+        // corrected red and purple).
         val base = nearestCorrected(frame, w, h, w * 2, h * 2, 2)
         val baseEff = effectiveTexels(base, w, h, w * 2, h * 2)
-        assertTrue("the base checkerboard must hold two colours", baseEff.any { it.dist(redC) <= 0.001f } && baseEff.any { it.dist(blueC) <= 0.001f })
+        assertTrue("the base checkerboard must hold two colours", baseEff.any { it.dist(redC) <= 0.001f } && baseEff.any { it.dist(purpleC) <= 0.001f })
     }
 
     @Test
@@ -899,6 +922,66 @@ class EdgeRenderGeometryTest {
                 "staircase row $ty must soften (base ${wBase}px -> blended ${wOut}px)",
                 wOut >= 3 && wBase <= 1,
             )
+        }
+    }
+
+    @Test
+    fun shadeDistanceGuardKeepsHighContrastDitherSharp() {
+        // Task 4 item 4: the dither flattening only runs
+        // when the shades it would average are close enough
+        // to be one intended grey (0.7, all systems). An
+        // extreme checkerboard (0.9 / 0.1 greys, corrected
+        // distance 0.761) stays its own colours; an
+        // adjacent-shade checkerboard (0.62 / 0.30, corrected
+        // distance 0.338) still flattens to its average.
+        // Read on the interior effective texels, as the GBC
+        // test does: the 1-texel frame border is sampled
+        // clamped, so the Sobel no longer cancels there and
+        // the edge blend fires on the border ring whatever
+        // the guard does. The sim's F1 / F1b pin the same
+        // split at the fragment level; this one pins it at
+        // display size.
+        val w = 160
+        val h = 144
+        val params = EdgeSmoothing.edgeParamsFor(GameSystem.GB)
+        val extreme = Array(w * h) { idx ->
+            val x = idx % w
+            val y = idx / w
+            if ((x + y) % 2 == 0) Rgb(0.9f, 0.9f, 0.9f) else Rgb(0.1f, 0.1f, 0.1f)
+        }
+        val outE = renderEdge(extreme, w, h, 320, 288, params, 0)
+        val baseE = nearestCorrected(extreme, w, h, 320, 288, 0)
+        val effE = effectiveTexels(outE, w, h, 320, 288)
+        val baseEffE = effectiveTexels(baseE, w, h, 320, 288)
+        for (y in 1 until h - 1) {
+            for (x in 1 until w - 1) {
+                assertTrue(
+                    "an extreme checkerboard texel must keep its own colour, got ${effE[y * w + x]}",
+                    effE[y * w + x].dist(baseEffE[y * w + x]) <= 0.001f,
+                )
+            }
+        }
+        val adjacent = Array(w * h) { idx ->
+            val x = idx % w
+            val y = idx / w
+            if ((x + y) % 2 == 0) Rgb(0.62f, 0.62f, 0.62f) else Rgb(0.30f, 0.30f, 0.30f)
+        }
+        val outA = renderEdge(adjacent, w, h, 320, 288, params, 0)
+        val effA = effectiveTexels(outA, w, h, 320, 288)
+        val hiC = colourCorrect(Rgb(0.62f, 0.62f, 0.62f), 0)
+        val loC = colourCorrect(Rgb(0.30f, 0.30f, 0.30f), 0)
+        val avg = Rgb(
+            (hiC.r + loC.r) * 0.5f,
+            (hiC.g + loC.g) * 0.5f,
+            (hiC.b + loC.b) * 0.5f,
+        )
+        for (y in 1 until h - 1) {
+            for (x in 1 until w - 1) {
+                assertTrue(
+                    "an adjacent-shade checkerboard texel must blend to the average, got ${effA[y * w + x]}",
+                    effA[y * w + x].dist(avg) <= 0.01f,
+                )
+            }
         }
     }
 

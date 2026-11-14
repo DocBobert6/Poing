@@ -155,6 +155,13 @@ data class EdgeParams(
      *  sim from the text/diagonal margins (GB 0.15,
      *  GBC 0.08, GBA 0.05). */
     val textAlign: Float,
+    /** The dither-flattening shade-distance guard: the
+     *  flattening only runs when the shades it would
+     *  average are within this distance of each other.
+     *  0.7 for all three systems, set by the sim (Task 4
+     *  item 4): GB adjacent pairs sit at 0.22-0.32 and
+     *  0-2 skips at 0.54-0.62, extremes at 0.84-0.93. */
+    val ditherGuardHi: Float,
 )
 
 /** The display actually in effect, after the exclusivity rule. */
@@ -193,9 +200,9 @@ object EdgeSmoothing {
      */
     fun edgeParamsFor(system: GameSystem): EdgeParams {
         return when (system) {
-            GameSystem.GB -> EdgeParams(0.10f, 0.05f, 0.30f, 0.60f, false, 0.15f)
-            GameSystem.GBC -> EdgeParams(0.10f, 0.05f, 0.35f, 0.65f, true, 0.08f)
-            GameSystem.GBA -> EdgeParams(0.08f, 0.06f, 0.35f, 0.70f, true, 0.05f)
+            GameSystem.GB -> EdgeParams(0.10f, 0.05f, 0.30f, 0.60f, false, 0.15f, 0.7f)
+            GameSystem.GBC -> EdgeParams(0.10f, 0.05f, 0.35f, 0.65f, true, 0.08f, 0.7f)
+            GameSystem.GBA -> EdgeParams(0.08f, 0.06f, 0.35f, 0.70f, true, 0.05f, 0.7f)
         }
     }
 }

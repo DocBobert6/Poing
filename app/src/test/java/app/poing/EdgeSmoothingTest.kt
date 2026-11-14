@@ -76,6 +76,14 @@ class EdgeSmoothingTest {
         assertEquals(0.15f, gb.textAlign, 0.001f)
         assertEquals(0.08f, gbc.textAlign, 0.001f)
         assertEquals(0.05f, gba.textAlign, 0.001f)
+        // Task 4 item 4: the dither-flattening guard is one
+        // uniform bound, 0.7 for all three systems (the sim
+        // set it from the shade-distance distributions, not
+        // per-system — GB skips sit at 0.54-0.62, extremes
+        // at 0.84-0.93, and the same 0.7 cut fits GBC/GBA).
+        assertEquals(0.7f, gb.ditherGuardHi, 0.001f)
+        assertEquals(0.7f, gbc.ditherGuardHi, 0.001f)
+        assertEquals(0.7f, gba.ditherGuardHi, 0.001f)
         assertEquals(0.30f, gb.edgeHi, 0.001f)
         assertEquals(0.35f, gbc.edgeHi, 0.001f)
         assertEquals(0.35f, gba.edgeHi, 0.001f)

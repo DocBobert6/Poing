@@ -294,10 +294,15 @@ class DisplayShadersTest {
         // offset was 0.3333 of a texel, and the target phone
         // is pOLED); (8) per-system parameters as uniforms
         // (uDitherTol, uEdgeLo, uEdgeHi, uBlendMax,
-        // uTextAlign, uSnap15).
+        // uTextAlign, uSnap15); (9) Task 4 item 4: the
+        // shade-distance guard on the dither flattening
+        // (uDitherGuardHi, 0.7 for all systems — the
+        // flattening only runs when the shades it would
+        // average are close enough to be one intended grey).
         val src = DisplayShaders.EDGE_FRAGMENT
         assertTrue(src.contains("uTexSize"))
         assertTrue(src.contains("uDitherTol"))
+        assertTrue(src.contains("uDitherGuardHi"))
         assertTrue(src.contains("uEdgeLo"))
         assertTrue(src.contains("uEdgeHi"))
         assertTrue(src.contains("uBlendMax"))
@@ -330,9 +335,13 @@ class DisplayShadersTest {
         assertTrue(src.contains("step(0.05, abs(lN - lS))"))
         // The dither blend: the average of the pattern's
         // shades, applied in pattern regions gated by the
-        // 1px and text bypasses.
+        // 1px and text bypasses — and by the Task 4 item 4
+        // shade-distance guard: only when the shades are
+        // within 0.7 of each other (uDitherGuardHi), so a
+        // high-contrast texture checkerboard stays sharp.
         assertTrue(src.contains("ditherAvg"))
-        assertTrue(src.contains("float patternEff = pattern * (1.0 - isolated) * (1.0 - text)"))
+        assertTrue(src.contains("float shadeDist;"))
+        assertTrue(src.contains("float patternEff = pattern * (1.0 - isolated) * (1.0 - text) * step(shadeDist, uDitherGuardHi)"))
         assertTrue(src.contains("col = mix(col, ditherAvg, patternEff)"))
         // 1-pixel detail and text bypass (per-system threshold).
         // Fix 3: the ratio is evaluated over the 5x5 outer
