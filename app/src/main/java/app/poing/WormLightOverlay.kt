@@ -1074,7 +1074,11 @@ fun WormLightOverlay(
                         } else {
                             handleDrag(slopChange, overSlop)
                             val completed = drag(down.id) { change ->
-                                handleDrag(change, change.positionChange())
+                                // positionChange() is an extension
+                                // the detector's own file imports;
+                                // the delta is position minus
+                                // previousPosition by definition.
+                                handleDrag(change, change.position - change.previousPosition)
                             }
                             endDrag(completed)
                         }
