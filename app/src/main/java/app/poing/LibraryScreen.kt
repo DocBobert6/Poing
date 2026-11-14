@@ -217,6 +217,14 @@ fun LibraryScreen(
             }
         }
         item(span = { GridItemSpan(maxLineSpan) }) {
+            // The Add row is its own item: it shared one item
+            // with the Licences/Settings row below, and two
+            // children in one lazy item stack at the same
+            // position — the Licences/Settings row covered the
+            // Add row, so on device the Settings, Licences and
+            // Add folder buttons looked missing (2026-11-14).
+            // The same class of bug as the shoulder tabs below,
+            // whose comment documents it.
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -230,6 +238,8 @@ fun LibraryScreen(
                     Text("Add folder")
                 }
             }
+        }
+        item(span = { GridItemSpan(maxLineSpan) }) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.Center,

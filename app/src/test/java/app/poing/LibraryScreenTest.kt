@@ -11,6 +11,7 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollToIndex
 import androidx.test.core.app.ApplicationProvider
+import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -91,11 +92,11 @@ class LibraryScreenTest {
         // The second row sits below the fold in the narrow
         // Robolectric window now that the view switch adds a row
         // to the header: scroll it into view first. Grid items
-        // are 0 top bar, 1 buttons, 2 shoulders, 3 view,
-        // 4 TETRIS, 5 POKEMON, 6 BIOS card. TETRIS is asserted
-        // before the scroll, since scrolling POKEMON in can push
-        // it out.
-        composeRule.onNodeWithTag("library-grid").performScrollToIndex(5)
+        // are 0 top bar, 1 Add row, 2 Licences/Settings,
+        // 3 shoulders, 4 view, 5 TETRIS, 6 POKEMON, 7 BIOS card.
+        // TETRIS is asserted before the scroll, since scrolling
+        // POKEMON in can push it out.
+        composeRule.onNodeWithTag("library-grid").performScrollToIndex(6)
         composeRule.onNodeWithText("POKEMON").assertIsDisplayed()
     }
 
@@ -123,6 +124,45 @@ class LibraryScreenTest {
      * and shows rows; Grid shows cover tiles instead, with the
      * same title, badge and actions.
      */
+    /**
+     * The library buttons (Robert, 2026-11-14 device photos):
+     * the Add row and the Licences/Settings row shared one
+     * lazy-grid item, so the second row covered the first and
+     * the Settings, Licences and Add folder buttons looked
+     * missing. Each row is its own item now, so the
+     * Licences/Settings row must sit strictly below the Add
+     * row — in both List and Grid view. The test that would
+     * have caught this and the shoulder bug: on the old
+     * layout both rows start at the same item top, so the
+     * Licences text sits inside the Add button's vertical
+     * span and the assertion fails.
+     */
+    @Test
+    fun licencesAndSettingsSitBelowTheAddRow() {
+        seedGame()
+        composeRule.waitForText("TETRIS")
+        assertButtonsBelowAddRow()
+        composeRule.onNodeWithTag("view-grid").performClick()
+        assertButtonsBelowAddRow()
+    }
+
+    private fun assertButtonsBelowAddRow() {
+        val addBottom = composeRule.onNodeWithText("Add game")
+            .fetchSemanticsNode().boundsInRoot.bottom
+        val licencesTop = composeRule.onNodeWithText("Licences")
+            .fetchSemanticsNode().boundsInRoot.top
+        val settingsTop = composeRule.onNodeWithText("Settings")
+            .fetchSemanticsNode().boundsInRoot.top
+        assertTrue(
+            "Licences top ($licencesTop) must sit below the Add row bottom ($addBottom)",
+            licencesTop > addBottom,
+        )
+        assertTrue(
+            "Settings top ($settingsTop) must sit below the Add row bottom ($addBottom)",
+            settingsTop > addBottom,
+        )
+    }
+
     @Test
     fun gridToggleSwitchesToGridCells() {
         seedGame()
@@ -163,9 +203,10 @@ class LibraryScreenTest {
         composeRule.onNodeWithTag("filter-state-GBC").assertExists()
         // The cell sits below the fold in the narrow Robolectric
         // window: scroll it into view first. Grid items are
-        // 0 top bar, 1 buttons, 2 shoulders, 3 view, 4 POKEMON
-        // (the only game under the GBC filter), 5 BIOS card.
-        composeRule.onNodeWithTag("library-grid").performScrollToIndex(4)
+        // 0 top bar, 1 Add row, 2 Licences/Settings, 3 shoulders,
+        // 4 view, 5 POKEMON (the only game under the GBC filter),
+        // 6 BIOS card.
+        composeRule.onNodeWithTag("library-grid").performScrollToIndex(5)
         composeRule.onNodeWithText("POKEMON").assertIsDisplayed()
         composeRule.onAllNodesWithText("TETRIS").assertCountEquals(0)
         composeRule.onAllNodesWithTag("game-grid-cell").assertCountEquals(1)
