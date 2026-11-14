@@ -31,7 +31,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.translate
-import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
@@ -128,10 +128,11 @@ fun GameScreen(
     // Overlay rework (Robert, 2026-11-13): the controls are
     // fractions of the full screen, so the overlay lives in the
     // root Box — but the Worm Light's drag head is drawn in the
-    // player area's coordinates, so the player area's top offset
-    // (the bar's height, when the bar is showing) translates it
-    // into root coordinates. Zero while playing: the bar hides.
-    var playerTopPx by remember { mutableStateOf(0f) }
+    // player area's coordinates, so the canvas translates it by
+    // the player area's top offset: the root height minus the
+    // player area's height (the bar's height, when the bar is
+    // showing). Zero while playing: the bar hides.
+    var playerHeightPx by remember { mutableStateOf(0f) }
 
     // Phase 6 (item 1) — fast-forward / slow motion. The settings
     // are snapshotted here: they can only change on the Settings
@@ -596,7 +597,7 @@ fun GameScreen(
                 modifier = Modifier
                     .weight(1f)
                     .fillMaxWidth()
-                    .onGloballyPositioned { playerTopPx = it.boundsInRoot().top }
+                    .onSizeChanged { playerHeightPx = it.height.toFloat() }
                     .testTag("player-area"),
             ) {
                 GameDisplayView(
@@ -712,7 +713,7 @@ fun GameScreen(
                     .fillMaxSize()
                     .testTag("worm-light-drag-head"),
             ) {
-                translate(top = playerTopPx) {
+                translate(top = size.height - playerHeightPx) {
                     drawWormLightHead(dragHead)
                 }
             }
