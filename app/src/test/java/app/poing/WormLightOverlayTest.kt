@@ -165,24 +165,26 @@ class WormLightOverlayTest {
         // anchored to the scope's own centre: the default
         // head sits at (0.5, 0.06) of the node, i.e. centre
         // + (0, -0.44h) — so the tap lands on the head
-        // whatever the node's root offset or measured size.
-        // The tap is a 2px swipe, not click() and not a
-        // split down()/up(): click() sends down+up with no
-        // event-time advance between them, and under
-        // Robolectric those collapse so the up never
-        // completes the gesture — the probe above stayed at
-        // 0 drag-head calls, i.e. neither end callback ever
-        // ran. A split down()/up() in separate blocks failed
-        // the same way (the clock never advanced either).
-        // swipe() advances event time between its events, so
-        // its down and up arrive as distinct events. 2px is
-        // a press with ~no movement — far below touch slop,
-        // so the gesture still ends in onDragCancel and the
-        // toggle still sees dragDistancePx (2px) under the
-        // 12dp tap max.
+        // whatever the node's root offset or measured size
+        // (centre is node-local per the API docs, so the
+        // coordinates were never the problem). The tap is
+        // down, an explicit 100ms event-time advance, then
+        // up: the docs say all events in one performTouchInput
+        // block are batched together and sent as a whole, and
+        // click() / a split down()+up() / a 2px swipe all
+        // send down and up with no event-time advance between
+        // them — under Robolectric those collapse, the up
+        // never completes the gesture, and the probe stayed
+        // at 0 drag-head calls (neither end callback ran).
+        // swipe() works because it spreads its events over a
+        // duration; the explicit advance does the same for
+        // the tap. A real tap has ~50-100ms between down and
+        // up, so this is the faithful shape, and the toggle
+        // still sees dragDistancePx 0 under the 12dp max.
         composeRule.onNodeWithTag("worm-light").performTouchInput {
-            val head = center + Offset(0f, -0.44f * size.second)
-            swipe(head, head + Offset(2f, 0f))
+            down(center + Offset(0f, -0.44f * size.second))
+            advanceEventTime(100)
+            up()
         }
         composeRule.waitForIdle()
         assertTrue(
