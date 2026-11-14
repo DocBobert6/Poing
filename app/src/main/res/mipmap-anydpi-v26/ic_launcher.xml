@@ -1,15 +1,16 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  Launcher icon — the supplied icon, cropped to the tile's true
-  bounding box (pixel scan, including the gold ornament rings:
-  x[405,1002] y[80,686] in icon/poing-icon.jpg, centre 703.5,383),
-  with even 12px margins, composed at 66% of the 108dp canvas
-  (285px of 432px) and centred on transparent padding — inside
-  the safe zone, so no launcher mask (square, circle, squircle)
-  touches the tile, the L/R shoulders, or the gold ornament. The
-  full-bleed Phase 5 version clipped the shoulders and ornament
-  under the circular mask; this is the fix. The background is
-  near-black and only shows around the tile.
+  Launcher icon — the approved wordmark (Robert, 2026-11-14):
+  "Poing!" in the app's own DotGothic16 with the gold ring,
+  from icon/poing-icon.png (the first wordmark concept rebuilt
+  with the real font). The artwork is scaled so the gold ring
+  (896px wide in the 1024 source) sits at 260px of the 432px
+  foreground — inside the 66dp safe zone of the 108dp canvas —
+  so no launcher mask (square, circle, squircle) touches the
+  ring or the text; the same scaled master feeds the legacy
+  mipmaps, so the look is consistent at every density. The
+  background is solid black, matching the artwork's own
+  background. The supplied icon/poing-icon.jpg is untouched.
 -->
 <adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
     <background android:drawable="@color/ic_launcher_background" />
