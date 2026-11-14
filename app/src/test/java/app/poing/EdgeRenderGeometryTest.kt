@@ -186,15 +186,7 @@ class EdgeRenderGeometryTest {
             lo = Rgb(min(min(c0.r, cS.r), cN.r), min(min(c0.g, cS.g), cN.g), min(min(c0.b, cS.b), cN.b))
             hi = Rgb(max(max(c0.r, cS.r), cN.r), max(max(c0.g, cS.g), cN.g), max(max(c0.b, cS.b), cN.b))
         } else {
-            var ar = mix(cW.r, cE.r, subX)
-            var ag = mix(cW.g, cE.g, subX)
-            var ab = mix(cW.b, cE.b, subX)
-            if (params.subpixel) {
-                ar = mix(cW.r, cE.r, clampF(subX + 0.3333f, 0f, 1f))
-                ag = mix(cW.g, cE.g, subX)
-                ab = mix(cW.b, cE.b, clampF(subX - 0.3333f, 0f, 1f))
-            }
-            along = Rgb(ar, ag, ab)
+            along = Rgb(mix(cW.r, cE.r, subX), mix(cW.g, cE.g, subX), mix(cW.b, cE.b, subX))
             wAlong = abs(subX - 0.5f) * 2f
             lo = Rgb(min(min(c0.r, cW.r), cE.r), min(min(c0.g, cW.g), cE.g), min(min(c0.b, cW.b), cE.b))
             hi = Rgb(max(max(c0.r, cW.r), cE.r), max(max(c0.g, cW.g), cE.g), max(max(c0.b, cW.b), cE.b))

@@ -290,23 +290,25 @@ class DisplayShadersTest {
         // every fragment sat at a texel centre and the
         // boundary weight was exactly 0), so fragments land
         // between texel centres (fract of vTex * uTexSize);
-        // (7) subpixel-aware for GBA (uSubpixel) — removed
-        // in item 3, still present here; (8) per-system
-        // parameters as uniforms (uDitherTol, uEdgeLo,
-        // uEdgeHi, uBlendMax, uTextAlign, uSnap15).
+        // (7) NO subpixel branch (uSubpixel is gone: the
+        // offset was 0.3333 of a texel, and the target phone
+        // is pOLED); (8) per-system parameters as uniforms
+        // (uDitherTol, uEdgeLo, uEdgeHi, uBlendMax,
+        // uTextAlign, uSnap15).
         val src = DisplayShaders.EDGE_FRAGMENT
         assertTrue(src.contains("uTexSize"))
         assertTrue(src.contains("uDitherTol"))
         assertTrue(src.contains("uEdgeLo"))
         assertTrue(src.contains("uEdgeHi"))
         assertTrue(src.contains("uBlendMax"))
-        assertTrue(src.contains("uSubpixel"))
         assertTrue(src.contains("uSnap15"))
         assertTrue(src.contains("uTextAlign"))
         // Deleted in the rework: the motion factor, the GB
-        // palette snap, and the scanned palette uniforms.
+        // palette snap, the scanned palette uniforms, and
+        // the subpixel branch.
         assertFalse(src.contains("uMotion"))
         assertFalse(src.contains("uSnapGb"))
+        assertFalse(src.contains("uSubpixel"))
         assertFalse(src.contains("uPal0"))
         assertFalse(src.contains("uPal1"))
         assertFalse(src.contains("uPal2"))
@@ -348,10 +350,6 @@ class DisplayShadersTest {
         assertTrue(src.contains("floor(col * 31.0 + 0.5) / 31.0"))
         assertTrue(src.contains("if (uSnap15 > 0.5)"))
         assertTrue(src.contains("col = mix(c0, snapped, max(step(0.001, w), patternEff))"))
-        // The subpixel blend only runs on the horizontal
-        // (vertical-edge) branch, GBA only — until item 3.
-        assertTrue(src.contains("mix(cW.r, cE.r, clamp(sub.x + 0.3333, 0.0, 1.0))"))
-        assertTrue(src.contains("mix(cW.b, cE.b, clamp(sub.x - 0.3333, 0.0, 1.0))"))
         // The corner test survives from HowlingDog.
         assertTrue(src.contains("float corner = step(distance(cNW, cSE), 0.1)"))
     }

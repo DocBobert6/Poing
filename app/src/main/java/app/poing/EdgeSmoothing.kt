@@ -94,15 +94,15 @@ package app.poing
  *    V-Rally 3 screenshots, 2026-11-14). The grid pass
  *    (pass 2) stays separate and still reads the native
  *    texel grid, as in the chains.
- * 8. Subpixel-aware for GBA — on a vertical edge the
- *    blend runs horizontally, and each channel blends
- *    at its own subpixel offset. REMOVED in item 3 of
- *    the rework (the offset is 0.3333 of a texel, about
- *    1.9 screen px at 5.7x; true subpixel would be about
+ * 8. Subpixel-aware for GBA — REMOVED in item 3 of the
+ *    rework (the offset was 0.3333 of a texel, about 1.9
+ *    screen px at 5.7x; true subpixel would be about
  *    0.058 texel; and the target phone is pOLED, not an
  *    RGB-stripe panel — the shader comment even cited
- *    the AGB panel, the wrong display). Until then it
- *    is still here for GBA only.
+ *    the AGB panel, the wrong display). A vertical edge
+ *    blends the same way as any other edge now, and the
+ *    sim proves it does not fringe (max |R-G| 0.0000 in
+ *    the band on a greyscale vertical edge).
  *
  * NOT YET (later items in the same rework): the
  * colour-fold (item 4 — each system's colour model
@@ -145,8 +145,6 @@ data class EdgeParams(
      *  taper's effect at under 3% on real edges, so it was
      *  dropped (see the class comment, item 4). */
     val blendMax: Float,
-    /** True for GBA only until item 3: the BGR subpixel blend on vertical edges. */
-    val subpixel: Boolean,
     /** True for GBC / GBA: quantize blended outputs to the
      *  15-bit grid. False for GB: no snap at all — on 4
      *  shades any grey is harmonious (see the class
@@ -189,17 +187,16 @@ object EdgeSmoothing {
      * keeps the same tolerance in colour with a slightly
      * stronger blend and the 15-bit snap. GBA has the most
      * colours and the thinnest outlines, so it gets the
-     * strongest blend and (until item 3) the only subpixel
-     * pass, plus the narrowest text bypass. The blend cap
+     * strongest blend, plus the narrowest text bypass. The blend cap
      * does NOT taper with display scale: the sim measured
      * the taper's effect at under 3% on real edges, so it
      * was dropped.
      */
     fun edgeParamsFor(system: GameSystem): EdgeParams {
         return when (system) {
-            GameSystem.GB -> EdgeParams(0.10f, 0.05f, 0.30f, 0.60f, false, false, 0.15f)
-            GameSystem.GBC -> EdgeParams(0.10f, 0.05f, 0.35f, 0.65f, false, true, 0.08f)
-            GameSystem.GBA -> EdgeParams(0.08f, 0.06f, 0.35f, 0.70f, true, true, 0.05f)
+            GameSystem.GB -> EdgeParams(0.10f, 0.05f, 0.30f, 0.60f, false, 0.15f)
+            GameSystem.GBC -> EdgeParams(0.10f, 0.05f, 0.35f, 0.65f, true, 0.08f)
+            GameSystem.GBA -> EdgeParams(0.08f, 0.06f, 0.35f, 0.70f, true, 0.05f)
         }
     }
 }

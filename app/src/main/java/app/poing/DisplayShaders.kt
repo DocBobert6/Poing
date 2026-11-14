@@ -417,9 +417,10 @@ object DisplayShaders {
      * history breaks the pure-function temporal-stability
      * goal). There is NO blend-cap taper. The text
      * bypass's axis-aligned threshold is per-system
-     * (uTextAlign: GB 0.15, GBC 0.08, GBA 0.05). The
-     * subpixel blend (uSubpixel, GBA only) is removed in
-     * item 3 of the rework.
+     * (uTextAlign: GB 0.15, GBC 0.08, GBA 0.05). There
+     * is NO subpixel branch — the rework removed it in
+     * item 3 (the offset was 0.3333 of a texel, and the
+     * target phone is pOLED, not an RGB-stripe panel).
      *
      * The result is very clean, sharp pixel art — NOT
      * hand-drawn vector art. It does not turn pixel art into
@@ -439,7 +440,6 @@ object DisplayShaders {
         uniform float uEdgeLo;
         uniform float uEdgeHi;
         uniform float uBlendMax;
-        uniform float uSubpixel;
         uniform float uSnap15;
         uniform float uTextAlign;
         float edgeLuma(vec3 c) {
@@ -570,13 +570,11 @@ object DisplayShaders {
           // The weight grows toward the texel boundary, so
           // the centre of a texel stays its own colour and
           // the boundary pixel is the anti-aliased mix.
-          // GBA only: on a vertical edge the blend runs
-          // horizontally, and each channel blends at its own
-          // subpixel offset — the AGB panel is BGR, blue
-          // first from the left — so a vertical edge does not
-          // fringe. (Removed in item 3 of the rework: the
-          // offset is 0.3333 of a texel, about 1.9 screen px
-          // at 5.7x, and the target phone is pOLED.)
+          // No subpixel branch: the rework removed it in
+          // item 3 (the offset was 0.3333 of a texel, about
+          // 1.9 screen px at 5.7x, and the target phone is
+          // pOLED, not an RGB-stripe panel). A vertical edge
+          // blends the same way as any other edge.
           vec2 sub = fract(vTex * uTexSize);
           float wAlong;
           vec3 along;
@@ -592,12 +590,6 @@ object DisplayShaders {
             wAlong = abs(sub.x - 0.5) * 2.0;
             lo = min(min(c0, cW), cE);
             hi = max(max(c0, cW), cE);
-            if (uSubpixel > 0.5) {
-              along = vec3(
-                mix(cW.r, cE.r, clamp(sub.x + 0.3333, 0.0, 1.0)),
-                mix(cW.g, cE.g, sub.x),
-                mix(cW.b, cE.b, clamp(sub.x - 0.3333, 0.0, 1.0)));
-            }
           }
           float edge = smoothstep(uEdgeLo, uEdgeHi, edgeStrength);
           // No motion factor: the rework deleted motion-

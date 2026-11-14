@@ -409,10 +409,6 @@ class DisplayRenderer : GLSurfaceView.Renderer {
         GLES20.glUniform1f(uniform(edgeProgram, "uEdgeHi"), params.edgeHi)
         GLES20.glUniform1f(uniform(edgeProgram, "uBlendMax"), params.blendMax)
         GLES20.glUniform1f(
-            uniform(edgeProgram, "uSubpixel"),
-            if (params.subpixel) 1f else 0f,
-        )
-        GLES20.glUniform1f(
             uniform(edgeProgram, "uSnap15"),
             if (params.snap15) 1f else 0f,
         )

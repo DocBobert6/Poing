@@ -63,8 +63,7 @@ class EdgeSmoothingTest {
         // shades any grey is harmonious), the broadest text
         // bypass (chunky 8x8). GBC: the 15-bit snap, a
         // narrower text bypass. GBA: the strongest blend,
-        // the 15-bit snap, the narrowest text bypass — and
-        // (until item 3) the only subpixel pass.
+        // the 15-bit snap, the narrowest text bypass.
         val gb = EdgeSmoothing.edgeParamsFor(GameSystem.GB)
         val gbc = EdgeSmoothing.edgeParamsFor(GameSystem.GBC)
         val gba = EdgeSmoothing.edgeParamsFor(GameSystem.GBA)
@@ -74,9 +73,6 @@ class EdgeSmoothingTest {
         assertFalse(gb.snap15)
         assertTrue(gbc.snap15)
         assertTrue(gba.snap15)
-        assertFalse(gb.subpixel)
-        assertFalse(gbc.subpixel)
-        assertTrue(gba.subpixel)
         assertEquals(0.15f, gb.textAlign, 0.001f)
         assertEquals(0.08f, gbc.textAlign, 0.001f)
         assertEquals(0.05f, gba.textAlign, 0.001f)
