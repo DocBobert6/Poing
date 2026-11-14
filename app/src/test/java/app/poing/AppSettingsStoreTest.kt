@@ -299,4 +299,33 @@ class AppSettingsStoreTest {
         File(temp.root, "app-settings.properties").writeText("library_view=banana\n")
         assertEquals(LibraryView.LIST, store().libraryView())
     }
+
+    @Test
+    fun developerUnlockDefaultsLockedAndRoundTrips() {
+        // Task 6 — the Developer section stays locked until
+        // the version footer is tapped 7 times, and the
+        // unlock survives a restart (a fresh store reads it
+        // back). Reset wipes it with the rest of the file.
+        val s = store()
+        assertFalse(s.developerUnlocked())
+        s.setDeveloperUnlocked(true)
+        assertTrue(s.developerUnlocked())
+        assertTrue(AppSettingsStore(temp.root).developerUnlocked())
+        s.reset()
+        assertFalse(AppSettingsStore(temp.root).developerUnlocked())
+    }
+
+    @Test
+    fun reconGbcDefaultsOffAndRoundTrips() {
+        // Task 6 — the GBC reconstruction is off by default
+        // (an experimental quality path, never the default),
+        // and the choice survives a restart.
+        val s = store()
+        assertFalse(s.reconGbcEnabled())
+        s.setReconGbcEnabled(true)
+        assertTrue(s.reconGbcEnabled())
+        assertTrue(AppSettingsStore(temp.root).reconGbcEnabled())
+        s.setReconGbcEnabled(false)
+        assertFalse(s.reconGbcEnabled())
+    }
 }

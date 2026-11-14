@@ -27,19 +27,29 @@ enum class DrawPath {
     EDGE,
 
     /** The edge pass + the light grid (the combined mode). */
-    EDGE_GRID;
+    EDGE_GRID,
+
+    /** Task 6 — the GBC reconstruction (Pass A + Pass B). */
+    RECON_GBC;
 
     /**
      * The token for the diagnostic line. The fallback
      * case is the point: when edge was requested but the
      * frame came out plain, the token says so outright —
      * "plain (edge fell back)" — so a silent fallback
-     * never reads as a quiet "plain".
+     * never reads as a quiet "plain". The same holds for
+     * the reconstruction: recon requested but plain
+     * delivered reads "plain (recon fell back)".
      */
-    fun displayLabel(edgeOn: Boolean): String = when (this) {
+    fun displayLabel(edgeOn: Boolean, reconOn: Boolean = false): String = when (this) {
         EDGE -> "edge"
         EDGE_GRID -> "edge+grid"
+        RECON_GBC -> "recon-gbc"
         CHAIN -> "chain"
-        PLAIN -> if (edgeOn) "plain (edge fell back)" else "plain"
+        PLAIN -> when {
+            reconOn -> "plain (recon fell back)"
+            edgeOn -> "plain (edge fell back)"
+            else -> "plain"
+        }
     }
 }

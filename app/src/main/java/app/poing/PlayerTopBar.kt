@@ -61,6 +61,10 @@ fun TopBarRow(
     // rather than a guessed one.
     drawPath: DrawPath? = null,
     edgeOn: Boolean = false,
+    // Task 6 — the same, for the reconstruction: recon
+    // requested but plain delivered reads "plain (recon
+    // fell back)".
+    reconOn: Boolean = false,
 ) {
     Row(
         modifier = Modifier
@@ -82,7 +86,7 @@ fun TopBarRow(
             )
             Spacer(Modifier.width(8.dp))
         }
-        DiagnosticLine(stats = stats, lux = lux, drawPath = drawPath, edgeOn = edgeOn, modifier = Modifier.weight(1f))
+        DiagnosticLine(stats = stats, lux = lux, drawPath = drawPath, edgeOn = edgeOn, reconOn = reconOn, modifier = Modifier.weight(1f))
         // The tag lets tests tell the bar's button apart from
         // the pause menu's own Resume button (same text, two
         // nodes when paused).
@@ -146,7 +150,7 @@ fun FloatingPlayerStatus(
  * back)"): the silent fallback, named.
  */
 @Composable
-private fun DiagnosticLine(stats: PlayerStats?, lux: Int? = null, drawPath: DrawPath? = null, edgeOn: Boolean = false, modifier: Modifier = Modifier) {
+private fun DiagnosticLine(stats: PlayerStats?, lux: Int? = null, drawPath: DrawPath? = null, edgeOn: Boolean = false, reconOn: Boolean = false, modifier: Modifier = Modifier) {
     if (stats == null) {
         Text("starting…", style = terminalTextStyle(), color = Color.White, modifier = modifier)
         return
@@ -163,7 +167,7 @@ private fun DiagnosticLine(stats: PlayerStats?, lux: Int? = null, drawPath: Draw
             withStyle(SpanStyle(fontFamily = Vt323)) { append(" frames") }
             if (drawPath != null) {
                 withStyle(SpanStyle(fontFamily = Vt323)) { append(" ") }
-                withStyle(SpanStyle(fontFamily = Vt323)) { append(drawPath.displayLabel(edgeOn)) }
+                withStyle(SpanStyle(fontFamily = Vt323)) { append(drawPath.displayLabel(edgeOn, reconOn)) }
             }
             if (lux != null) {
                 withStyle(SpanStyle(fontFamily = Vt323)) { append(" ") }

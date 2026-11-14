@@ -41,6 +41,8 @@ class AppSettingsStore(private val root: File) {
         const val KEY_DEV_STATS = "dev_stats_visible"
         const val KEY_LIBRARY_VIEW = "library_view"
         const val KEY_COVER_ART_MOBILE_DATA = "cover_art_mobile_data"
+        const val KEY_DEVELOPER_UNLOCKED = "developer_unlocked"
+        const val KEY_RECON_GBC = "recon_gbc"
         const val DEFAULT_FF_SPEED = 2
         val FF_SPEEDS = setOf(2, 3, 4)
     }
@@ -167,6 +169,29 @@ class AppSettingsStore(private val root: File) {
     fun coverArtMobileDataAllowed(): Boolean = readBoolean(KEY_COVER_ART_MOBILE_DATA, false)
     fun setCoverArtMobileDataAllowed(allowed: Boolean) =
         write(KEY_COVER_ART_MOBILE_DATA, allowed.toString())
+
+    /**
+     * Task 6 (2026-11-14) — the hidden Developer section:
+     * unlocked by tapping the version footer 7 times. Off
+     * by default (locked) — the section is not straight up
+     * out in the open. Reset wipes the unlock with the
+     * rest of the file, so the section hides again until
+     * it is tapped open.
+     */
+    fun developerUnlocked(): Boolean = readBoolean(KEY_DEVELOPER_UNLOCKED, false)
+    fun setDeveloperUnlocked(unlocked: Boolean) =
+        write(KEY_DEVELOPER_UNLOCKED, unlocked.toString())
+
+    /**
+     * Task 6 — GBC colour reconstruction (the DLSS-in-spirit
+     * quality path): off by default, and only in effect for
+     * GBC games while on. It replaces edge smoothing and
+     * the display chain while on (see EdgeSmoothing.resolve).
+     * The GB / GBA toggles arrive with their engines in
+     * Tasks 5 / 7.
+     */
+    fun reconGbcEnabled(): Boolean = readBoolean(KEY_RECON_GBC, false)
+    fun setReconGbcEnabled(enabled: Boolean) = write(KEY_RECON_GBC, enabled.toString())
 
     /**
      * Phase 8 — whether a chain is on. Clean is never gated

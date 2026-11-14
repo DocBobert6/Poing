@@ -72,6 +72,21 @@ class DisplayRenderer : GLSurfaceView.Renderer {
     private var edgeSystem: GameSystem = GameSystem.GB
 
     /**
+     * Task 6 (2026-11-14) — DLSS-in-spirit reconstruction:
+     * the mode in effect, and the system it reconstructs
+     * for. Recon on means the chain and the edge mode are
+     * off — the caller resolves that (see
+     * EdgeSmoothing.resolve); this renderer only draws
+     * what it is told. Task 6 is GBC only; GB / GBA get
+     * their modes in Tasks 5 / 7.
+     */
+    @Volatile
+    private var reconMode: ReconMode = ReconMode.OFF
+
+    @Volatile
+    private var reconSystem: GameSystem = GameSystem.GBC
+
+    /**
      * Edge smoothing, item 5 (2026-11-14) — the dev-stats
      * readout: which program actually drew the last frame.
      * Written on the GL thread at each draw decision (the
@@ -110,10 +125,26 @@ class DisplayRenderer : GLSurfaceView.Renderer {
     private var gridProgram = 0
     private var edgeProgram = 0
     private var plainProgram = 0
+    private var reconA1Program = 0
+    private var reconA2Program = 0
+    private var reconBProgram = 0
     private var frameTextureId = 0
     private var fboTextureId = 0
     private var gammaLutTextureId = 0
     private var fboId = 0
+    /**
+     * Task 6 — the reconstruction's own framebuffer and
+     * its two textures (A1 -> texA, A2 -> texB, B reads
+     * texB). Separate from the chain / edge FBO on
+     * purpose: the recon path attaches its own textures,
+     * so it can never leave the shared FBO pointing at
+     * the wrong texture for the next chain or edge draw.
+     */
+    private var reconFboId = 0
+    private var reconTexAId = 0
+    private var reconTexBId = 0
+    private var reconW = 0
+    private var reconH = 0
     private var quadVbo = 0
     private var viewW = 0
     private var viewH = 0
@@ -145,6 +176,7 @@ class DisplayRenderer : GLSurfaceView.Renderer {
         jadeMode: JadeMode,
         edge: EdgeMode,
         system: GameSystem,
+        recon: ReconMode = ReconMode.OFF,
     ) {
         this.chain = when (chain) {
             DisplayChain.JADE -> DisplayChain.JADE
@@ -155,6 +187,8 @@ class DisplayRenderer : GLSurfaceView.Renderer {
         this.jadeMode = jadeMode
         this.edgeMode = edge
         this.edgeSystem = system
+        this.reconMode = recon
+        this.reconSystem = system
     }
 
     /**
@@ -210,6 +244,24 @@ class DisplayRenderer : GLSurfaceView.Renderer {
             Log.e(TAG, "Edge program failed to compile; edge smoothing falls back to plain")
         }
         plainProgram = buildProgram(DisplayShaders.VERTEX, DisplayShaders.PLAIN_FRAGMENT)
+        // Task 6 — the reconstruction programs: A1 (the
+        // 3x3 detectors + corrected colour + pattern map),
+        // A2 (the 5x5 field + class + collapse), B (the
+        // line reconstruction at display size). A failed
+        // program falls back to plain, so the game stays
+        // visible.
+        reconA1Program = buildProgram(DisplayShaders.VERTEX, DisplayShaders.RECON_A1_FRAGMENT)
+        if (reconA1Program == 0) {
+            Log.e(TAG, "Recon A1 program failed to compile; reconstruction falls back to plain")
+        }
+        reconA2Program = buildProgram(DisplayShaders.VERTEX, DisplayShaders.RECON_A2_FRAGMENT)
+        if (reconA2Program == 0) {
+            Log.e(TAG, "Recon A2 program failed to compile; reconstruction falls back to plain")
+        }
+        reconBProgram = buildProgram(DisplayShaders.VERTEX, DisplayShaders.RECON_B_FRAGMENT)
+        if (reconBProgram == 0) {
+            Log.e(TAG, "Recon B program failed to compile; reconstruction falls back to plain")
+        }
         val frameTex = IntArray(1)
         GLES20.glGenTextures(1, frameTex, 0)
         frameTextureId = frameTex[0]
@@ -231,11 +283,28 @@ class DisplayRenderer : GLSurfaceView.Renderer {
         val fbo = IntArray(1)
         GLES20.glGenFramebuffers(1, fbo, 0)
         fboId = fbo[0]
+        // Task 6 — the reconstruction's own framebuffer
+        // and its two ping-pong textures (A1 -> texA,
+        // A2 -> texB). Created here (and re-created if the
+        // EGL context is ever lost) so the data is never
+        // stale; storage is allocated on first use, at the
+        // frame's native size (see ensureReconTex).
+        val reconFbo = IntArray(1)
+        GLES20.glGenFramebuffers(1, reconFbo, 0)
+        reconFboId = reconFbo[0]
+        val reconTex = IntArray(2)
+        GLES20.glGenTextures(2, reconTex, 0)
+        reconTexAId = reconTex[0]
+        setupTexture(reconTexAId)
+        reconTexBId = reconTex[1]
+        setupTexture(reconTexBId)
         quadVbo = buildQuad()
         uploadedW = 0
         uploadedH = 0
         fboW = 0
         fboH = 0
+        reconW = 0
+        reconH = 0
         frameW = 0
         frameH = 0
     }
@@ -267,6 +336,18 @@ class DisplayRenderer : GLSurfaceView.Renderer {
             }
         }
         if (frameTextureId == 0 || frameW <= 0 || viewW <= 0 || viewH <= 0) return
+        // Task 6 — reconstruction wins over the edge mode
+        // and the chain (the caller resolves that); a
+        // failed recon program falls back to plain, so the
+        // game stays visible.
+        if (reconMode != ReconMode.OFF) {
+            if (reconA1Program != 0 && reconA2Program != 0 && reconBProgram != 0) {
+                drawRecon()
+            } else {
+                drawPlain()
+            }
+            return
+        }
         // Phase 9 — edge smoothing wins over the chain (the
         // caller resolves that); a failed edge program falls
         // back to plain, so the game stays visible.
@@ -376,6 +457,173 @@ class DisplayRenderer : GLSurfaceView.Renderer {
         GLES20.glUniform2f(uniform(prog, "uWlRadii"), wormLight.radii.x, wormLight.radii.y)
         GLES20.glUniform1f(uniform(prog, "uWlRot"), wormLight.rotationRad)
         GLES20.glUniform1f(uniform(prog, "uWlIntensity"), wormLight.intensity)
+    }
+
+    /**
+     * Task 6 — GBC colour reconstruction, three passes.
+     * Pass A1 runs the 3x3 detectors + colour-fold at the
+     * native size into texA (RGB the corrected colour, A
+     * the pattern map). Pass A2 runs the 5x5 field + class
+     * + collapse at the native size into texB (RGB the
+     * collapsed / corrected colour, A the class / 4.0).
+     * Pass B runs the line reconstruction at the DISPLAY
+     * size to the screen — the same reason the edge pass
+     * runs at display size (the Phase 9 no-op lesson): at
+     * the native size every fragment would sit at a texel
+     * centre and the sub-texel line position would be
+     * exactly 0. A failed framebuffer falls back to plain,
+     * so the game stays visible. The Worm Light's pool
+     * rides on Pass B (it draws to the screen); there are
+     * no optics here, following the edge precedent.
+     */
+    private fun drawRecon() {
+        if (!ensureReconTex(frameW, frameH)) {
+            drawPlain()
+            return
+        }
+        val displayScale = minOf(
+            viewW.toFloat() / frameW,
+            viewH.toFloat() / frameH,
+        )
+        val params = EdgeSmoothing.edgeParamsFor(reconSystem)
+        // Pass A1 — detectors + colour-fold, native size,
+        // into texA. The source is the frame Bitmap, so V
+        // stays unflipped (uFlipV 0).
+        GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, reconFboId)
+        GLES20.glFramebufferTexture2D(
+            GLES20.GL_FRAMEBUFFER, GLES20.GL_COLOR_ATTACHMENT0,
+            GLES20.GL_TEXTURE_2D, reconTexAId, 0,
+        )
+        GLES20.glViewport(0, 0, frameW, frameH)
+        GLES20.glUseProgram(reconA1Program)
+        GLES20.glUniform1f(uniform(reconA1Program, "uFlipV"), 0f)
+        GLES20.glUniform1i(uniform(reconA1Program, "uTex"), 0)
+        GLES20.glUniform2f(
+            uniform(reconA1Program, "uTexSize"),
+            frameW.toFloat(),
+            frameH.toFloat(),
+        )
+        GLES20.glUniform1f(uniform(reconA1Program, "uDitherTol"), params.ditherTol)
+        // GBC is mode 2 (Prism), LUT row 0 — Task 6 is GBC
+        // only; GB / GBA get their modes in Tasks 5 / 7.
+        // The LUT is already uploaded on unit 1 for the
+        // chains, as in the edge pass.
+        GLES20.glUniform1i(uniform(reconA1Program, "uMode"), 2)
+        if (gammaLutTextureId != 0) {
+            GLES20.glActiveTexture(GLES20.GL_TEXTURE1)
+            GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, gammaLutTextureId)
+            GLES20.glUniform1i(uniform(reconA1Program, "uGammaLut"), 1)
+            GLES20.glUniform1f(uniform(reconA1Program, "uGammaRow"), 0f)
+        }
+        GLES20.glActiveTexture(GLES20.GL_TEXTURE0)
+        GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, frameTextureId)
+        drawQuad(reconA1Program)
+        // Pass A2 — field + class + collapse, native size,
+        // into texB. Reads texA (unit 0) and the raw frame
+        // (unit 1, for the text ring's raw luma).
+        GLES20.glFramebufferTexture2D(
+            GLES20.GL_FRAMEBUFFER, GLES20.GL_COLOR_ATTACHMENT0,
+            GLES20.GL_TEXTURE_2D, reconTexBId, 0,
+        )
+        GLES20.glViewport(0, 0, frameW, frameH)
+        GLES20.glUseProgram(reconA2Program)
+        GLES20.glUniform1f(uniform(reconA2Program, "uFlipV"), 0f)
+        GLES20.glUniform1i(uniform(reconA2Program, "uTex"), 0)
+        GLES20.glUniform1i(uniform(reconA2Program, "uRawTex"), 1)
+        GLES20.glUniform2f(
+            uniform(reconA2Program, "uTexSize"),
+            frameW.toFloat(),
+            frameH.toFloat(),
+        )
+        GLES20.glUniform1f(uniform(reconA2Program, "uDitherTol"), params.ditherTol)
+        GLES20.glUniform1f(uniform(reconA2Program, "uDitherGuardHi"), params.ditherGuardHi)
+        GLES20.glUniform1f(uniform(reconA2Program, "uTextAlign"), params.textAlign)
+        GLES20.glUniform1f(uniform(reconA2Program, "uEdgeLo"), params.edgeLo)
+        GLES20.glActiveTexture(GLES20.GL_TEXTURE0)
+        GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, reconTexAId)
+        GLES20.glActiveTexture(GLES20.GL_TEXTURE1)
+        GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, frameTextureId)
+        drawQuad(reconA2Program)
+        // Pass B — the line reconstruction, display size,
+        // to the screen. The source is texB (a framebuffer
+        // texture), so V flips (uFlipV 1), as in the chain's
+        // grid pass and the edge pass's blit.
+        GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, 0)
+        GLES20.glViewport(0, 0, viewW, viewH)
+        GLES20.glUseProgram(reconBProgram)
+        GLES20.glUniform1f(uniform(reconBProgram, "uFlipV"), 1f)
+        GLES20.glUniform1i(uniform(reconBProgram, "uTex"), 0)
+        GLES20.glUniform2f(
+            uniform(reconBProgram, "uTexSize"),
+            frameW.toFloat(),
+            frameH.toFloat(),
+        )
+        GLES20.glUniform1f(uniform(reconBProgram, "uDisplayScale"), displayScale)
+        GLES20.glUniform1f(
+            uniform(reconBProgram, "uSnap15"),
+            if (params.snap15) 1f else 0f,
+        )
+        // Worm Light realism: the pool rides on the recon
+        // pass too, so the lamp works on the reconstruction
+        // — with the FBO flip, like the plain program. No
+        // optics here, following the edge precedent.
+        GLES20.glUniform1f(uniform(reconBProgram, "uWlFlip"), 1f)
+        setWormLightUniforms(reconBProgram)
+        GLES20.glActiveTexture(GLES20.GL_TEXTURE0)
+        GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, reconTexBId)
+        drawQuad(reconBProgram)
+        // The dev-stats readout: the reconstruction drew.
+        lastDrawPath = DrawPath.RECON_GBC
+    }
+
+    /**
+     * Task 6 — the reconstruction's two textures at the
+     * frame's native size, rebuilt only when the size
+     * changes. False when the framebuffer is incomplete —
+     * the caller falls back to plain instead of drawing
+     * into it.
+     */
+    private fun ensureReconTex(w: Int, h: Int): Boolean {
+        if (w == reconW && h == reconH) return true
+        // GL_NEAREST on both: A2 reads A1's class channel (alpha) as a code, and B
+        // reads B's class channel the same way — linear filtering would blend the
+        // codes across texels and decode the wrong class. A fresh texture's default
+        // min filter is NEAREST_MIPMAP_LINEAR, which without mipmaps makes the
+        // texture incomplete (samples as black), so the parameters are mandatory.
+        GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, reconTexAId)
+        GLES20.glTexImage2D(
+            GLES20.GL_TEXTURE_2D, 0, GLES20.GL_RGBA, w, h, 0,
+            GLES20.GL_RGBA, GLES20.GL_UNSIGNED_BYTE, null,
+        )
+        GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_MIN_FILTER, GLES20.GL_NEAREST)
+        GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_MAG_FILTER, GLES20.GL_NEAREST)
+        GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_WRAP_S, GLES20.GL_CLAMP_TO_EDGE)
+        GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_WRAP_T, GLES20.GL_CLAMP_TO_EDGE)
+        GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, reconTexBId)
+        GLES20.glTexImage2D(
+            GLES20.GL_TEXTURE_2D, 0, GLES20.GL_RGBA, w, h, 0,
+            GLES20.GL_RGBA, GLES20.GL_UNSIGNED_BYTE, null,
+        )
+        GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_MIN_FILTER, GLES20.GL_NEAREST)
+        GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_MAG_FILTER, GLES20.GL_NEAREST)
+        GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_WRAP_S, GLES20.GL_CLAMP_TO_EDGE)
+        GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_WRAP_T, GLES20.GL_CLAMP_TO_EDGE)
+        GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, reconFboId)
+        GLES20.glFramebufferTexture2D(
+            GLES20.GL_FRAMEBUFFER, GLES20.GL_COLOR_ATTACHMENT0,
+            GLES20.GL_TEXTURE_2D, reconTexAId, 0,
+        )
+        val status = GLES20.glCheckFramebufferStatus(GLES20.GL_FRAMEBUFFER)
+        GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, 0)
+        if (status != GLES20.GL_FRAMEBUFFER_COMPLETE) {
+            Log.e(TAG, "Recon framebuffer incomplete: $status; reconstruction falls back to plain")
+            reconW = 0
+            reconH = 0
+            return false
+        }
+        reconW = w
+        reconH = h
+        return true
     }
 
     /**

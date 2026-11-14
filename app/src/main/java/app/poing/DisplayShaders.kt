@@ -799,6 +799,524 @@ object DisplayShaders {
     """
 
     /**
+     * Task 6 (2026-11-14) — DLSS-in-spirit reconstruction,
+     * GBC colour reconstruction. Two passes at source
+     * resolution (Pass A) and one at display size (Pass B),
+     * proven in the numeric replica sim8.py
+     * (~/workspace/poing/verify/edge-rework/sim8.py, 42/42
+     * — synthetic GBC frames + the real TD6 GBC frames; no
+     * Gold / Silver device frames exist, so the sim proof
+     * is synthetic + TD6, stated plainly, not presented as
+     * device frames).
+     *
+     * Pass A is split in two programs for one reason: a
+     * single-pass Pass A needs the pattern at all 25 texels
+     * of the 5x5 window, and each pattern value needs its
+     * own 3x3 — a 7x7 corrected-colour window, 49
+     * colourCorrect calls (each 3 LUT reads for GBC) plus
+     * 25 pattern evaluations in one fragment shader. That
+     * risks driver register pressure on the phone, and the
+     * failure mode is the whole feature silently falling
+     * back to plain. Two cheap sub-passes compute the
+     * IDENTICAL math (the sim's recon_passA_np, split at
+     * its own seam): A1 classifies the 3x3 and writes the
+     * corrected colour + the pattern map; A2 reads A1 and
+     * does the 5x5 field, the class and the collapse. The
+     * only difference from the sim is the 8-bit round trip
+     * through A1's RGBA FBO (corrected colours quantize to
+     * ~0.002 a channel — far inside every detector
+     * tolerance; the class channel is exact: 0 / 64 / 128
+     * / 192 / 255).
+     *
+     * The class channel: 0 flat, 1 edge, 2 dither, 3 text,
+     * 4 1px — written as cls / 4.0, read back as
+     * floor(alpha * 4.0 + 0.5). NEAREST filtering
+     * preserves the classes through the RGBA FBO.
+     *
+     * Two sim-driven refinements, recorded here so the
+     * design text is not misread: (1) Pass A uses the
+     * UNGATED text bypass for the class and the collapse
+     * gate — the stroke-length gate belongs to the edge
+     * blend, which Pass B replaces with line
+     * reconstruction; a glyph texel the gate un-bypasses
+     * would be line-reconstructed as an edge and soften
+     * (sim R6: synthetic text contrast kept 1.000 with
+     * ungated text). (2) The 6-direction vote for the edge
+     * angle was designed, built in the sim, and DISPROVEN
+     * there (errors 13.3 / 90.0 / 39.9 degrees on 45 / 1:2
+     * / 1:3 — on a clean staircase every direction's
+     * along-variance ties, so the vote has no preferred
+     * direction); Pass B estimates the angle from the 5x5
+     * Sobel gradient instead (0.0 / 2.4 / 2.1 degrees on
+     * the same diagonals), and the interpolation itself is
+     * directional along the gradient-derived normal. The
+     * six directions are not used for the angle.
+     *
+     * No frame history, no ML, no Vulkan, off by default,
+     * never the default. Reconstruction replaces edge
+     * smoothing AND the chains while on (see
+     * EdgeSmoothing.resolve) — never stacked.
+     */
+    const val RECON_A1_FRAGMENT = """
+        precision mediump float;
+        varying vec2 vTex;
+        uniform sampler2D uTex;
+        uniform sampler2D uGammaLut;
+        uniform int uMode;
+        uniform float uGammaRow;
+        uniform vec2 uTexSize;
+        uniform float uDitherTol;
+        float edgeLuma(vec3 c) {
+          return dot(c, vec3(0.299, 0.587, 0.114));
+        }
+        // The colour-fold, copied verbatim from
+        // EDGE_FRAGMENT (same text, same modes): the
+        // corrected colours are what the detectors run on,
+        // so a dither's intended colour is the average of
+        // the corrected shades. GBC is mode 2 (Prism: the
+        // SameBoy ramp, LUT row 0, then the mGBA matrix
+        // x0.94). Task 6 is GBC only; GB / GBA get their
+        // modes (and toggles) in Tasks 5 / 7.
+        vec3 colourCorrect(vec3 col) {
+          if (uMode == 0) {
+            float luma = dot(col, vec3(0.299, 0.587, 0.114));
+            vec3 s0 = vec3(0.094, 0.161, 0.129);
+            vec3 s1 = vec3(0.290, 0.388, 0.322);
+            vec3 s2 = vec3(0.518, 0.612, 0.518);
+            vec3 s3 = vec3(0.647, 0.710, 0.647);
+            vec3 c01 = mix(s0, s1, clamp(luma / 0.322, 0.0, 1.0));
+            vec3 c12 = mix(s1, s2, clamp((luma - 0.322) / 0.356, 0.0, 1.0));
+            vec3 c23 = mix(s2, s3, clamp((luma - 0.678) / 0.322, 0.0, 1.0));
+            return mix(mix(c01, c12, step(0.322, luma)), c23, step(0.678, luma));
+          } else if (uMode == 2 || uMode == 3) {
+            float ri = min(floor(col.r * 32.0), 31.0);
+            float gi = min(floor(col.g * 32.0), 31.0);
+            float bi = min(floor(col.b * 32.0), 31.0);
+            float vr = (uGammaRow + 0.5) / 2.0;
+            vec3 ramp = vec3(
+              texture2D(uGammaLut, vec2((ri + 0.5) / 32.0, vr)).r,
+              texture2D(uGammaLut, vec2((gi + 0.5) / 32.0, vr)).r,
+              texture2D(uGammaLut, vec2((bi + 0.5) / 32.0, vr)).r);
+            vec3 lin = pow(ramp, vec3(2.2));
+            vec3 m;
+            m.r = 0.94 * (0.82 * lin.r + 0.24 * lin.g - 0.06 * lin.b);
+            m.g = 0.94 * (0.125 * lin.r + 0.665 * lin.g + 0.21 * lin.b);
+            m.b = 0.94 * (0.195 * lin.r + 0.075 * lin.g + 0.73 * lin.b);
+            vec3 outCol = pow(max(m, vec3(0.0)), vec3(1.0 / 2.2));
+            return clamp(outCol, vec3(0.0), vec3(1.0));
+          }
+          return col;
+        }
+        void main() {
+          vec2 texel = vec2(1.0 / uTexSize.x, 1.0 / uTexSize.y);
+          vec3 c0 = colourCorrect(texture2D(uTex, vTex).rgb);
+          vec3 cN = colourCorrect(texture2D(uTex, vTex + vec2(0.0, texel.y)).rgb);
+          vec3 cS = colourCorrect(texture2D(uTex, vTex - vec2(0.0, texel.y)).rgb);
+          vec3 cE = colourCorrect(texture2D(uTex, vTex + vec2(texel.x, 0.0)).rgb);
+          vec3 cW = colourCorrect(texture2D(uTex, vTex - vec2(texel.x, 0.0)).rgb);
+          vec3 cNE = colourCorrect(texture2D(uTex, vTex + vec2(texel.x, texel.y)).rgb);
+          vec3 cNW = colourCorrect(texture2D(uTex, vTex + vec2(-texel.x, texel.y)).rgb);
+          vec3 cSE = colourCorrect(texture2D(uTex, vTex + vec2(texel.x, -texel.y)).rgb);
+          vec3 cSW = colourCorrect(texture2D(uTex, vTex + vec2(-texel.x, -texel.y)).rgb);
+          float tol = uDitherTol;
+          // The five pattern detectors, verbatim from
+          // EDGE_FRAGMENT: checker (the diagonal must
+          // actually match), stripes, Bayer 2x2, Bayer 4x4
+          // proxy (opposite sides differ). A2 reads this
+          // map back as the field, so this pass outputs
+          // the pattern, not a blend.
+          float dDiag = distance(c0, cSE);
+          float dE = distance(c0, cE);
+          float dS = distance(c0, cS);
+          float checker = step(dDiag, tol) * step(tol, dE) * step(tol, dS);
+          float stripeV = step(distance(c0, cN) + distance(c0, cS), tol) * step(tol, distance(c0, cE)) * step(tol, distance(c0, cW));
+          float stripeH = step(distance(c0, cE) + distance(c0, cW), tol) * step(tol, distance(c0, cN)) * step(tol, distance(c0, cS));
+          float bayer2 = step(distance(cE, cW), tol) * step(distance(cN, cS), tol) * step(distance(cNE, cSE), tol) * step(distance(cNE, cNW), tol) * step(tol, distance(c0, cE)) * step(tol, distance(c0, cN)) * step(tol, distance(cE, cN));
+          float l0 = edgeLuma(c0);
+          float lN = edgeLuma(cN);
+          float lS = edgeLuma(cS);
+          float lE = edgeLuma(cE);
+          float lW = edgeLuma(cW);
+          float bayer4 = step(0.0, (lE - l0) * (lW - l0)) * step(0.0, (lN - l0) * (lS - l0)) * step(0.03, abs(lE - l0)) * step(0.03, abs(lW - l0)) * step(0.03, abs(lN - l0)) * step(0.03, abs(lS - l0)) * step(0.05, abs(lE - lW)) * step(0.05, abs(lN - lS));
+          float pattern = max(max(checker, max(stripeV, stripeH)), max(bayer2, bayer4));
+          gl_FragColor = vec4(c0, pattern);
+        }
+    """
+
+    /**
+     * Pass A, second half — the 5x5 field, the class and
+     * the collapse, at source resolution. Reads A1's
+     * output (uTex: RGB the corrected colour, A the
+     * pattern) and the raw frame (uRawTex: the text ring
+     * needs RAW luma — direction is a property of the
+     * source art, not the colour model, same as the edge
+     * pass). The sim's recon_passA_np, split at its own
+     * seam: the field is the pattern map averaged over the
+     * 5x5 window, the class priority is edge, then dither
+     * (any pattern texel, or a texel inside a dither field
+     * — field >= 0.3 — even when the guard blocks the
+     * collapse, so a high-contrast dither texel is never
+     * line-reconstructed as an edge), then text (UNGATED),
+     * then 1px. RGB is the field mean where the field test
+     * passes, else the 3x3 dither average where a pattern
+     * texel passes the guard, else the centre's corrected
+     * colour. The collapse is gated by the UNGATED text
+     * bypass and the 1px test, exactly like the edge
+     * pass's patternEff — a glyph texel that happens to
+     * look like a pattern texel keeps its own colour.
+     *
+     * The sim zeroes the 2-texel border of the collapse
+     * masks (its np.roll windows WRAP at the frame edge);
+     * this shader does not — the texture clamps
+     * (CLAMP_TO_EDGE), so a border texel's window repeats
+     * the edge texel, which is the correct boundary
+     * condition, not a wrap.
+     */
+    const val RECON_A2_FRAGMENT = """
+        precision mediump float;
+        varying vec2 vTex;
+        uniform sampler2D uTex;
+        uniform sampler2D uRawTex;
+        uniform vec2 uTexSize;
+        uniform float uDitherTol;
+        uniform float uDitherGuardHi;
+        uniform float uTextAlign;
+        uniform float uEdgeLo;
+        float edgeLuma(vec3 c) {
+          return dot(c, vec3(0.299, 0.587, 0.114));
+        }
+        void main() {
+          vec2 texel = vec2(1.0 / uTexSize.x, 1.0 / uTexSize.y);
+          vec4 v0 = texture2D(uTex, vTex);
+          vec4 vN = texture2D(uTex, vTex + vec2(0.0, texel.y));
+          vec4 vS = texture2D(uTex, vTex - vec2(0.0, texel.y));
+          vec4 vE = texture2D(uTex, vTex + vec2(texel.x, 0.0));
+          vec4 vW = texture2D(uTex, vTex - vec2(texel.x, 0.0));
+          vec4 vNE = texture2D(uTex, vTex + vec2(texel.x, texel.y));
+          vec4 vNW = texture2D(uTex, vTex + vec2(-texel.x, texel.y));
+          vec4 vSE = texture2D(uTex, vTex + vec2(texel.x, -texel.y));
+          vec4 vSW = texture2D(uTex, vTex + vec2(-texel.x, -texel.y));
+          vec3 c0 = v0.rgb;
+          vec3 cN = vN.rgb;
+          vec3 cS = vS.rgb;
+          vec3 cE = vE.rgb;
+          vec3 cW = vW.rgb;
+          vec3 cNE = vNE.rgb;
+          vec3 cNW = vNW.rgb;
+          vec3 cSE = vSE.rgb;
+          vec3 cSW = vSW.rgb;
+          float pattern = v0.a;
+          // The 5x5 field: the pattern map averaged over
+          // the window, and the 5x5 mean of the corrected
+          // colours — the field's intended colour, tracking
+          // the local dither ratio, so a gradient dither
+          // collapses to its local level, not a global
+          // 50/50.
+          float field = 0.0;
+          vec3 mean5 = vec3(0.0);
+          for (int j = -2; j <= 2; j++) {
+            for (int i = -2; i <= 2; i++) {
+              vec4 s = texture2D(uTex, vTex + vec2(float(i), float(j)) * texel);
+              field += s.a;
+              mean5 += s.rgb;
+            }
+          }
+          field /= 25.0;
+          mean5 /= 25.0;
+          float tol = uDitherTol;
+          // The centre's detectors, recomputed from A1's
+          // already-corrected colours (same formulas as
+          // the edge pass — the priority and the shade
+          // distance both need the individual detectors,
+          // which the pattern flag alone does not carry).
+          float dDiag = distance(c0, cSE);
+          float dE = distance(c0, cE);
+          float dS = distance(c0, cS);
+          float checker = step(dDiag, tol) * step(tol, dE) * step(tol, dS);
+          float stripeV = step(distance(c0, cN) + distance(c0, cS), tol) * step(tol, distance(c0, cE)) * step(tol, distance(c0, cW));
+          float stripeH = step(distance(c0, cE) + distance(c0, cW), tol) * step(tol, distance(c0, cN)) * step(tol, distance(c0, cS));
+          float bayer2 = step(distance(cE, cW), tol) * step(distance(cN, cS), tol) * step(distance(cNE, cSE), tol) * step(distance(cNE, cNW), tol) * step(tol, distance(c0, cE)) * step(tol, distance(c0, cN)) * step(tol, distance(cE, cN));
+          float l0 = edgeLuma(c0);
+          float lN = edgeLuma(cN);
+          float lS = edgeLuma(cS);
+          float lE = edgeLuma(cE);
+          float lW = edgeLuma(cW);
+          float lNE = edgeLuma(cNE);
+          float lNW = edgeLuma(cNW);
+          float lSE = edgeLuma(cSE);
+          float lSW = edgeLuma(cSW);
+          float bayer4 = step(0.0, (lE - l0) * (lW - l0)) * step(0.0, (lN - l0) * (lS - l0)) * step(0.03, abs(lE - l0)) * step(0.03, abs(lW - l0)) * step(0.03, abs(lN - l0)) * step(0.03, abs(lS - l0)) * step(0.05, abs(lE - lW)) * step(0.05, abs(lN - lS));
+          // The dither average: the intended level of the
+          // pattern. Priority bayer4, then bayer2, then
+          // stripeH, then stripeV / checker — the same
+          // order as the edge pass and the sim.
+          vec3 ditherAvg;
+          if (bayer4 > 0.5) {
+            ditherAvg = (c0 + cN + cS + cE + cW + cNE + cNW + cSE + cSW) / 9.0;
+          } else if (bayer2 > 0.5) {
+            ditherAvg = (c0 + cE + cN + cNE) * 0.25;
+          } else if (stripeH > 0.5) {
+            ditherAvg = (c0 + cN) * 0.5;
+          } else if (checker > 0.5 || stripeV > 0.5) {
+            ditherAvg = (c0 + cE) * 0.5;
+          } else {
+            ditherAvg = c0;
+          }
+          // The shade-distance guard (Task 4 item 4): the
+          // flattening only runs when the shades it would
+          // average are within 0.7 of each other
+          // (uDitherGuardHi) — same priority as ditherAvg.
+          float shadeDist;
+          if (bayer4 > 0.5) {
+            shadeDist = max(distance(c0, cN), distance(c0, cS));
+            shadeDist = max(shadeDist, max(distance(c0, cE), distance(c0, cW)));
+            shadeDist = max(shadeDist, max(distance(c0, cNE), distance(c0, cNW)));
+            shadeDist = max(shadeDist, max(distance(c0, cSE), distance(c0, cSW)));
+          } else if (bayer2 > 0.5) {
+            shadeDist = max(max(distance(c0, cE), distance(c0, cN)), distance(c0, cNE));
+            shadeDist = max(shadeDist, max(distance(cE, cN), distance(cE, cNE)));
+            shadeDist = max(shadeDist, distance(cN, cNE));
+          } else if (stripeH > 0.5) {
+            shadeDist = distance(c0, cN);
+          } else {
+            shadeDist = distance(c0, cE);
+          }
+          // 1-pixel detail: the eight neighbours all agree
+          // with each other and the centre stands apart.
+          vec3 nMean = (cN + cS + cE + cW + cNE + cNW + cSE + cSW) / 8.0;
+          float spread = max(max(distance(cN, nMean), distance(cS, nMean)), max(distance(cE, nMean), distance(cW, nMean)));
+          spread = max(spread, max(max(distance(cNE, nMean), distance(cNW, nMean)), max(distance(cSE, nMean), distance(cSW, nMean))));
+          float isolated = step(spread, 0.05) * step(0.15, distance(c0, nMean));
+          // Edge: a Sobel-like luma gradient over the 3x3.
+          float gx = (lE + lNE + lSE) - (lW + lNW + lSW);
+          float gy = (lN + lNE + lNW) - (lS + lSE + lSW);
+          float edgeStrength = abs(gx) + abs(gy);
+          // Text: a high-contrast edge that runs straight
+          // along one axis. The gradient ratio is evaluated
+          // over the 5x5 OUTER RING, on RAW luma (the
+          // ring costs 12 plain taps on uRawTex, no colour
+          // correction) — the same rule as the edge pass:
+          // over the ring a staircase's steps average into
+          // a diagonal gradient, while a glyph stroke stays
+          // one-directional. UNGATED here: the class and
+          // the collapse gate both keep the old protection
+          // (see the Pass A header note).
+          float lMax = max(l0, max(max(lN, lS), max(max(lE, lW), max(max(lNE, lNW), max(lSE, lSW)))));
+          float lMin = min(l0, min(min(lN, lS), min(min(lE, lW), min(min(lNE, lNW), min(lSE, lSW)))));
+          float rE2 = edgeLuma(texture2D(uRawTex, vTex + vec2(2.0 * texel.x, 0.0)).rgb);
+          float rNE2 = edgeLuma(texture2D(uRawTex, vTex + vec2(2.0 * texel.x, texel.y)).rgb);
+          float rSE2 = edgeLuma(texture2D(uRawTex, vTex + vec2(2.0 * texel.x, -texel.y)).rgb);
+          float rW2 = edgeLuma(texture2D(uRawTex, vTex + vec2(-2.0 * texel.x, 0.0)).rgb);
+          float rNW2 = edgeLuma(texture2D(uRawTex, vTex + vec2(-2.0 * texel.x, texel.y)).rgb);
+          float rSW2 = edgeLuma(texture2D(uRawTex, vTex + vec2(-2.0 * texel.x, -texel.y)).rgb);
+          float rN2 = edgeLuma(texture2D(uRawTex, vTex + vec2(0.0, 2.0 * texel.y)).rgb);
+          float rN2E = edgeLuma(texture2D(uRawTex, vTex + vec2(texel.x, 2.0 * texel.y)).rgb);
+          float rN2W = edgeLuma(texture2D(uRawTex, vTex + vec2(-texel.x, 2.0 * texel.y)).rgb);
+          float rS2 = edgeLuma(texture2D(uRawTex, vTex + vec2(0.0, -2.0 * texel.y)).rgb);
+          float rS2E = edgeLuma(texture2D(uRawTex, vTex + vec2(texel.x, -2.0 * texel.y)).rgb);
+          float rS2W = edgeLuma(texture2D(uRawTex, vTex + vec2(-texel.x, -2.0 * texel.y)).rgb);
+          float gx5 = (rE2 + rNE2 + rSE2) - (rW2 + rNW2 + rSW2);
+          float gy5 = (rN2 + rN2E + rN2W) - (rS2 + rS2E + rS2W);
+          float axisAligned = step(min(abs(gx5), abs(gy5)), uTextAlign * max(abs(gx5), abs(gy5)) + 0.001);
+          float text = step(0.5, lMax - lMin) * axisAligned;
+          // The collapse gates: the field test and the
+          // pattern test both need the guard, and both are
+          // blocked by text or an isolated dot.
+          float guard = step(shadeDist, uDitherGuardHi);
+          float noCollapse = max(text, isolated);
+          float fieldOk = step(0.6, field) * guard * (1.0 - noCollapse);
+          float patOk = step(0.5, pattern) * guard * (1.0 - noCollapse);
+          // Class priority (later overrides win): edge,
+          // then dither, then text, then 1px.
+          float cls = 0.0;
+          if (edgeStrength > uEdgeLo) cls = 1.0;
+          if (pattern > 0.5 || field >= 0.3) cls = 2.0;
+          if (text > 0.5) cls = 3.0;
+          if (isolated > 0.5) cls = 4.0;
+          vec3 rgb = c0;
+          if (fieldOk > 0.5) {
+            rgb = mean5;
+          } else if (patOk > 0.5) {
+            rgb = ditherAvg;
+          }
+          gl_FragColor = vec4(rgb, cls / 4.0);
+        }
+    """
+
+    /**
+     * Pass B — the line reconstruction, at display size.
+     * Reads Pass A's output (uTex: RGB the collapsed /
+     * corrected colour, A the class / 4.0). The sim's
+     * recon_passB_np (v3): the 5x5 Sobel gradient gives the
+     * edge angle (the 3x3 Sobel is too local — on a 1:2
+     * staircase it reads 18.4 degrees for a 26.6 degree
+     * line; the 5x5 reads 0.0 / 2.4 / 2.1 on 45 / 1:2 /
+     * 1:3); the side colours come from the profile ends
+     * (t = +-2 along the normal); the offset comes from a
+     * 2D interval fit over the 5x5 window (the dark texels'
+     * largest normal coordinate and the light texels'
+     * smallest bound the line; the midpoint is the offset
+     * — measured identical, to 0.001 texels, for every
+     * texel along a 45-degree line). The output is a
+     * 1-display-px transition centred on the line. Only
+     * edge-class texels are reconstructed, with a real
+     * interval, a strong enough edge and no corner;
+     * text / 1px texels output their nearest texel
+     * exactly, flat / dither texels output nearest (the
+     * field is already collapsed in Pass A). The 15-bit
+     * snap (GBC) follows the edge pass's rule: snap only
+     * when the colour actually moved — including a dither
+     * texel, whose colour moved in Pass A.
+     *
+     * The Worm Light's pool rides on this pass (it draws
+     * to the screen, like the plain program); there are no
+     * optics here, following the edge precedent (optics
+     * are only set on the grid program).
+     */
+    const val RECON_B_FRAGMENT = """
+        precision mediump float;
+        varying vec2 vTex;
+        uniform sampler2D uTex;
+        uniform vec2 uTexSize;
+        uniform float uDisplayScale;
+        uniform float uSnap15;
+        uniform vec2 uWlCenter;
+        uniform vec2 uWlRadii;
+        uniform float uWlRot;
+        uniform float uWlIntensity;
+        uniform float uWlFlip;
+        float edgeLuma(vec3 c) {
+          return dot(c, vec3(0.299, 0.587, 0.114));
+        }
+        float sobW(int i) {
+          if (i == 0 || i == 4) return 1.0;
+          if (i == 1 || i == 3) return 4.0;
+          return 6.0;
+        }
+        void main() {
+          vec2 srcPos = vTex * uTexSize;
+          vec2 base = floor(srcPos);
+          vec2 sub = fract(srcPos);
+          vec4 c0v = texture2D(uTex, vTex);
+          vec3 c0 = c0v.rgb;
+          float cls0 = floor(c0v.a * 4.0 + 0.5);
+          // 5x5 Sobel on the Pass A luma. Separable kernel
+          // w = [1, 4, 6, 4, 1], k = [-2, -1, 0, 1, 2];
+          // gx = sum w(dy) * k(dx) * luma, gy = sum k(dy) *
+          // w(dx) * luma. The diagonal RGBs are stashed for
+          // the corner test.
+          float gx = 0.0;
+          float gy = 0.0;
+          vec3 cNW = vec3(0.0);
+          vec3 cNE = vec3(0.0);
+          vec3 cSE = vec3(0.0);
+          vec3 cSW = vec3(0.0);
+          for (int j = 0; j < 5; j++) {
+            for (int i = 0; i < 5; i++) {
+              int dx = i - 2;
+              int dy = j - 2;
+              vec2 tapUV = (base + vec2(float(dx) + 0.5, float(dy) + 0.5)) / uTexSize;
+              vec3 s = texture2D(uTex, tapUV).rgb;
+              float l = edgeLuma(s);
+              gx += sobW(j) * float(i - 2) * l;
+              gy += float(j - 2) * sobW(i) * l;
+              if (dx == -1 && dy == -1) cNW = s;
+              if (dx == 1 && dy == -1) cNE = s;
+              if (dx == 1 && dy == 1) cSE = s;
+              if (dx == -1 && dy == 1) cSW = s;
+            }
+          }
+          float gn = sqrt(gx * gx + gy * gy) + 0.000000001;
+          float nx = gx / gn;
+          float ny = gy / gn;
+          // Corner: both diagonal pairs match. A corner
+          // keeps its sharp point, never a blend.
+          float corner = step(distance(cNW, cSE), 0.1) * step(distance(cNE, cSW), 0.1) * step(0.05, abs(gx) + abs(gy));
+          // Side colours: the profile ends (t = +-2 along
+          // the normal), rounded to the nearest texel.
+          vec2 offA = vec2(floor(-2.0 * nx + 0.5), floor(-2.0 * ny + 0.5));
+          vec2 offB = vec2(floor(2.0 * nx + 0.5), floor(2.0 * ny + 0.5));
+          vec3 cA = texture2D(uTex, (base + offA + vec2(0.5)) / uTexSize).rgb;
+          vec3 cB = texture2D(uTex, (base + offB + vec2(0.5)) / uTexSize).rgb;
+          float lA = edgeLuma(cA);
+          float lB = edgeLuma(cB);
+          // 2D interval fit for the offset: over the 5x5
+          // window, the dark texels' largest normal
+          // coordinate and the light texels' smallest bound
+          // the line. A texel counts as dark (light) when
+          // its colour is within 0.15 of the dark (light)
+          // side colour and closer to it than to the other
+          // side; dither / text / 1px texels never count
+          // (their colours are not the edge's sides). The
+          // sentinels (+-100) are far outside the
+          // coordinate range (at most +-2.83), so a bound
+          // still at its sentinel means no texel counted.
+          float dLow = -100.0;
+          float dHigh = 100.0;
+          for (int j = 0; j < 5; j++) {
+            for (int i = 0; i < 5; i++) {
+              int dx = i - 2;
+              int dy = j - 2;
+              vec2 tapUV = (base + vec2(float(dx) + 0.5, float(dy) + 0.5)) / uTexSize;
+              vec4 s = texture2D(uTex, tapUV);
+              float cls = floor(s.a * 4.0 + 0.5);
+              float sv = nx * float(dx) + ny * float(dy);
+              float dA = distance(s.rgb, cA);
+              float dB = distance(s.rgb, cB);
+              float okCls = 1.0;
+              if (cls == 2.0 || cls == 3.0 || cls == 4.0) okCls = 0.0;
+              if (dA < 0.15 && dA < dB && okCls > 0.5) dLow = max(dLow, sv);
+              if (dB < 0.15 && dB < dA && okCls > 0.5) dHigh = min(dHigh, sv);
+            }
+          }
+          float okInterval = 1.0;
+          if (dLow <= -50.0 || dHigh >= 50.0 || dLow >= dHigh) okInterval = 0.0;
+          float d = 0.0;
+          if (okInterval > 0.5) d = 0.5 * (dLow + dHigh);
+          // Signed distance of the fragment from the line,
+          // in texels then display px; the output is a
+          // 1-display-px transition centred on the line.
+          float sTex = (sub.x - 0.5) * nx + (sub.y - 0.5) * ny - d;
+          float sPx = sTex * uDisplayScale;
+          float mixw = smoothstep(-0.5, 0.5, sPx);
+          vec3 outRecon = cA + (cB - cA) * mixw;
+          // Guards: reconstruct only edge-class texels,
+          // with a real interval, a strong enough edge, and
+          // no corner. (The gradient guard is a weak sanity
+          // guard only — the 5x5 Sobel's scale is ~16x the
+          // 3x3's, so its threshold is 0.5, not 0.1.)
+          float doRecon = 0.0;
+          if (cls0 == 1.0 && okInterval > 0.5 && abs(lB - lA) >= 0.1 && (abs(gx) + abs(gy)) >= 0.5 && corner < 0.5) doRecon = 1.0;
+          vec3 outCol = mix(c0, outRecon, doRecon);
+          // 15-bit snap (GBC), same rule as the edge pass:
+          // snap only when the colour actually moved —
+          // including a dither texel, whose colour moved in
+          // Pass A.
+          if (uSnap15 > 0.5) {
+            vec3 snapped = floor(outCol * 31.0 + 0.5) / 31.0;
+            float moved = max(step(0.001, distance(outCol, c0)), step(abs(cls0 - 2.0), 0.5));
+            outCol = mix(c0, snapped, moved);
+          }
+          // Worm Light realism: the lamp's pool, the same
+          // add as the plain program — the lamp works on
+          // the reconstruction too. uWlFlip is 1 when the
+          // source is the pass-1 framebuffer: V is flipped
+          // there, so the centre's y flips too. Intensity 0
+          // adds exactly 0.0.
+          vec2 wlD = vTex - vec2(uWlCenter.x, mix(uWlCenter.y, 1.0 - uWlCenter.y, uWlFlip));
+          float wlC = cos(uWlRot);
+          float wlS = sin(uWlRot);
+          vec2 wlR = vec2(wlD.x * wlC - wlD.y * wlS, wlD.x * wlS + wlD.y * wlC);
+          float wlE = dot(wlR / uWlRadii, wlR / uWlRadii);
+          float wlFall = smoothstep(1.0, 0.0, wlE);
+          float wlHot = smoothstep(0.45, 0.0, wlE);
+          outCol += uWlIntensity * (wlFall * 0.14 + wlHot * 0.16) * vec3(1.0, 0.82, 0.55);
+          outCol = clamp(outCol, vec3(0.0), vec3(1.0));
+          gl_FragColor = vec4(outCol, 1.0);
+        }
+    """
+
+    /**
      * The grid's base strength (see the grid pass above).
      * The renderer scales it down with the display scale,
      * so the grid stays subtle as the game grows. Rebuilt

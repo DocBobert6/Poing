@@ -100,4 +100,54 @@ class EdgeSmoothingTest {
         assertEquals(0.60f, gb2.blendMax, 0.001f)
         assertEquals(0.70f, gba8.blendMax, 0.001f)
     }
+
+    @Test
+    fun resolveTurnsChainAndEdgeOffWhenReconIsOn() {
+        // Task 6 — reconstruction on means the chain is
+        // off AND the edge mode is off: it is the quality
+        // path, a superset of the edge mode's job, and it
+        // carries the chains' colour itself — never stacked
+        // with either.
+        val r = EdgeSmoothing.resolve(
+            DisplayChain.PRISM, true, EdgeMode.EDGE, ReconMode.GBC,
+        )
+        assertEquals(DisplayChain.CLEAN, r.chain)
+        assertEquals(EdgeMode.OFF, r.edge)
+        assertEquals(ReconMode.GBC, r.recon)
+        // Even the combined mode loses to recon.
+        val combined = EdgeSmoothing.resolve(
+            DisplayChain.DUSK, true, EdgeMode.EDGE_GRID, ReconMode.GBC,
+        )
+        assertEquals(DisplayChain.CLEAN, combined.chain)
+        assertEquals(EdgeMode.OFF, combined.edge)
+        assertEquals(ReconMode.GBC, combined.recon)
+    }
+
+    @Test
+    fun resolveReconOffLeavesTheEdgeRuleUnchanged() {
+        // Recon off is exactly the old three-argument
+        // resolve: edge on still turns the chain off, edge
+        // off still keeps it.
+        val edge = EdgeSmoothing.resolve(
+            DisplayChain.PRISM, true, EdgeMode.EDGE, ReconMode.OFF,
+        )
+        assertEquals(DisplayChain.CLEAN, edge.chain)
+        assertEquals(EdgeMode.EDGE, edge.edge)
+        assertEquals(ReconMode.OFF, edge.recon)
+        val plain = EdgeSmoothing.resolve(
+            DisplayChain.JADE, true, EdgeMode.OFF, ReconMode.OFF,
+        )
+        assertEquals(DisplayChain.JADE, plain.chain)
+        assertEquals(EdgeMode.OFF, plain.edge)
+        assertEquals(ReconMode.OFF, plain.recon)
+    }
+
+    @Test
+    fun resolveThreeArgDefaultsReconOff() {
+        // The old call sites (and the old tests) get
+        // recon OFF — the three-argument resolve is the
+        // four-argument one with recon off.
+        val r = EdgeSmoothing.resolve(DisplayChain.JADE, true, EdgeMode.OFF)
+        assertEquals(ReconMode.OFF, r.recon)
+    }
 }

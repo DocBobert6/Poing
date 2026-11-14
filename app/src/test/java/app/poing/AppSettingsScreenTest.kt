@@ -351,4 +351,55 @@ class AppSettingsScreenTest {
         assertTrue(AppSettingsStore(temp.root).edgeGridEnabled())
         assertEquals(EdgeMode.EDGE_GRID, AppSettingsStore(temp.root).edgeMode())
     }
+
+    @Test
+    fun developerSectionHiddenUntilSevenFooterTaps() {
+        // Task 6 — the Developer section is not straight up
+        // out in the open: it appears only after the version
+        // footer has been tapped 7 times. Six taps are not
+        // enough; the seventh unlocks it, and the unlock
+        // persists in the store.
+        val s = store()
+        composeRule.setContent {
+            PoingTheme {
+                AppSettingsScreen(store = s, onCoreOptions = {}, onBack = { })
+            }
+        }
+        composeRule.onAllNodesWithText("Developer — experimental").assertCountEquals(0)
+        composeRule.onAllNodesWithText("Reconstruction (GBC)").assertCountEquals(0)
+        assertFalse(AppSettingsStore(temp.root).developerUnlocked())
+        repeat(6) {
+            composeRule.onNodeWithTag("version-footer").performScrollTo().performClick()
+        }
+        composeRule.onAllNodesWithText("Developer — experimental").assertCountEquals(0)
+        assertFalse(AppSettingsStore(temp.root).developerUnlocked())
+        composeRule.onNodeWithTag("version-footer").performScrollTo().performClick()
+        assertTrue(AppSettingsStore(temp.root).developerUnlocked())
+        composeRule.onNodeWithText("Developer — experimental").assertIsDisplayed()
+        composeRule.onNodeWithText("Reconstruction (GBC)").assertIsDisplayed()
+        // The warning line, verbatim.
+        composeRule.onNodeWithText(
+            "Experimental. May look wrong and may use more battery. Replaces edge smoothing while on.",
+        ).assertIsDisplayed()
+    }
+
+    @Test
+    fun togglingReconGbcPersists() {
+        // Task 6 — the GBC reconstruction toggle: off by
+        // default, and the switch writes it to the store.
+        // The section is already unlocked here (the store
+        // is pre-seeded), so the toggle is visible at once.
+        val s = store()
+        s.setDeveloperUnlocked(true)
+        composeRule.setContent {
+            PoingTheme {
+                AppSettingsScreen(store = s, onCoreOptions = {}, onBack = { })
+            }
+        }
+        assertFalse(AppSettingsStore(temp.root).reconGbcEnabled())
+        composeRule.onNodeWithTag("recon-gbc-switch").performScrollTo().performClick()
+        assertTrue(AppSettingsStore(temp.root).reconGbcEnabled())
+        composeRule.onNodeWithTag("recon-gbc-switch").performScrollTo().performClick()
+        assertFalse(AppSettingsStore(temp.root).reconGbcEnabled())
+    }
 }

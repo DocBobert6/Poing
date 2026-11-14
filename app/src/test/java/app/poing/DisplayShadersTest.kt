@@ -446,6 +446,108 @@ class DisplayShadersTest {
     }
 
     @Test
+    fun reconA1ClassifiesThe3x3AndOutputsThePatternMap() {
+        // Task 6 — Pass A, first half: the 3x3 detectors
+        // run on the colour-corrected samples (the fold
+        // copied from the edge pass), and the pass outputs
+        // the corrected centre colour with the pattern flag
+        // in alpha — the map A2 reads back as the field.
+        val src = DisplayShaders.RECON_A1_FRAGMENT
+        assertTrue(src.contains("vec3 colourCorrect(vec3 col)"))
+        assertTrue(src.contains("if (uMode == 2 || uMode == 3)"))
+        assertTrue(src.contains("0.94 * (0.82 * lin.r + 0.24 * lin.g - 0.06 * lin.b)"))
+        assertTrue(src.contains("float checker = step(dDiag, tol)"))
+        assertTrue(src.contains("stripeV"))
+        assertTrue(src.contains("stripeH"))
+        assertTrue(src.contains("bayer2"))
+        assertTrue(src.contains("bayer4"))
+        assertTrue(src.contains("float pattern = max(max(checker, max(stripeV, stripeH)), max(bayer2, bayer4))"))
+        assertTrue(src.contains("gl_FragColor = vec4(c0, pattern)"))
+        // A1 does not classify and does not collapse — that
+        // is A2's job (the field needs the pattern map, not
+        // one texel's detectors).
+        assertFalse(src.contains("float cls"))
+        assertFalse(src.contains("float field"))
+        assertFalse(src.contains("mean5"))
+    }
+
+    @Test
+    fun reconA2BuildsTheFieldClassAndCollapse() {
+        // Task 6 — Pass A, second half: the 5x5 field (the
+        // pattern map averaged over the window) and the 5x5
+        // mean of the corrected colours, the class priority
+        // (edge, then dither, then text, then 1px), and the
+        // collapse — the field mean where the field test
+        // passes, else the 3x3 dither average where a
+        // pattern texel passes the guard. The collapse is
+        // gated by the UNGATED text bypass and the 1px test
+        // (a glyph texel that happens to look like a pattern
+        // texel keeps its own colour), and the class is
+        // written as cls / 4.0 in alpha.
+        val src = DisplayShaders.RECON_A2_FRAGMENT
+        assertTrue(src.contains("uniform sampler2D uRawTex"))
+        assertTrue(src.contains("field /= 25.0"))
+        assertTrue(src.contains("mean5 /= 25.0"))
+        assertTrue(src.contains("float fieldOk = step(0.6, field) * guard * (1.0 - noCollapse)"))
+        assertTrue(src.contains("float patOk = step(0.5, pattern) * guard * (1.0 - noCollapse)"))
+        assertTrue(src.contains("float noCollapse = max(text, isolated)"))
+        assertTrue(src.contains("if (pattern > 0.5 || field >= 0.3) cls = 2.0"))
+        assertTrue(src.contains("if (text > 0.5) cls = 3.0"))
+        assertTrue(src.contains("if (isolated > 0.5) cls = 4.0"))
+        assertTrue(src.contains("gl_FragColor = vec4(rgb, cls / 4.0)"))
+        // The text test is the 5x5 outer-ring ratio on RAW
+        // luma, as in the edge pass — and UNGATED here: the
+        // stroke-length gate belongs to the edge blend,
+        // which Pass B replaces.
+        assertTrue(src.contains("float gx5 = (rE2 + rNE2 + rSE2) - (rW2 + rNW2 + rSW2)"))
+        assertTrue(src.contains("float text = step(0.5, lMax - lMin) * axisAligned"))
+        assertFalse(src.contains("textGated"))
+        assertFalse(src.contains("gateScale"))
+        // The shade-distance guard (Task 4 item 4, 0.7 for
+        // all systems) gates the collapse.
+        assertTrue(src.contains("float shadeDist;"))
+        assertTrue(src.contains("float guard = step(shadeDist, uDitherGuardHi)"))
+    }
+
+    @Test
+    fun reconBReconstructsTheLineFromTheSobelAndInterval() {
+        // Task 6 — Pass B: the 5x5 Sobel gradient gives the
+        // edge angle (the 6-direction vote was designed,
+        // built in the sim and DISPROVEN there — errors
+        // 13.3 / 90.0 / 39.9 degrees — so it is not here),
+        // the side colours come from the profile ends, the
+        // offset from a 2D interval fit, and the output is
+        // a 1-display-px transition centred on the line.
+        // Only edge-class texels are reconstructed; the
+        // 15-bit snap follows the edge pass's rule (snap
+        // only when the colour actually moved, including a
+        // dither texel). The Worm Light pool rides on this
+        // pass (it draws to the screen); there are no
+        // optics here, following the edge precedent.
+        val src = DisplayShaders.RECON_B_FRAGMENT
+        assertTrue(src.contains("float sobW(int i)"))
+        assertTrue(src.contains("gx += sobW(j) * float(i - 2) * l"))
+        assertTrue(src.contains("gy += float(j - 2) * sobW(i) * l"))
+        assertFalse(src.contains("vote"))
+        assertTrue(src.contains("float corner = step(distance(cNW, cSE), 0.1)"))
+        assertTrue(src.contains("vec2 offA = vec2(floor(-2.0 * nx + 0.5), floor(-2.0 * ny + 0.5))"))
+        assertTrue(src.contains("vec2 offB = vec2(floor(2.0 * nx + 0.5), floor(2.0 * ny + 0.5))"))
+        assertTrue(src.contains("float dLow = -100.0"))
+        assertTrue(src.contains("float dHigh = 100.0"))
+        assertTrue(src.contains("if (dA < 0.15 && dA < dB && okCls > 0.5) dLow = max(dLow, sv)"))
+        assertTrue(src.contains("if (dB < 0.15 && dB < dA && okCls > 0.5) dHigh = min(dHigh, sv)"))
+        assertTrue(src.contains("float mixw = smoothstep(-0.5, 0.5, sPx)"))
+        assertTrue(src.contains("if (cls0 == 1.0 && okInterval > 0.5"))
+        assertTrue(src.contains("float moved = max(step(0.001, distance(outCol, c0)), step(abs(cls0 - 2.0), 0.5))"))
+        assertTrue(src.contains("uWlCenter"))
+        assertTrue(src.contains("uWlIntensity * (wlFall * 0.14 + wlHot * 0.16)"))
+        assertFalse(src.contains("uBrightness"))
+        assertFalse(src.contains("uGamma"))
+        // The class channel is decoded from alpha.
+        assertTrue(src.contains("float cls0 = floor(c0v.a * 4.0 + 0.5)"))
+    }
+
+    @Test
     fun noCurvatureOrCrtGeometryAnywhere() {
         // Every handheld LCD here is flat. If a curve ever
         // creeps into a chain, this fails first.
@@ -453,7 +555,10 @@ class DisplayShadersTest {
             DisplayShaders.COLOUR_FRAGMENT +
             DisplayShaders.GRID_FRAGMENT +
             DisplayShaders.EDGE_FRAGMENT +
-            DisplayShaders.PLAIN_FRAGMENT
+            DisplayShaders.PLAIN_FRAGMENT +
+            DisplayShaders.RECON_A1_FRAGMENT +
+            DisplayShaders.RECON_A2_FRAGMENT +
+            DisplayShaders.RECON_B_FRAGMENT
         val lower = all.lowercase()
         for (word in listOf("curve", "barrel", "pincushion", "distort", "scanline", "grille", "vignette")) {
             assertFalse("shader source must not contain '$word'", lower.contains(word))

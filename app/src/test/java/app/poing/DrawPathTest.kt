@@ -42,4 +42,31 @@ class DrawPathTest {
     fun plainDrawsNameTheFallbackWhenEdgeWasRequested() {
         assertEquals("plain (edge fell back)", DrawPath.PLAIN.displayLabel(edgeOn = true))
     }
+
+    @Test
+    fun reconDrawsReadAsReconGbc() {
+        // Task 6 — the dev-stats token for the
+        // reconstruction, so recon on is never a guess on
+        // device.
+        assertEquals("recon-gbc", DrawPath.RECON_GBC.displayLabel(edgeOn = false))
+        assertEquals("recon-gbc", DrawPath.RECON_GBC.displayLabel(edgeOn = false, reconOn = true))
+        assertEquals("recon-gbc", DrawPath.RECON_GBC.displayLabel(edgeOn = true, reconOn = true))
+    }
+
+    @Test
+    fun plainDrawsNameTheFallbackWhenReconWasRequested() {
+        // Recon requested but plain delivered: the token
+        // says so outright — never a quiet "plain".
+        assertEquals(
+            "plain (recon fell back)",
+            DrawPath.PLAIN.displayLabel(edgeOn = false, reconOn = true),
+        )
+        // Recon wins over edge in the fallback name too:
+        // resolve() turns the edge off when recon is on,
+        // so a recon fallback never reads as an edge one.
+        assertEquals(
+            "plain (recon fell back)",
+            DrawPath.PLAIN.displayLabel(edgeOn = true, reconOn = true),
+        )
+    }
 }

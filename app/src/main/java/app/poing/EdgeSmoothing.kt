@@ -132,6 +132,22 @@ enum class EdgeMode {
     EDGE_GRID,
 }
 
+/**
+ * Task 6 (2026-11-14) — DLSS-in-spirit reconstruction:
+ * the quality path, against the edge mode's fast path.
+ * One engine, three per-system configurations; Task 6
+ * ships GBC only (GB and GBA get their modes in Tasks
+ * 5 / 7 — do not add unwired modes here). Off by
+ * default, never the default, and never stacked with
+ * the chains or the edge mode (see [EdgeSmoothing.resolve]).
+ */
+enum class ReconMode {
+    OFF,
+
+    /** GBC colour reconstruction (Task 6). */
+    GBC,
+}
+
 /** The per-system edge parameters, applied as shader uniforms. */
 data class EdgeParams(
     /** Colour distance that still counts as "the same" in the dither tests. */
@@ -168,6 +184,8 @@ data class EdgeParams(
 data class DisplayResolution(
     val chain: DisplayChain,
     val edge: EdgeMode,
+    /** Task 6 — the reconstruction in effect (OFF unless its toggle is on for this system). */
+    val recon: ReconMode = ReconMode.OFF,
 )
 
 object EdgeSmoothing {
@@ -181,8 +199,29 @@ object EdgeSmoothing {
      * on when its toggle is on, and clean when it is off.
      */
     fun resolve(chain: DisplayChain, chainOn: Boolean, edge: EdgeMode): DisplayResolution {
+        return resolve(chain, chainOn, edge, ReconMode.OFF)
+    }
+
+    /**
+     * Task 6 — the same resolution, with the reconstruction.
+     * Reconstruction on means the chain is off AND the edge
+     * mode is off: it is the quality path, a superset of the
+     * edge mode's job (line reconstruction instead of a
+     * blend), and it carries the chains' colour itself — so
+     * it never stacks with either. Otherwise the edge rule
+     * above applies unchanged.
+     */
+    fun resolve(
+        chain: DisplayChain,
+        chainOn: Boolean,
+        edge: EdgeMode,
+        recon: ReconMode,
+    ): DisplayResolution {
+        if (recon != ReconMode.OFF) {
+            return DisplayResolution(DisplayChain.CLEAN, EdgeMode.OFF, recon)
+        }
         val effectiveChain = if (edge != EdgeMode.OFF || !chainOn) DisplayChain.CLEAN else chain
-        return DisplayResolution(effectiveChain, edge)
+        return DisplayResolution(effectiveChain, edge, ReconMode.OFF)
     }
 
     /**

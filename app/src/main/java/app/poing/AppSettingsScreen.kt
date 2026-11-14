@@ -104,6 +104,14 @@ fun AppSettingsScreen(
     // mobile data when the user turns it on. Off by default —
     // covers download on unmetered Wi-Fi only.
     var coverArtMobileData by remember { mutableStateOf(store.coverArtMobileDataAllowed()) }
+    // Task 6 (2026-11-14) — the hidden Developer section:
+    // unlocked by tapping the version footer 7 times, off
+    // by default (locked). The GBC reconstruction toggle
+    // lives there, off by default — an experimental quality
+    // path, not straight up out in the open.
+    var developerUnlocked by remember { mutableStateOf(store.developerUnlocked()) }
+    var reconGbc by remember { mutableStateOf(store.reconGbcEnabled()) }
+    var footerTaps by remember { mutableStateOf(0) }
 
     LazyColumn(
         modifier = Modifier
@@ -637,6 +645,55 @@ fun AppSettingsScreen(
                 )
             }
         }
+        // Task 6 (2026-11-14) — the hidden Developer
+        // section: only after the version footer has been
+        // tapped 7 times. The GBC reconstruction toggle
+        // lives here, off by default — an experimental
+        // quality path. The GB / GBA toggles arrive with
+        // their engines in Tasks 5 / 7.
+        if (developerUnlocked) {
+            item {
+                Text(
+                    "Developer — experimental",
+                    style = displayTextStyle(DisplaySizeMedium),
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                )
+            }
+            item {
+                Text(
+                    "Experimental. May look wrong and may use more battery. Replaces edge smoothing while on.",
+                    style = MaterialTheme.typography.bodySmall,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                )
+            }
+            item {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            "Reconstruction (GBC)",
+                            style = MaterialTheme.typography.titleMedium,
+                        )
+                        Text(
+                            "The quality path for Game Boy Color games — line reconstruction instead of edge blending. Experimental, off by default.",
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                    }
+                    Switch(
+                        checked = reconGbc,
+                        onCheckedChange = {
+                            store.setReconGbcEnabled(it)
+                            reconGbc = it
+                        },
+                        modifier = Modifier.testTag("recon-gbc-switch"),
+                    )
+                }
+            }
+        }
         item {
             Row(modifier = Modifier.padding(16.dp)) {
                 TextButton(onClick = {
@@ -654,6 +711,8 @@ fun AppSettingsScreen(
                     wormLightColor = store.wormLightColor()
                     opticsDimming = store.opticsDimmingEnabled()
                     coverArtMobileData = store.coverArtMobileDataAllowed()
+                    developerUnlocked = store.developerUnlocked()
+                    reconGbc = store.reconGbcEnabled()
                     palette = optionsStore?.get("mgba_gb_colors")
                         ?: CoreOptions.GB_PALETTES.first()
                 }) {
@@ -663,6 +722,23 @@ fun AppSettingsScreen(
                     Text("Back")
                 }
             }
+            // Task 6 — the version footer: seven taps here
+            // unlock the Developer section above. Small and
+            // out of the way, not a settings row.
+            Text(
+                "Poing! 0.1.0",
+                style = MaterialTheme.typography.bodySmall,
+                modifier = Modifier
+                    .padding(horizontal = 16.dp)
+                    .testTag("version-footer")
+                    .clickable {
+                        footerTaps += 1
+                        if (footerTaps >= 7 && !developerUnlocked) {
+                            store.setDeveloperUnlocked(true)
+                            developerUnlocked = true
+                        }
+                    },
+            )
             Spacer(Modifier.height(16.dp))
         }
     }

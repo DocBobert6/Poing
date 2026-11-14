@@ -190,17 +190,29 @@ fun GameScreen(
     // Phase 9 — edge smoothing wins over the chain
     // (EdgeSmoothing.resolve): when it is on, the chain is
     // off and the edge pass draws instead. The two are never
-    // stacked.
+    // stacked. Task 6 — the reconstruction wins over both:
+    // when it is on, the chain is off AND the edge mode is
+    // off, and the recon passes draw instead.
     val display = remember {
         val wanted = DisplayChain.forSystem(system)
+        // Task 6 — the GBC reconstruction toggle only
+        // affects GBC games; the GB / GBA toggles arrive
+        // with their engines in Tasks 5 / 7.
+        val recon = if (system == GameSystem.GBC && appSettings.reconGbcEnabled()) {
+            ReconMode.GBC
+        } else {
+            ReconMode.OFF
+        }
         EdgeSmoothing.resolve(
             wanted,
             appSettings.chainEnabled(wanted),
             appSettings.edgeMode(),
+            recon,
         )
     }
     val displayChain = display.chain
     val edgeMode = display.edge
+    val reconMode = display.recon
     var palette by remember { mutableStateOf(optionsStore.get("mgba_gb_colors")) }
 
     // Screen Optics dim fix (Robert, 2026-11-12): the live lux
@@ -304,12 +316,13 @@ fun GameScreen(
     // chain's Jade mode; the renderer no longer takes it —
     // the rework deleted the GB palette scan with the
     // palette snap.
-    LaunchedEffect(displayChain, edgeMode, palette) {
+    LaunchedEffect(displayChain, edgeMode, reconMode, palette) {
         glView?.setDisplay(
             displayChain,
             DisplayChain.jadeModeForPalette(palette),
             edgeMode,
             system,
+            reconMode,
         )
     }
 
@@ -608,9 +621,11 @@ fun GameScreen(
                     // Edge smoothing, item 5: which program
                     // actually drew the last frame — the
                     // dev-stats readout, so edge on is never
-                    // again a guess on device.
+                    // again a guess on device. Task 6: the
+                    // same for the reconstruction.
                     drawPath = drawPath,
                     edgeOn = edgeMode != EdgeMode.OFF,
+                    reconOn = reconMode != ReconMode.OFF,
                     recording = recording,
                     recordingElapsed = recordingElapsed,
                     buttonLabel = if (paused) "Resume" else "Pause",

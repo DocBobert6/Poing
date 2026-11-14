@@ -47,14 +47,20 @@ class GameGlView @JvmOverloads constructor(
      * palette is still passed to the chain's Jade mode, but
      * the renderer no longer scans it: the rework deleted
      * the GB palette scan with the palette snap).
+     *
+     * Task 6 — the reconstruction mode rides with it: when
+     * it is on, the renderer draws the reconstruction
+     * instead of the chain or the edge pass (see
+     * EdgeSmoothing.resolve).
      */
     fun setDisplay(
         chain: DisplayChain,
         jadeMode: JadeMode,
         edge: EdgeMode,
         system: GameSystem,
+        recon: ReconMode = ReconMode.OFF,
     ) {
-        renderer.setDisplay(chain, jadeMode, edge, system)
+        renderer.setDisplay(chain, jadeMode, edge, system, recon)
         requestRender()
     }
 
