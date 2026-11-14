@@ -111,6 +111,7 @@ fun AppSettingsScreen(
     // path, not straight up out in the open.
     var developerUnlocked by remember { mutableStateOf(store.developerUnlocked()) }
     var reconGbc by remember { mutableStateOf(store.reconGbcEnabled()) }
+    var reconGrid by remember { mutableStateOf(store.reconGridEnabled()) }
     var footerTaps by remember { mutableStateOf(0) }
 
     LazyColumn(
@@ -693,6 +694,33 @@ fun AppSettingsScreen(
                     )
                 }
             }
+            item {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            "LCD grid on reconstruction",
+                            style = MaterialTheme.typography.titleMedium,
+                        )
+                        Text(
+                            "Layers the LCD grid at 15% over the reconstruction. One toggle for all systems — GBC now, GB and GBA when their engines land.",
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                    }
+                    Switch(
+                        checked = reconGrid,
+                        onCheckedChange = {
+                            store.setReconGridEnabled(it)
+                            reconGrid = it
+                        },
+                        modifier = Modifier.testTag("recon-grid-switch"),
+                    )
+                }
+            }
         }
         item {
             Row(modifier = Modifier.padding(16.dp)) {
@@ -713,6 +741,7 @@ fun AppSettingsScreen(
                     coverArtMobileData = store.coverArtMobileDataAllowed()
                     developerUnlocked = store.developerUnlocked()
                     reconGbc = store.reconGbcEnabled()
+                    reconGrid = store.reconGridEnabled()
                     palette = optionsStore?.get("mgba_gb_colors")
                         ?: CoreOptions.GB_PALETTES.first()
                 }) {

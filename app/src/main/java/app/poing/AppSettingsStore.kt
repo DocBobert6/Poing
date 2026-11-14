@@ -43,6 +43,7 @@ class AppSettingsStore(private val root: File) {
         const val KEY_COVER_ART_MOBILE_DATA = "cover_art_mobile_data"
         const val KEY_DEVELOPER_UNLOCKED = "developer_unlocked"
         const val KEY_RECON_GBC = "recon_gbc"
+        const val KEY_RECON_GRID = "recon_grid"
         const val DEFAULT_FF_SPEED = 2
         val FF_SPEEDS = setOf(2, 3, 4)
     }
@@ -192,6 +193,18 @@ class AppSettingsStore(private val root: File) {
      */
     fun reconGbcEnabled(): Boolean = readBoolean(KEY_RECON_GBC, false)
     fun setReconGbcEnabled(enabled: Boolean) = write(KEY_RECON_GBC, enabled.toString())
+
+    /**
+     * The LCD grid over the reconstruction (Robert,
+     * 2026-11-14): one toggle for all three systems, off
+     * by default. It layers GRID_FRAGMENT at 15% on top
+     * of whichever reconstruction is on — GBC now, GB
+     * and GBA when their engines land in Tasks 5 / 7.
+     * It does nothing on its own: the renderer only
+     * reads it inside drawRecon.
+     */
+    fun reconGridEnabled(): Boolean = readBoolean(KEY_RECON_GRID, false)
+    fun setReconGridEnabled(enabled: Boolean) = write(KEY_RECON_GRID, enabled.toString())
 
     /**
      * Phase 8 — whether a chain is on. Clean is never gated

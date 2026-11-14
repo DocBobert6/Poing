@@ -229,6 +229,11 @@ fun GameScreen(
     val displayChain = display.chain
     val edgeMode = display.edge
     val reconMode = display.recon
+    // The LCD grid over the reconstruction (Robert,
+    // 2026-11-14): snapshotted at game start like the
+    // recon toggle itself — one toggle for all systems,
+    // and the renderer only reads it inside drawRecon.
+    val reconGrid = remember { appSettings.reconGridEnabled() }
     var palette by remember { mutableStateOf(optionsStore.get("mgba_gb_colors")) }
 
     // Screen Optics dim fix (Robert, 2026-11-12): the live lux
@@ -332,13 +337,14 @@ fun GameScreen(
     // chain's Jade mode; the renderer no longer takes it —
     // the rework deleted the GB palette scan with the
     // palette snap.
-    LaunchedEffect(displayChain, edgeMode, reconMode, palette) {
+    LaunchedEffect(displayChain, edgeMode, reconMode, reconGrid, palette) {
         glView?.setDisplay(
             displayChain,
             DisplayChain.jadeModeForPalette(palette),
             edgeMode,
             system,
             reconMode,
+            reconGrid,
         )
     }
 

@@ -1304,6 +1304,17 @@ object DisplayShaders {
     const val GRID_BASE_STRENGTH = 0.08f
 
     /**
+     * The LCD grid over the reconstruction (Robert,
+     * 2026-11-14): 15% strength — the specified starting
+     * value for him to judge on device, not a slider.
+     * Unlike the chain's grid (gridStrengthForScale,
+     * tapered with the display scale), this is fixed:
+     * the grid is a layer over the reconstruction, and
+     * its strength is the value Robert named.
+     */
+    const val RECON_GRID_STRENGTH = 0.15f
+
+    /**
      * The grid strength for a display scale (display pixels
      * per native texel). Full strength at 2x and below —
      * there the grid barely resolves — tapering as the

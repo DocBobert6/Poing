@@ -89,4 +89,39 @@ class DisplayRendererTest {
         // And the recon composes to the same result.
         assertTrue(DisplayRenderer.reconOrientationIsCorrect())
     }
+
+    /**
+     * The LCD grid over the reconstruction (Robert,
+     * 2026-11-14): setDisplay stores the flag, off by
+     * default. The grid pass itself needs a GL context
+     * and is not exercised under Robolectric — this pins
+     * the plumbing from GameScreen through GameGlView.
+     */
+    @Test
+    fun reconGridDefaultsOff() {
+        assertFalse(DisplayRenderer().reconGrid)
+    }
+
+    @Test
+    fun setDisplayStoresReconGrid() {
+        val renderer = DisplayRenderer()
+        renderer.setDisplay(
+            DisplayChain.CLEAN,
+            JadeMode.FSTN,
+            EdgeMode.OFF,
+            GameSystem.GBC,
+            ReconMode.GBC,
+            reconGrid = true,
+        )
+        assertTrue(renderer.reconGrid)
+        renderer.setDisplay(
+            DisplayChain.CLEAN,
+            JadeMode.FSTN,
+            EdgeMode.OFF,
+            GameSystem.GBC,
+            ReconMode.GBC,
+            reconGrid = false,
+        )
+        assertFalse(renderer.reconGrid)
+    }
 }

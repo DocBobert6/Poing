@@ -370,6 +370,7 @@ class AppSettingsScreenTest {
         }
         composeRule.onAllNodesWithText("Developer — experimental").assertCountEquals(0)
         composeRule.onAllNodesWithText("Reconstruction (GBC)").assertCountEquals(0)
+        composeRule.onAllNodesWithText("LCD grid on reconstruction").assertCountEquals(0)
         assertFalse(AppSettingsStore(temp.root).developerUnlocked())
         // The footer is the last item of the LazyColumn, so it
         // is not composed until the list is scrolled to it —
@@ -427,5 +428,32 @@ class AppSettingsScreenTest {
             .performScrollToNode(hasTestTag("recon-gbc-switch"))
         composeRule.onNodeWithTag("recon-gbc-switch").performClick()
         assertFalse(AppSettingsStore(temp.root).reconGbcEnabled())
+    }
+
+    @Test
+    fun togglingReconGridPersists() {
+        // The LCD grid over the reconstruction (Robert,
+        // 2026-11-14): one toggle for all systems, off by
+        // default, and the switch writes it to the store.
+        // The section is already unlocked here (the store
+        // is pre-seeded), so the toggle is visible at once.
+        val s = store()
+        s.setDeveloperUnlocked(true)
+        composeRule.setContent {
+            PoingTheme {
+                AppSettingsScreen(store = s, onCoreOptions = {}, onBack = { })
+            }
+        }
+        assertFalse(AppSettingsStore(temp.root).reconGridEnabled())
+        // The toggle row sits below the fold in the
+        // LazyColumn — scroll the list to it first.
+        composeRule.onNodeWithTag("settings-list")
+            .performScrollToNode(hasTestTag("recon-grid-switch"))
+        composeRule.onNodeWithTag("recon-grid-switch").performClick()
+        assertTrue(AppSettingsStore(temp.root).reconGridEnabled())
+        composeRule.onNodeWithTag("settings-list")
+            .performScrollToNode(hasTestTag("recon-grid-switch"))
+        composeRule.onNodeWithTag("recon-grid-switch").performClick()
+        assertFalse(AppSettingsStore(temp.root).reconGridEnabled())
     }
 }

@@ -59,8 +59,9 @@ class GameGlView @JvmOverloads constructor(
         edge: EdgeMode,
         system: GameSystem,
         recon: ReconMode = ReconMode.OFF,
+        reconGrid: Boolean = false,
     ) {
-        renderer.setDisplay(chain, jadeMode, edge, system, recon)
+        renderer.setDisplay(chain, jadeMode, edge, system, recon, reconGrid)
         requestRender()
     }
 

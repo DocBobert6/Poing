@@ -51,6 +51,16 @@ class DisplayShadersTest {
     }
 
     @Test
+    fun reconGridStrengthIsTheSpecifiedFifteenPercent() {
+        // The LCD grid over the reconstruction (Robert,
+        // 2026-11-14): 15% is the specified starting
+        // value for him to judge on device — not a
+        // slider, and not the chain's scale-tapered
+        // strength.
+        assertEquals(0.15f, DisplayShaders.RECON_GRID_STRENGTH)
+    }
+
+    @Test
     fun colourPassHasThePrismMode() {
         val src = DisplayShaders.COLOUR_FRAGMENT
         // Prism is mode 2, rebuilt 2026-11-13: SameBoy's

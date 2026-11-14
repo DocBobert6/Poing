@@ -87,6 +87,17 @@ class DisplayRenderer : GLSurfaceView.Renderer {
     private var reconSystem: GameSystem = GameSystem.GBC
 
     /**
+     * The LCD grid over the reconstruction (Robert,
+     * 2026-11-14): one toggle for all three systems.
+     * Internal, not private, so the wiring test can
+     * observe what setDisplay stored — the grid pass
+     * itself needs a GL context and is not exercised
+     * under Robolectric.
+     */
+    @Volatile
+    internal var reconGrid: Boolean = false
+
+    /**
      * Edge smoothing, item 5 (2026-11-14) — the dev-stats
      * readout: which program actually drew the last frame.
      * Written on the GL thread at each draw decision (the
@@ -208,6 +219,7 @@ class DisplayRenderer : GLSurfaceView.Renderer {
         edge: EdgeMode,
         system: GameSystem,
         recon: ReconMode = ReconMode.OFF,
+        reconGrid: Boolean = false,
     ) {
         this.chain = when (chain) {
             DisplayChain.JADE -> DisplayChain.JADE
@@ -220,6 +232,7 @@ class DisplayRenderer : GLSurfaceView.Renderer {
         this.edgeSystem = system
         this.reconMode = recon
         this.reconSystem = system
+        this.reconGrid = reconGrid
     }
 
     /**
@@ -600,10 +613,23 @@ class DisplayRenderer : GLSurfaceView.Renderer {
         GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, frameTextureId)
         drawQuad(reconA2Program)
         // Pass B — the line reconstruction, display size,
-        // to the screen. The source is texB (a framebuffer
-        // texture), so V flips (uFlipV 1), as in the chain's
-        // grid pass and the edge pass's blit.
-        GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, 0)
+        // to the screen — or into the shared framebuffer
+        // at display size when the LCD grid is on, so the
+        // grid pass can layer over it (drawReconGrid
+        // below). The shared FBO is free here: the chain
+        // and edge paths never run while recon is on, and
+        // the edge path already uses it at display size.
+        // A failed grid program or framebuffer degrades
+        // to the recon without the grid, never to plain —
+        // the reconstruction works, only its overlay
+        // failed. The source is texB (a framebuffer
+        // texture), so V flips (uFlipV 1), as in the
+        // chain's grid pass and the edge pass's blit.
+        val gridOn = reconGrid && gridProgram != 0 && ensureFbo(viewW, viewH)
+        GLES20.glBindFramebuffer(
+            GLES20.GL_FRAMEBUFFER,
+            if (gridOn) fboId else 0,
+        )
         GLES20.glViewport(0, 0, viewW, viewH)
         GLES20.glUseProgram(reconBProgram)
         GLES20.glUniform1f(uniform(reconBProgram, "uFlipV"), if (RECON_B_FLIP_V) 1f else 0f)
@@ -627,8 +653,57 @@ class DisplayRenderer : GLSurfaceView.Renderer {
         GLES20.glActiveTexture(GLES20.GL_TEXTURE0)
         GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, reconTexBId)
         drawQuad(reconBProgram)
+        if (gridOn) drawReconGrid()
         // The dev-stats readout: the reconstruction drew.
         lastDrawPath = DrawPath.RECON_GBC
+    }
+
+    /**
+     * The LCD grid on top of the reconstruction (Robert,
+     * 2026-11-14): GRID_FRAGMENT after Pass B, screen
+     * space, so it cannot inherit the flip — the source
+     * is the Pass-B framebuffer, so V flips (uFlipV 1),
+     * as in the chain's grid pass. The pitch comes from
+     * uTexSize (the frame: 160x144 GB/GBC, 240x160 GBA),
+     * so it adapts per system with no per-system work;
+     * the mode follows the system (TFT lines for GBC /
+     * GBA, dot-matrix for GB, as in the chain). The
+     * strength is the specified 15%
+     * (RECON_GRID_STRENGTH) — a starting value for
+     * Robert to judge on device, not a slider. No
+     * optics here (recon precedent) and no second Worm
+     * Light pool — the pool already rode on Pass B, so
+     * the intensity here is forced to 0 (the geometry
+     * uniforms still go through setWormLightUniforms,
+     * so the radii are valid and the 0 cannot meet a
+     * NaN). The grid fragment flips the pool centre's y
+     * inline, as it does for the chain — its source is
+     * always a framebuffer.
+     */
+    private fun drawReconGrid() {
+        GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, 0)
+        GLES20.glViewport(0, 0, viewW, viewH)
+        GLES20.glUseProgram(gridProgram)
+        GLES20.glUniform1f(uniform(gridProgram, "uFlipV"), 1f)
+        GLES20.glUniform1i(uniform(gridProgram, "uTex"), 0)
+        GLES20.glUniform2f(
+            uniform(gridProgram, "uTexSize"),
+            frameW.toFloat(),
+            frameH.toFloat(),
+        )
+        GLES20.glUniform1i(
+            uniform(gridProgram, "uGridMode"),
+            if (reconSystem == GameSystem.GB) 0 else 1,
+        )
+        GLES20.glUniform1f(uniform(gridProgram, "uGridStrength"), DisplayShaders.RECON_GRID_STRENGTH)
+        GLES20.glUniform1f(uniform(gridProgram, "uBrightness"), 1f)
+        GLES20.glUniform1f(uniform(gridProgram, "uContrast"), 1f)
+        GLES20.glUniform1f(uniform(gridProgram, "uGamma"), 1f)
+        setWormLightUniforms(gridProgram)
+        GLES20.glUniform1f(uniform(gridProgram, "uWlIntensity"), 0f)
+        GLES20.glActiveTexture(GLES20.GL_TEXTURE0)
+        GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, fboTextureId)
+        drawQuad(gridProgram)
     }
 
     /**
