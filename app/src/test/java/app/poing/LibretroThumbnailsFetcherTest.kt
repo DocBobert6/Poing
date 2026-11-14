@@ -51,7 +51,10 @@ class LibretroThumbnailsFetcherTest {
         assertTrue(temp.root.resolve("art-index-gb.txt").isFile)
         val second = fetcher.fetch(game("TETRIS", "tetris.gb", GameSystem.GB))
         assertEquals("art-bytes", second?.decodeToString())
-        assertEquals(2, calls) // the index came from the in-memory cache, not disk or network
+        // Still 3: the second fetch re-downloads the art (the
+        // fetcher caches the index, not art bytes) but makes no
+        // second index call — a re-downloaded index would be 4.
+        assertEquals(3, calls)
     }
 
     @Test
