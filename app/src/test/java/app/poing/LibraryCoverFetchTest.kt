@@ -19,6 +19,7 @@ import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.Shadows
 import org.robolectric.annotation.Config
+import org.robolectric.shadows.ShadowNetworkCapabilities
 import org.robolectric.shadows.ShadowNetworkInfo
 
 /**
@@ -91,13 +92,15 @@ class LibraryCoverFetchTest {
             ),
         )
         val network = manager.activeNetwork ?: error("no active network after Wi-Fi setup")
-        shadow.setNetworkCapabilities(
-            network,
-            NetworkCapabilities.Builder()
-                .addTransportType(NetworkCapabilities.TRANSPORT_WIFI)
-                .addCapability(NetworkCapabilities.NET_CAPABILITY_NOT_METERED)
-                .build(),
-        )
+        // Capabilities are built through the shadow:
+        // NetworkCapabilities' Builder and mutators are @hide,
+        // not in the SDK stub, so app code cannot build one
+        // directly — the shadow is exactly what it is for.
+        val caps = ShadowNetworkCapabilities.newInstance()
+        val shadowCaps: ShadowNetworkCapabilities = Shadows.shadowOf(caps)
+        shadowCaps.addTransportType(NetworkCapabilities.TRANSPORT_WIFI)
+        shadowCaps.addCapability(NetworkCapabilities.NET_CAPABILITY_NOT_METERED)
+        shadow.setNetworkCapabilities(network, caps)
         shadow.networkCallbacks.single().onAvailable(network)
         // The fetch runs and the tile shows the cover — with no
         // scroll, tap or other interaction in between.
