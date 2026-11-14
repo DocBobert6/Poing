@@ -390,10 +390,18 @@ object DisplayShaders {
      * detects hard sprite edges and fills intermediate
      * anti-aliased pixels along them, so a diagonal reads as
      * a clean line instead of a staircase — and it runs at
-     * the frame's native size into the offscreen framebuffer
-     * (the renderer binds the FBO for this pass), so every
-     * sample is texel-aligned and the smoothing never blurs
-     * across the grid. Pass 2 is the plain blit (edge only)
+     * the DISPLAY size into the offscreen framebuffer (the
+     * renderer binds the FBO at the view size for this
+     * pass). That placement is the whole point: at the
+     * frame's native size every fragment sat at a texel
+     * centre (sub 0.5, 0.5), the boundary weight was
+     * exactly 0 everywhere, and the shader output its input
+     * unchanged — a no-op on any game (Robert's V-Rally 3
+     * screenshots, 2026-11-14). At display size each screen
+     * pixel lands at a real sub-texel position, so the
+     * weight grows toward the texel boundary; the centre
+     * of a texel still stays its own colour, so flat areas
+     * stay crisp. Pass 2 is the plain blit (edge only)
      * or the light grid (the combined mode).
      *
      * The result is very clean, sharp pixel art — NOT

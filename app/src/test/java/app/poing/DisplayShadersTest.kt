@@ -280,11 +280,14 @@ class DisplayShadersTest {
         // detail preservation; (3) the text / UI bypass;
         // (4) palette snap-back — the GB 4-shade snap and the
         // 15-bit quantize; (5) motion-adaptive (uMotion);
-        // (6) grid-aligned — the pass samples texel-aligned
-        // (fract of vTex * uTexSize) at native size; (7)
-        // subpixel-aware for GBA (uSubpixel); (8) per-system
-        // parameters as uniforms (uDitherTol, uEdgeLo,
-        // uEdgeHi, uBlendMax).
+        // (6) grid-aligned — the pass runs at display size
+        // (the fix for the 2026-11-14 no-op: at native size
+        // every fragment sat at a texel centre and the
+        // boundary weight was exactly 0), so fragments land
+        // between texel centres (fract of vTex * uTexSize);
+        // (7) subpixel-aware for GBA (uSubpixel); (8)
+        // per-system parameters as uniforms (uDitherTol,
+        // uEdgeLo, uEdgeHi, uBlendMax).
         val src = DisplayShaders.EDGE_FRAGMENT
         assertTrue(src.contains("uTexSize"))
         assertTrue(src.contains("uDitherTol"))

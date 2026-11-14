@@ -436,19 +436,31 @@ class DisplayRenderer : GLSurfaceView.Renderer {
 
     /**
      * Phase 9 — edge smoothing, two passes. Pass 1 runs the
-     * edge shader at the frame's native size into the
-     * offscreen framebuffer, so every sample is
-     * texel-aligned and the smoothing never blurs across
-     * the grid. Pass 2 is the plain blit (edge only) or the
-     * light grid over the smoothed frame (the combined
-     * mode) — edge + light grid only, never the colour pass.
-     * The combined mode's grid is the same grid the chains
-     * draw (dot-matrix for GB, TFT lines for GBC / GBA), at
-     * the same scale-aware strength; the room light rides
-     * with it, as it does on the chains.
+     * edge shader at the DISPLAY size into the offscreen
+     * framebuffer — the fix for the 2026-11-14 no-op
+     * (Robert's V-Rally 3 screenshots): at the frame's
+     * native size every fragment sat at a texel centre
+     * (sub 0.5, 0.5), so the boundary weight wAlong was
+     * exactly 0 everywhere and the shader output its input
+     * unchanged on any game. At display size each screen
+     * pixel lands at a real sub-texel position, so the
+     * weight grows toward the texel boundary and the
+     * smoothing actually happens — while the centre of a
+     * texel still stays its own colour (wAlong 0 at sub
+     * 0.5), so flat areas stay crisp. Pass 2 is the plain
+     * blit (edge only) or the light grid over the smoothed
+     * frame (the combined mode) — edge + light grid only,
+     * never the colour pass. The combined mode's grid is
+     * the same grid the chains draw (dot-matrix for GB,
+     * TFT lines for GBC / GBA), at the same scale-aware
+     * strength; the room light rides with it, as it does
+     * on the chains. The pass-2 grid still reads the
+     * native texel grid (uTexSize is the frame size), so
+     * the grid stays aligned to the texels even though
+     * pass 1 runs at display size.
      */
     private fun drawEdge() {
-        if (!ensureFbo(frameW, frameH)) {
+        if (!ensureFbo(viewW, viewH)) {
             drawPlain()
             return
         }
@@ -458,7 +470,7 @@ class DisplayRenderer : GLSurfaceView.Renderer {
         )
         val params = EdgeSmoothing.edgeParamsFor(edgeSystem, displayScale)
         GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, fboId)
-        GLES20.glViewport(0, 0, frameW, frameH)
+        GLES20.glViewport(0, 0, viewW, viewH)
         GLES20.glUseProgram(edgeProgram)
         GLES20.glUniform1f(uniform(edgeProgram, "uFlipV"), 0f)
         GLES20.glUniform1i(uniform(edgeProgram, "uTex"), 0)

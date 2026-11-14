@@ -43,12 +43,16 @@ package app.poing
  *    off, and it restores when still. The easing rises fast
  *    and decays slow, so the blend weight never wobbles.
  * 6. Grid-aligned smoothing — the edge pass runs at the
- *    frame's native size into the offscreen framebuffer
- *    (pass 1), so every sample is texel-aligned; the blend
- *    weight grows toward the texel boundary and the centre
- *    of a texel stays its own colour. Nothing here ever
- *    blurs across the grid — the grid pass (pass 2) is
- *    separate, as in the chains.
+ *    DISPLAY size into the offscreen framebuffer (pass 1),
+ *    so each screen pixel lands at a real sub-texel
+ *    position: the blend weight grows toward the texel
+ *    boundary and the centre of a texel stays its own
+ *    colour. At the frame's native size every fragment sat
+ *    at a texel centre and the weight was exactly 0
+ *    everywhere — the shader was a no-op (Robert's V-Rally
+ *    3 screenshots, 2026-11-14). The grid pass (pass 2)
+ *    stays separate and still reads the native texel grid,
+ *    as in the chains.
  * 7. Subpixel-aware for GBA — on a vertical edge the blend
  *    runs horizontally, and each channel blends at its own
  *    subpixel offset (the AGB panel is BGR: blue first from
