@@ -124,14 +124,26 @@ class WormLightOverlayTest {
         // onDragEnd — detectDragGestures only calls onDragEnd
         // after the touch slop is exceeded — so this test is
         // also the regression test for the toggle living on
-        // both ends.)
+        // both ends.) The drag head's aimMode flag is probed
+        // directly: it proves the tap toggled aim mode, so a
+        // rotation miss reads as a swipe-angle miss, not a
+        // toggle miss. The rotation tolerance is 0.15, not
+        // exact: the swipe's final move lands within a few px
+        // of straight down, and near straight down a few px
+        // sideways swings the angle — the exact angle is
+        // pinned by the pure geometry test instead
+        // (aimAngleSetsTheLensAndThePool).
         var reported: WormLightPool? = null
+        var sawAimHead = false
         composeRule.setContent {
             PoingTheme {
                 Box(Modifier.size(300.dp, 200.dp)) {
                     WormLightOverlay(
                         enabled = true,
                         onPoolChange = { reported = it },
+                        onDragHeadChange = {
+                            if (it?.aimMode == true) sawAimHead = true
+                        },
                     )
                 }
             }
@@ -144,15 +156,18 @@ class WormLightOverlayTest {
         }
         composeRule.waitForIdle()
         // Drag down from beside the head: in aim mode the
-        // press need not start on the head.
+        // press need not start on the head. The drag runs
+        // 90px down, so a few px of endpoint slack still
+        // leaves the angle near straight down.
         composeRule.onNodeWithTag("worm-light").performTouchInput {
-            swipe(head + Offset(40f, 0f), head + Offset(0f, 60f))
+            swipe(head + Offset(60f, 0f), head + Offset(0f, 90f))
         }
         composeRule.waitForIdle()
+        assertTrue("the tap should have toggled aim mode", sawAimHead)
         val pool = reported
         assertTrue("the overlay should report its pool", pool != null)
         pool!!
-        assertEquals(1.57f, pool.rotationRad, 0.05f)
+        assertEquals(1.57f, pool.rotationRad, 0.15f)
         assertEquals(0.5f, pool.center.x, 0.01f)
         assertEquals(0.20f, pool.center.y, 0.01f)
     }
