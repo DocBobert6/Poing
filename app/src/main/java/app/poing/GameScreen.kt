@@ -596,7 +596,7 @@ fun GameScreen(
                 modifier = Modifier
                     .weight(1f)
                     .fillMaxWidth()
-                    .onGloballyPositioned { playerTopPx = it.positionInRoot().y }
+                    .onGloballyPositioned { playerTopPx = it.boundsInRoot().top }
                     .testTag("player-area"),
             ) {
                 GameDisplayView(
