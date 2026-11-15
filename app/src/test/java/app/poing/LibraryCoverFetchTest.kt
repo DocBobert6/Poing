@@ -9,7 +9,9 @@ import android.util.Base64
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithContentDescription
+import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.performClick
 import androidx.test.core.app.ApplicationProvider
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
@@ -56,6 +58,45 @@ class LibraryCoverFetchTest {
             .addRom(GameSystemTest.fakeGbHeader(0x00, "TETRIS"), "tetris.gb")
     }
 
+    /** Wi-Fi appears: the shadow network becomes the active one, unmetered. */
+    private fun setWifiOn() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val manager = context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+        val shadow = Shadows.shadowOf(manager)
+        shadow.setActiveNetworkInfo(
+            ShadowNetworkInfo.newInstance(
+                NetworkInfo.DetailedState.CONNECTED,
+                ConnectivityManager.TYPE_WIFI,
+                0,
+                true,
+                true,
+            ),
+        )
+        val network = manager.activeNetwork ?: error("no active network after Wi-Fi setup")
+        // Capabilities are built through the shadow:
+        // NetworkCapabilities' Builder and mutators are @hide,
+        // not in the SDK stub, so app code cannot build one
+        // directly — the shadow is exactly what it is for.
+        val caps = ShadowNetworkCapabilities.newInstance()
+        val shadowCaps: ShadowNetworkCapabilities = Shadows.shadowOf(caps)
+        shadowCaps.addTransportType(NetworkCapabilities.TRANSPORT_WIFI)
+        shadowCaps.addCapability(NetworkCapabilities.NET_CAPABILITY_NOT_METERED)
+        shadow.setNetworkCapabilities(network, caps)
+    }
+
+    /** Fire the watcher's network event and advance past its 3s debounce. */
+    private fun fireWifiAvailable() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val manager = context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+        val shadow = Shadows.shadowOf(manager)
+        val network = manager.activeNetwork ?: error("no active network after Wi-Fi setup")
+        shadow.networkCallbacks.single().onAvailable(network)
+        // The watcher debounces network events (3s) — advance
+        // the main looper past the debounce so the gate check runs.
+        Shadows.shadowOf(Looper.getMainLooper())
+            .idle(ConnectivityWatcher.DEBOUNCE_MS, TimeUnit.MILLISECONDS)
+    }
+
     @Test
     fun coverAppearsWhenWifiArrivesWhileLibraryIsOpen() {
         seedGame()
@@ -81,33 +122,8 @@ class LibraryCoverFetchTest {
         // Wi-Fi appears while the library is open: the shadow
         // network becomes the active one, unmetered, and the
         // registered NetworkCallback fires.
-        val context = ApplicationProvider.getApplicationContext<Context>()
-        val manager = context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
-        val shadow = Shadows.shadowOf(manager)
-        shadow.setActiveNetworkInfo(
-            ShadowNetworkInfo.newInstance(
-                NetworkInfo.DetailedState.CONNECTED,
-                ConnectivityManager.TYPE_WIFI,
-                0,
-                true,
-                true,
-            ),
-        )
-        val network = manager.activeNetwork ?: error("no active network after Wi-Fi setup")
-        // Capabilities are built through the shadow:
-        // NetworkCapabilities' Builder and mutators are @hide,
-        // not in the SDK stub, so app code cannot build one
-        // directly — the shadow is exactly what it is for.
-        val caps = ShadowNetworkCapabilities.newInstance()
-        val shadowCaps: ShadowNetworkCapabilities = Shadows.shadowOf(caps)
-        shadowCaps.addTransportType(NetworkCapabilities.TRANSPORT_WIFI)
-        shadowCaps.addCapability(NetworkCapabilities.NET_CAPABILITY_NOT_METERED)
-        shadow.setNetworkCapabilities(network, caps)
-        shadow.networkCallbacks.single().onAvailable(network)
-        // The watcher debounces network events (3s) — advance
-        // the main looper past the debounce so the gate check runs.
-        Shadows.shadowOf(Looper.getMainLooper())
-            .idle(ConnectivityWatcher.DEBOUNCE_MS, TimeUnit.MILLISECONDS)
+        setWifiOn()
+        fireWifiAvailable()
         // The fetch runs and the tile shows the cover — with no
         // scroll, tap or other interaction in between.
         composeRule.waitUntil(timeoutMillis = 10_000) {
@@ -121,5 +137,51 @@ class LibraryCoverFetchTest {
         }
         assertTrue("the fetcher must run once Wi-Fi appears", calls.get() >= 1)
         composeRule.onNodeWithText("TETRIS").assertExists()
+    }
+
+    @Test
+    fun statusShowsIndexFailureAndRetryRunsAgain() {
+        // The diagnostic (2026-11-15): a failed index download
+        // used to leave blank tiles with no reason anywhere.
+        // The status line names the failure, and Retry re-runs
+        // the pass — the index is re-attempted, not memoized
+        // across passes.
+        seedGame()
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val treeCalls = AtomicInteger(0)
+        val httpGet: (String, Int) -> HttpFetchResult = { url, _ ->
+            if (url.contains("git/trees")) {
+                treeCalls.incrementAndGet()
+                HttpFetchResult.httpFailure(403)
+            } else {
+                HttpFetchResult.success(TINY_PNG)
+            }
+        }
+        val fetcher = LibretroThumbnailsFetcher(context.filesDir, httpGet)
+        setWifiOn()
+        composeRule.setContent {
+            LibraryScreen(
+                notice = null,
+                onPlay = {},
+                onLicences = {},
+                onSettings = {},
+                coverFetcher = fetcher,
+            )
+        }
+        composeRule.waitForText("TETRIS")
+        composeRule.waitUntil(timeoutMillis = 10_000) {
+            try {
+                composeRule.onNodeWithText("HTTP 403", substring = true).assertExists()
+                true
+            } catch (_: AssertionError) {
+                false
+            }
+        }
+        assertEquals(1, treeCalls.get())
+        composeRule.onNodeWithTag("cover-art-status").assertExists()
+        // Retry re-runs the pass: the index is attempted again.
+        composeRule.onNodeWithTag("cover-art-retry").performClick()
+        composeRule.waitUntil(timeoutMillis = 10_000) { treeCalls.get() == 2 }
+        composeRule.onNodeWithText("HTTP 403", substring = true).assertExists()
     }
 }

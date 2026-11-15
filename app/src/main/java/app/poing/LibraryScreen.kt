@@ -85,7 +85,14 @@ fun LibraryScreen(
     val store = remember { LibraryStore(context.filesDir) }
     val bios = remember { BiosStore(context.filesDir) }
     val art = remember {
-        CoverArtStore(context.filesDir, coverFetcher ?: LibretroThumbnailsFetcher(context.filesDir))
+        val fetcher = coverFetcher ?: LibretroThumbnailsFetcher(context.filesDir)
+        val artStore = CoverArtStore(context.filesDir, fetcher)
+        // The diagnostic (2026-11-15): the fetcher's events
+        // feed the store's visible status, so the library shows
+        // the gate, the index states and the last failure —
+        // a failed fetch used to leave nothing but blank tiles.
+        if (fetcher is LibretroThumbnailsFetcher) fetcher.onEvent = artStore::applyEvent
+        artStore
     }
     // Phase 6 (item 5) — playtime totals for the rows; the store
     // is re-read on refresh so a finished session's banked time
@@ -156,6 +163,11 @@ fun LibraryScreen(
     // not lost.
     var coversVersion by remember { mutableStateOf(0) }
     var connectivityVersion by remember { mutableStateOf(0) }
+    // The diagnostic (2026-11-15): Retry re-runs the fetch
+    // pass on demand — a pass that lands nothing used to leave
+    // no retry until the library was re-entered or the network
+    // flapped, and a silent failure gave no reason to retry.
+    var coverRetryVersion by remember { mutableStateOf(0) }
     val fetchGuard = remember { AtomicBoolean(false) }
     val fetchPending = remember { AtomicBoolean(false) }
     DisposableEffect(Unit) {
@@ -171,7 +183,7 @@ fun LibraryScreen(
         watcher.start()
         onDispose { watcher.stop() }
     }
-    LaunchedEffect(games, connectivityVersion, coversVersion) {
+    LaunchedEffect(games, connectivityVersion, coversVersion, coverRetryVersion) {
         if (!fetchGuard.compareAndSet(false, true)) {
             fetchPending.set(true)
             return@LaunchedEffect
@@ -184,16 +196,19 @@ fun LibraryScreen(
                 // toggle change takes effect on the next entry.
                 val allowMobileData =
                     AppSettingsStore(context.filesDir).coverArtMobileDataAllowed()
+                val gate = coverArtGateState(context, allowMobileData)
+                art.noteGate(gate)
                 val didLand = fetchMissingCovers(
                     art,
                     games,
-                    isCoverArtNetworkAvailable(context, allowMobileData),
+                    gate == CoverArtGate.OPEN,
                 )
                 // Decode on IO: existing covers + newly landed
                 // ones. Already-decoded and failed decodes are
                 // no-ops in the store, so a later pass costs
                 // nothing for the covers it already holds.
                 for (game in games) art.decodeIntoCache(game)
+                art.noteCounts(games.size, games.count { art.hasCover(it) })
                 didLand
             }
             if (landed) coversVersion++
@@ -397,6 +412,37 @@ fun LibraryScreen(
                 ViewTab("Grid", libraryView == LibraryView.GRID) {
                     libraryView = LibraryView.GRID
                     AppSettingsStore(context.filesDir).setLibraryView(LibraryView.GRID)
+                }
+            }
+        }
+        item(span = { GridItemSpan(maxLineSpan) }) {
+            // The cover-art status (2026-11-15): what the fetch
+            // is doing, or why it is not — the gate, the index
+            // states, the last failure. Cover art used to fail
+            // silently with blank tiles and no reason anywhere.
+            // Retry re-runs the pass on demand: a pass that
+            // lands nothing otherwise leaves no retry until the
+            // library is re-entered or the network flaps.
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    coverArtStatusLine(art.status.value),
+                    modifier = Modifier
+                        .weight(1f)
+                        .testTag("cover-art-status"),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                TextButton(
+                    onClick = { coverRetryVersion++ },
+                    modifier = Modifier.testTag("cover-art-retry"),
+                ) {
+                    Text("Retry")
                 }
             }
         }

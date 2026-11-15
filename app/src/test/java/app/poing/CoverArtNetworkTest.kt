@@ -4,6 +4,7 @@ import android.content.Context
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import androidx.test.core.app.ApplicationProvider
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -74,5 +75,47 @@ class CoverArtNetworkTest {
         Shadows.shadowOf(manager()).setDefaultNetworkActive(false)
         assertFalse(isCoverArtNetworkAvailable(context(), allowMobileData = false))
         assertFalse(isCoverArtNetworkAvailable(context(), allowMobileData = true))
+    }
+
+    @Test
+    fun gateStateNamesTheReason() {
+        // The diagnostic (2026-11-15): the Boolean gate
+        // answers "may it fetch"; the gate state answers
+        // "why not", for the library's status line.
+        val wifi = listOf(NetworkCapabilities.TRANSPORT_WIFI)
+        val unmetered = listOf(NetworkCapabilities.NET_CAPABILITY_NOT_METERED)
+        assertEquals(
+            CoverArtGate.OPEN,
+            gateStateWith(wifi, unmetered, allowMobileData = false),
+        )
+        assertEquals(
+            CoverArtGate.METERED_NO_OPT_IN,
+            gateStateWith(wifi, emptyList(), allowMobileData = false),
+        )
+        assertEquals(
+            CoverArtGate.OPEN,
+            gateStateWith(wifi, emptyList(), allowMobileData = true),
+        )
+        Shadows.shadowOf(manager()).setDefaultNetworkActive(false)
+        assertEquals(
+            CoverArtGate.NO_NETWORK,
+            coverArtGateState(context(), allowMobileData = true),
+        )
+    }
+
+    /** The gate state for these capabilities (same harness as [gateWith]). */
+    private fun gateStateWith(
+        transports: List<Int>,
+        capabilities: List<Int>,
+        allowMobileData: Boolean,
+    ): CoverArtGate {
+        val shadow = Shadows.shadowOf(manager())
+        val network = manager().activeNetwork ?: error("no active network under Robolectric")
+        val caps = ShadowNetworkCapabilities.newInstance()
+        val shadowCaps: ShadowNetworkCapabilities = Shadows.shadowOf(caps)
+        for (transport in transports) shadowCaps.addTransportType(transport)
+        for (capability in capabilities) shadowCaps.addCapability(capability)
+        shadow.setNetworkCapabilities(network, caps)
+        return coverArtGateState(context(), allowMobileData)
     }
 }

@@ -110,4 +110,48 @@ class CoverArtTest {
         art.decodeIntoCache(game())
         assertTrue(art.coverBitmaps.isEmpty())
     }
+
+    @Test
+    fun statusLineNamesTheFailure() {
+        // The diagnostic (2026-11-15): a failed fetch leaves
+        // its reason on the library's status line instead of
+        // blank tiles with nothing anywhere.
+        val art = CoverArtStore(temp.root)
+        art.noteGate(CoverArtGate.OPEN)
+        art.applyEvent(CoverArtFetchEvent.IndexFailed(GameSystem.GB, "HTTP 403"))
+        art.noteCounts(totalGames = 10, haveCovers = 0)
+        val line = coverArtStatusLine(art.status.value)
+        assertTrue(line.contains("0/10 covers"))
+        assertTrue(line.contains("Wi-Fi OK"))
+        assertTrue(line.contains("gb index failed (HTTP 403)"))
+    }
+
+    @Test
+    fun statusLineShowsMeteredGate() {
+        val art = CoverArtStore(temp.root)
+        art.noteGate(CoverArtGate.METERED_NO_OPT_IN)
+        art.noteCounts(totalGames = 3, haveCovers = 0)
+        val line = coverArtStatusLine(art.status.value)
+        assertTrue(line.contains("metered Wi-Fi — mobile data off"))
+    }
+
+    @Test
+    fun beginPassResetsCountsButKeepsIndexStates() {
+        val art = CoverArtStore(temp.root)
+        art.applyEvent(CoverArtFetchEvent.IndexLoaded(GameSystem.GB, 1647, fromCache = false))
+        art.applyEvent(CoverArtFetchEvent.ArtLanded(game()))
+        art.applyEvent(CoverArtFetchEvent.ArtFailed(game(), "HTTP 404"))
+        assertEquals(1, art.status.value.landedThisPass)
+        assertEquals(1, art.status.value.failedThisPass)
+        art.beginPass()
+        assertEquals(0, art.status.value.landedThisPass)
+        assertEquals(0, art.status.value.failedThisPass)
+        assertTrue(art.status.value.fetching)
+        // The index state stays: the next pass does not
+        // re-download what the last one already loaded.
+        assertEquals(
+            CoverIndexStatus.Downloaded(1647),
+            art.status.value.indexes[GameSystem.GB],
+        )
+    }
 }
