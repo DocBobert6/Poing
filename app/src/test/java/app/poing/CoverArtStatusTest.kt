@@ -100,11 +100,12 @@ class CoverArtStatusTest {
             GameSystem.GBA to IndexState.Failed("timed out"),
         )
         val line = coverArtStatusLine(covers, indexes, CoverArtGate.OPEN, games)
-        // The idle branch carries no failed count; the
-        // failures are named, not counted.
+        // The idle branch carries no failed count and no
+        // "first failure:" label — the first failure is
+        // appended bare after the index states.
         assertEquals(
             "Cover art: 0/2 covers · Wi-Fi OK · gba index failed (timed out) " +
-                "· first failure: index gba: timed out",
+                "· index gba: timed out",
             line,
         )
     }
