@@ -634,11 +634,18 @@ class DisplayRenderer : GLSurfaceView.Renderer {
         )
         GLES20.glUniform1f(uniform(reconA1Program, "uDitherTol"), params.ditherTol)
         // The colour-fold mode and LUT row follow the
-        // system: GBC is mode 2 (Prism), LUT row 0; GBA is
-        // mode 3 (Dusk), LUT row 1 (Task 7). GB gets its
-        // mode in Task 5. The LUT is already uploaded on
+        // system: GB is mode 0 (Jade FSTN) or 1 (Jade
+        // pass-through, for the DMG green and coloured
+        // SGB palettes — the palette as the core rendered
+        // it, as in the chain); GBC is mode 2 (Prism),
+        // LUT row 0; GBA is mode 3 (Dusk), LUT row 1
+        // (Task 7). The LUT is already uploaded on
         // unit 1 for the chains, as in the edge pass.
-        val reconColourMode = if (reconSystem == GameSystem.GBA) 3 else 2
+        val reconColourMode = when (reconSystem) {
+            GameSystem.GB -> if (jadeMode == JadeMode.FSTN) 0 else 1
+            GameSystem.GBC -> 2
+            GameSystem.GBA -> 3
+        }
         val reconGammaRow = if (reconSystem == GameSystem.GBA) 1f else 0f
         GLES20.glUniform1i(uniform(reconA1Program, "uMode"), reconColourMode)
         if (gammaLutTextureId != 0) {
@@ -674,6 +681,7 @@ class DisplayRenderer : GLSurfaceView.Renderer {
         GLES20.glUniform1f(uniform(reconA2Program, "uDitherGuardHi"), params.ditherGuardHi)
         GLES20.glUniform1f(uniform(reconA2Program, "uTextAlign"), params.textAlign)
         GLES20.glUniform1f(uniform(reconA2Program, "uEdgeLo"), params.edgeLo)
+        GLES20.glUniform1f(uniform(reconA2Program, "uTextStroke"), if (params.textStroke) 1f else 0f)
         GLES20.glActiveTexture(GLES20.GL_TEXTURE0)
         GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, reconTexAId)
         GLES20.glActiveTexture(GLES20.GL_TEXTURE1)
@@ -726,9 +734,13 @@ class DisplayRenderer : GLSurfaceView.Renderer {
         drawQuad(reconBProgram)
         if (gridOn) drawReconGrid()
         // The dev-stats readout: the reconstruction drew —
-        // the token names the system (Task 7: GBA reads
-        // "recon-gba").
-        lastDrawPath = if (reconSystem == GameSystem.GBA) DrawPath.RECON_GBA else DrawPath.RECON_GBC
+        // the token names the system (Task 5: GB reads
+        // "recon-gb"; GBC "recon-gbc", GBA "recon-gba").
+        lastDrawPath = when (reconSystem) {
+            GameSystem.GB -> DrawPath.RECON_GB
+            GameSystem.GBC -> DrawPath.RECON_GBC
+            GameSystem.GBA -> DrawPath.RECON_GBA
+        }
     }
 
     /**

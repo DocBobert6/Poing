@@ -137,6 +137,32 @@ class EdgeSmoothingTest {
     }
 
     @Test
+    fun resolveTurnsChainAndEdgeOffWhenGbReconIsOn() {
+        // Task 5 — the GB reconstruction resolves exactly
+        // like the GBC/GBA ones: chain off AND edge off, and the
+        // mode it carries is GB, not GBC.
+        val r = EdgeSmoothing.resolve(
+            DisplayChain.JADE, true, EdgeMode.EDGE_GRID, ReconMode.GB,
+        )
+        assertEquals(DisplayChain.CLEAN, r.chain)
+        assertEquals(EdgeMode.OFF, r.edge)
+        assertEquals(ReconMode.GB, r.recon)
+    }
+
+    @Test
+    fun textStrokeTestIsGbOnlyForNow() {
+        // Task 5 — the stroke-width text test ships GB-only:
+        // GB's engine carries it from the start, and the
+        // perfection pass enables it for GBC/GBA with its
+        // own sim coverage. The gate is the per-system
+        // EdgeParams flag, read by the renderer as the
+        // uTextStroke uniform.
+        assertTrue(EdgeSmoothing.edgeParamsFor(GameSystem.GB).textStroke)
+        assertFalse(EdgeSmoothing.edgeParamsFor(GameSystem.GBC).textStroke)
+        assertFalse(EdgeSmoothing.edgeParamsFor(GameSystem.GBA).textStroke)
+    }
+
+    @Test
     fun resolveReconOffLeavesTheEdgeRuleUnchanged() {
         // Recon off is exactly the old three-argument
         // resolve: edge on still turns the chain off, edge

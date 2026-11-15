@@ -33,7 +33,10 @@ enum class DrawPath {
     RECON_GBC,
 
     /** Task 7 — the GBA reconstruction (Pass A + Pass B). */
-    RECON_GBA;
+    RECON_GBA,
+
+    /** Task 5 — the GB dither reconstruction (Pass A + Pass B). */
+    RECON_GB;
 
     /**
      * The token for the diagnostic line. The fallback
@@ -49,6 +52,7 @@ enum class DrawPath {
         EDGE_GRID -> "edge+grid"
         RECON_GBC -> "recon-gbc"
         RECON_GBA -> "recon-gba"
+        RECON_GB -> "recon-gb"
         CHAIN -> "chain"
         PLAIN -> when {
             reconOn -> "plain (recon fell back)"

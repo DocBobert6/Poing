@@ -136,13 +136,15 @@ enum class EdgeMode {
  * Task 6 (2026-11-14) — DLSS-in-spirit reconstruction:
  * the quality path, against the edge mode's fast path.
  * One engine, three per-system configurations; Task 6
- * ships GBC, Task 7 adds GBA (GB gets its mode in
- * Task 5 — do not add an unwired mode here). Off by
+ * ships GBC, Task 7 adds GBA, Task 5 adds GB. Off by
  * default, never the default, and never stacked with
  * the chains or the edge mode (see [EdgeSmoothing.resolve]).
  */
 enum class ReconMode {
     OFF,
+
+    /** GB dither reconstruction (Task 5). */
+    GB,
 
     /** GBC colour reconstruction (Task 6). */
     GBC,
@@ -181,6 +183,15 @@ data class EdgeParams(
      *  item 4): GB adjacent pairs sit at 0.22-0.32 and
      *  0-2 skips at 0.54-0.62, extremes at 0.84-0.93. */
     val ditherGuardHi: Float,
+    /** The stroke-width text test (Task 5 — GB only for
+     *  now): a thick uniform run along the normal marks a
+     *  glyph texel as text, so large title glyphs are
+     *  never line-reconstructed. False for GBC / GBA until
+     *  the reconstruction perfection pass enables it there
+     *  — the large-title defect it fixes was proven on GBA
+     *  / GBC titles, and enabling it there needs that
+     *  pass's sim coverage. */
+    val textStroke: Boolean,
 )
 
 /** The display actually in effect, after the exclusivity rule. */
@@ -242,9 +253,9 @@ object EdgeSmoothing {
      */
     fun edgeParamsFor(system: GameSystem): EdgeParams {
         return when (system) {
-            GameSystem.GB -> EdgeParams(0.10f, 0.05f, 0.30f, 0.60f, false, 0.15f, 0.7f)
-            GameSystem.GBC -> EdgeParams(0.10f, 0.05f, 0.35f, 0.65f, true, 0.08f, 0.7f)
-            GameSystem.GBA -> EdgeParams(0.08f, 0.06f, 0.35f, 0.70f, true, 0.05f, 0.7f)
+            GameSystem.GB -> EdgeParams(0.10f, 0.05f, 0.30f, 0.60f, false, 0.15f, 0.7f, true)
+            GameSystem.GBC -> EdgeParams(0.10f, 0.05f, 0.35f, 0.65f, true, 0.08f, 0.7f, false)
+            GameSystem.GBA -> EdgeParams(0.08f, 0.06f, 0.35f, 0.70f, true, 0.05f, 0.7f, false)
         }
     }
 }

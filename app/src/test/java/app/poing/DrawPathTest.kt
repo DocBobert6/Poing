@@ -63,6 +63,15 @@ class DrawPathTest {
     }
 
     @Test
+    fun reconDrawsReadAsReconGb() {
+        // Task 5 — the GB token, so a GB recon frame is
+        // never misread as the GBC/GBA one on device.
+        assertEquals("recon-gb", DrawPath.RECON_GB.displayLabel(edgeOn = false))
+        assertEquals("recon-gb", DrawPath.RECON_GB.displayLabel(edgeOn = false, reconOn = true))
+        assertEquals("recon-gb", DrawPath.RECON_GB.displayLabel(edgeOn = true, reconOn = true))
+    }
+
+    @Test
     fun plainDrawsNameTheFallbackWhenReconWasRequested() {
         // Recon requested but plain delivered: the token
         // says so outright — never a quiet "plain".

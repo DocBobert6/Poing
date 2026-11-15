@@ -868,7 +868,8 @@ object DisplayShaders {
         // the corrected shades. GBC is mode 2 (Prism: the
         // SameBoy ramp, LUT row 0, then the mGBA matrix
         // x0.94); GBA is mode 3 (Dusk: the same fold, LUT
-        // row 1 — Task 7). GB gets its mode in Task 5.
+        // row 1 — Task 7). GB is mode 0 (Jade FSTN) or 1
+        // (Jade pass-through — Task 5).
         vec3 colourCorrect(vec3 col) {
           if (uMode == 0) {
             float luma = dot(col, vec3(0.299, 0.587, 0.114));
@@ -949,13 +950,22 @@ object DisplayShaders {
      * — field >= 0.3 — even when the guard blocks the
      * collapse, so a high-contrast dither texel is never
      * line-reconstructed as an edge), then text (UNGATED),
-     * then 1px. RGB is the field mean where the field test
+     * then the field guard (field >= 0.3 → dither, so a
+     * texel inside a dither field is dither, not text —
+     * Task 5, R5), then 1px. Field-only: a thin line's own
+     * texels are pattern texels but sit outside any field
+     * (the 1px outline's field peaks at 0.24), so they
+     * stay TEXT.
+     * RGB is the field mean where the field test
      * passes, else the 3x3 dither average where a pattern
      * texel passes the guard, else the centre's corrected
      * colour. The collapse is gated by the UNGATED text
      * bypass and the 1px test, exactly like the edge
      * pass's patternEff — a glyph texel that happens to
-     * look like a pattern texel keeps its own colour.
+     * look like a pattern texel keeps its own colour —
+     * except a texel that IS a pattern texel (pattern >
+     * 0.5), which is never protected by the text test
+     * (Task 5, R5: the field's own texels must collapse).
      *
      * The sim zeroes the 2-texel border of the collapse
      * masks (its np.roll windows WRAP at the frame edge);
@@ -974,6 +984,7 @@ object DisplayShaders {
         uniform float uDitherGuardHi;
         uniform float uTextAlign;
         uniform float uEdgeLo;
+        uniform float uTextStroke;
         float edgeLuma(vec3 c) {
           return dot(c, vec3(0.299, 0.587, 0.114));
         }
@@ -1111,19 +1122,92 @@ object DisplayShaders {
           float gy5 = (rN2 + rN2E + rN2W) - (rS2 + rS2E + rS2W);
           float axisAligned = step(min(abs(gx5), abs(gy5)), uTextAlign * max(abs(gx5), abs(gy5)) + 0.001);
           float text = step(0.5, lMax - lMin) * axisAligned;
+          // Stroke width (Task 5 — GB only, uTextStroke):
+          // a large glyph's stroke is flat ink, so walking
+          // from the centre texel along the normal (the
+          // dominant axis of the 5x5-ring gradient) the raw
+          // luma band over the run stays within 0.05 for
+          // the stroke's width. The run is the TOTAL
+          // contiguous run through the centre along the
+          // dominant axis (the sim's "total" form, cap 16):
+          // it must terminate on BOTH sides within the
+          // cap, and its total length must be 3..15 texels
+          // — a glyph stroke is 3–15 wide, so a flat run
+          // longer than 15 is not a stroke (the V-Rally
+          // car wheel's flat dark interior runs long, and
+          // the old max-form test fired there at 0.21).
+          // A thin edge breaks the run early, and a shaded
+          // / dithered sprite interior drifts out of the
+          // band, so the test does not fire there. Pass B
+          // already outputs nearest for text class, so
+          // this class assignment is the whole fix for
+          // large glyphs — no Pass B change.
+          float r0 = edgeLuma(texture2D(uRawTex, vTex).rgb);
+          float tolStroke = 0.05;
+          vec2 swDir = abs(gx5) > abs(gy5) ? vec2(texel.x, 0.0) : vec2(0.0, texel.y);
+          float swHiP = r0;
+          float swLoP = r0;
+          float swHiM = r0;
+          float swLoM = r0;
+          float runP = 0.0;
+          float runM = 0.0;
+          for (int k = 1; k <= 16; k++) {
+            float fk = float(k);
+            float vP = edgeLuma(texture2D(uRawTex, vTex + swDir * fk).rgb);
+            float vM = edgeLuma(texture2D(uRawTex, vTex - swDir * fk).rgb);
+            swHiP = max(swHiP, vP);
+            swLoP = min(swLoP, vP);
+            swHiM = max(swHiM, vM);
+            swLoM = min(swLoM, vM);
+            runP += step(swHiP - swLoP, tolStroke);
+            runM += step(swHiM - swLoM, tolStroke);
+          }
+          float termP = step(runP, 15.0);
+          float termM = step(runM, 15.0);
+          float total = runP + runM + 1.0;
+          float stroke = termP * termM * step(3.0, total) * step(total, 15.0) * step(0.5, lMax - lMin);
+          text = max(text, stroke * uTextStroke);
           // The collapse gates: the field test and the
           // pattern test both need the guard, and both are
-          // blocked by text or an isolated dot.
+          // blocked by text or an isolated dot — except a
+          // texel that is itself a pattern texel (pattern
+          // > 0.5): a dither field's own texels are never
+          // protected by the text test (Task 5, R5 — the
+          // one-directional text test fires on a
+          // high-contrast dither field, and the field
+          // would split half TEXT, half DITHER and only
+          // partly collapse). A glyph stroke texel has
+          // pattern ≈ 0, so it keeps its protection; a
+          // dither texel next to a glyph is a dither texel
+          // and collapses to the field mean, as it should.
           float guard = step(shadeDist, uDitherGuardHi);
-          float noCollapse = max(text, isolated);
+          float noCollapse = max(text * (1.0 - step(0.5, pattern)), isolated);
           float fieldOk = step(0.6, field) * guard * (1.0 - noCollapse);
           float patOk = step(0.5, pattern) * guard * (1.0 - noCollapse);
           // Class priority (later overrides win): edge,
-          // then dither, then text, then 1px.
+          // then dither, then text, then the field guard,
+          // then 1px. The base dither assignment is
+          // unchanged (a pattern texel, or a texel inside
+          // a dither field, so a high-contrast dither
+          // texel is never line-reconstructed as an edge).
+          // The field guard (Task 5, R5 — refined run 3)
+          // is what lets dither win over text: a texel
+          // INSIDE a dither field (field >= 0.3) is
+          // dither, not text, even when the text test
+          // fires on it. Field-only — the union would also
+          // catch a thin line's own texels (a 1px
+          // outline's texels are pattern texels,
+          // stripeV/stripeH fire on a 1px line) and flip
+          // them to DITHER, breaking R12; a line sits
+          // outside any field (the outline's field peaks
+          // at 0.24), so it stays TEXT. A dither field's
+          // own texels have field 1.00 on every R5 patch,
+          // so the guard still fires everywhere it must.
           float cls = 0.0;
           if (edgeStrength > uEdgeLo) cls = 1.0;
           if (pattern > 0.5 || field >= 0.3) cls = 2.0;
           if (text > 0.5) cls = 3.0;
+          if (field >= 0.3) cls = 2.0;
           if (isolated > 0.5) cls = 4.0;
           vec3 rgb = c0;
           if (fieldOk > 0.5) {
@@ -1152,7 +1236,10 @@ object DisplayShaders {
      * texel along a 45-degree line). The output is a
      * 1-display-px transition centred on the line. Only
      * edge-class texels are reconstructed, with a real
-     * interval, a strong enough edge and no corner;
+     * interval, a strong enough edge and no corner — and
+     * the interval fit needs >= 3 supporting texels per
+     * side (Task 5, R4: a starved fit falls back to
+     * nearest, exactly like a missing interval);
      * text / 1px texels output their nearest texel
      * exactly, flat / dither texels output nearest (the
      * field is already collapsed in Pass A). The 15-bit
@@ -1245,6 +1332,8 @@ object DisplayShaders {
           // still at its sentinel means no texel counted.
           float dLow = -100.0;
           float dHigh = 100.0;
+          float nDark = 0.0;
+          float nLight = 0.0;
           for (int j = 0; j < 5; j++) {
             for (int i = 0; i < 5; i++) {
               int dx = i - 2;
@@ -1257,8 +1346,8 @@ object DisplayShaders {
               float dB = distance(s.rgb, cB);
               float okCls = 1.0;
               if (cls == 2.0 || cls == 3.0 || cls == 4.0) okCls = 0.0;
-              if (dA < 0.15 && dA < dB && okCls > 0.5) dLow = max(dLow, sv);
-              if (dB < 0.15 && dB < dA && okCls > 0.5) dHigh = min(dHigh, sv);
+              if (dA < 0.15 && dA < dB && okCls > 0.5) { dLow = max(dLow, sv); nDark += 1.0; }
+              if (dB < 0.15 && dB < dA && okCls > 0.5) { dHigh = min(dHigh, sv); nLight += 1.0; }
             }
           }
           float okInterval = 1.0;
@@ -1277,8 +1366,13 @@ object DisplayShaders {
           // no corner. (The gradient guard is a weak sanity
           // guard only — the 5x5 Sobel's scale is ~16x the
           // 3x3's, so its threshold is 0.5, not 0.1.)
+          // Interval-fit fallback (Task 5, R4): the fit
+          // needs >= 3 supporting texels per side — a
+          // starved fit (1–2 texels setting the bounds
+          // from wrong colours) falls back to nearest,
+          // exactly like a missing interval.
           float doRecon = 0.0;
-          if (cls0 == 1.0 && okInterval > 0.5 && abs(lB - lA) >= 0.1 && (abs(gx) + abs(gy)) >= 0.5 && corner < 0.5) doRecon = 1.0;
+          if (cls0 == 1.0 && okInterval > 0.5 && nDark >= 3.0 && nLight >= 3.0 && abs(lB - lA) >= 0.1 && (abs(gx) + abs(gy)) >= 0.5 && corner < 0.5) doRecon = 1.0;
           vec3 outCol = mix(c0, outRecon, doRecon);
           // 15-bit snap (GBC), same rule as the edge pass:
           // snap only when the colour actually moved —

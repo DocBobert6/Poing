@@ -504,7 +504,8 @@ class DisplayShadersTest {
         // Task 6 — Pass A, second half: the 5x5 field (the
         // pattern map averaged over the window) and the 5x5
         // mean of the corrected colours, the class priority
-        // (edge, then dither, then text, then 1px), and the
+        // (edge, then dither, then text, then the field
+        // guard, then 1px), and the
         // collapse — the field mean where the field test
         // passes, else the 3x3 dither average where a
         // pattern texel passes the guard. The collapse is
@@ -518,9 +519,21 @@ class DisplayShadersTest {
         assertTrue(src.contains("mean5 /= 25.0"))
         assertTrue(src.contains("float fieldOk = step(0.6, field) * guard * (1.0 - noCollapse)"))
         assertTrue(src.contains("float patOk = step(0.5, pattern) * guard * (1.0 - noCollapse)"))
-        assertTrue(src.contains("float noCollapse = max(text, isolated)"))
+        // Task 5, R5 — the class guard: a texel inside a
+        // dither field (field >= 0.3) is dither, not text,
+        // even when the text test fires on it; and a texel
+        // that IS a pattern texel is never protected by the
+        // text test from the collapse (a glyph stroke texel
+        // has pattern ≈ 0, so it keeps its protection).
+        // Field-only for the class: a thin line's own
+        // texels are pattern texels but sit outside any
+        // field (the 1px outline's field peaks at 0.24),
+        // so they stay TEXT.
+        assertTrue(src.contains("float noCollapse = max(text * (1.0 - step(0.5, pattern)), isolated)"))
         assertTrue(src.contains("if (pattern > 0.5 || field >= 0.3) cls = 2.0"))
         assertTrue(src.contains("if (text > 0.5) cls = 3.0"))
+        assertTrue(src.contains("if (field >= 0.3) cls = 2.0"))
+        assertTrue(src.indexOf("if (text > 0.5) cls = 3.0") < src.indexOf("if (field >= 0.3) cls = 2.0"))
         assertTrue(src.contains("if (isolated > 0.5) cls = 4.0"))
         assertTrue(src.contains("gl_FragColor = vec4(rgb, cls / 4.0)"))
         // The text test is the 5x5 outer-ring ratio on RAW
@@ -531,6 +544,41 @@ class DisplayShadersTest {
         assertTrue(src.contains("float text = step(0.5, lMax - lMin) * axisAligned"))
         assertFalse(src.contains("textGated"))
         assertFalse(src.contains("gateScale"))
+        // The stroke-width text test (Task 5 — GB only):
+        // a thick uniform run along the normal marks a
+        // glyph texel as text, so a large glyph's diagonal
+        // edges are never line-reconstructed. Gated by the
+        // uTextStroke uniform (GB on, GBC/GBA off until
+        // the perfection pass). The run is the TOTAL
+        // contiguous run through the centre along the
+        // dominant axis (the sim's "total" form, cap 16),
+        // aligned with sim10.py: it must terminate on
+        // BOTH sides within the cap, and its total length
+        // must be 3..15 texels — a glyph stroke is 3–15
+        // wide, so a flat run longer than 15 is not a
+        // stroke (Task 5, SW4b — the V-Rally car wheel).
+        assertTrue(src.contains("uniform float uTextStroke"))
+        assertTrue(src.contains("for (int k = 1; k <= 16; k++)"))
+        assertTrue(src.contains("vec2 swDir = abs(gx5) > abs(gy5) ? vec2(texel.x, 0.0) : vec2(0.0, texel.y)"))
+        assertTrue(src.contains("runP += step(swHiP - swLoP, tolStroke)"))
+        assertTrue(src.contains("runM += step(swHiM - swLoM, tolStroke)"))
+        assertTrue(src.contains("float termP = step(runP, 15.0)"))
+        assertTrue(src.contains("float termM = step(runM, 15.0)"))
+        assertTrue(src.contains("float total = runP + runM + 1.0"))
+        assertTrue(src.contains("float stroke = termP * termM * step(3.0, total) * step(total, 15.0) * step(0.5, lMax - lMin)"))
+        assertTrue(src.contains("text = max(text, stroke * uTextStroke)"))
+        // Task 5, SW4b — the run is gradient-aware: each
+        // step counts only while the whole run's luma band
+        // (centre plus steps so far) stays within
+        // tolStroke. A solid stroke is flat, so it still
+        // runs; a shaded body drifts out of the band. The
+        // per-step |luma − centre| masks are gone, and the
+        // old max-form run (runX/runY, 3 steps) is gone.
+        assertFalse(src.contains("float mE1 = step(abs(rE1 - r0), tolStroke)"))
+        assertFalse(src.contains("float mS3 = step(abs(rS3 - r0), tolStroke)"))
+        assertFalse(src.contains("float runX = max(bE1"))
+        assertFalse(src.contains("float run = abs(gx5) >= abs(gy5) ? runX : runY"))
+        assertFalse(src.contains("float bE1 = step(max(r0, rE1)"))
         // The shade-distance guard (Task 4 item 4, 0.7 for
         // all systems) gates the collapse.
         assertTrue(src.contains("float shadeDist;"))
@@ -562,8 +610,15 @@ class DisplayShadersTest {
         assertTrue(src.contains("vec2 offB = vec2(floor(2.0 * nx + 0.5), floor(2.0 * ny + 0.5))"))
         assertTrue(src.contains("float dLow = -100.0"))
         assertTrue(src.contains("float dHigh = 100.0"))
-        assertTrue(src.contains("if (dA < 0.15 && dA < dB && okCls > 0.5) dLow = max(dLow, sv)"))
-        assertTrue(src.contains("if (dB < 0.15 && dB < dA && okCls > 0.5) dHigh = min(dHigh, sv)"))
+        assertTrue(src.contains("if (dA < 0.15 && dA < dB && okCls > 0.5) { dLow = max(dLow, sv); nDark += 1.0; }"))
+        assertTrue(src.contains("if (dB < 0.15 && dB < dA && okCls > 0.5) { dHigh = min(dHigh, sv); nLight += 1.0; }"))
+        // Task 5, R4 — the interval-fit fallback: the fit
+        // needs >= 3 supporting texels per side, else the
+        // texel falls back to nearest, exactly like a
+        // missing interval.
+        assertTrue(src.contains("float nDark = 0.0"))
+        assertTrue(src.contains("float nLight = 0.0"))
+        assertTrue(src.contains("nDark >= 3.0 && nLight >= 3.0"))
         assertTrue(src.contains("float mixw = smoothstep(-0.5, 0.5, sPx)"))
         assertTrue(src.contains("if (cls0 == 1.0 && okInterval > 0.5"))
         assertTrue(src.contains("float moved = max(step(0.001, distance(outCol, c0)), step(abs(cls0 - 2.0), 0.5))"))

@@ -44,6 +44,7 @@ class AppSettingsStore(private val root: File) {
         const val KEY_DEVELOPER_UNLOCKED = "developer_unlocked"
         const val KEY_RECON_GBC = "recon_gbc"
         const val KEY_RECON_GBA = "recon_gba"
+        const val KEY_RECON_GB = "recon_gb"
         const val KEY_RECON_GRID = "recon_grid"
         const val DEFAULT_FF_SPEED = 2
         val FF_SPEEDS = setOf(2, 3, 4)
@@ -189,7 +190,6 @@ class AppSettingsStore(private val root: File) {
      * quality path): off by default, and only in effect for
      * GBC games while on. It replaces edge smoothing and
      * the display chain while on (see EdgeSmoothing.resolve).
-     * The GB toggle arrives with its engine in Task 5.
      */
     fun reconGbcEnabled(): Boolean = readBoolean(KEY_RECON_GBC, false)
     fun setReconGbcEnabled(enabled: Boolean) = write(KEY_RECON_GBC, enabled.toString())
@@ -206,11 +206,22 @@ class AppSettingsStore(private val root: File) {
     fun setReconGbaEnabled(enabled: Boolean) = write(KEY_RECON_GBA, enabled.toString())
 
     /**
+     * Task 5 — GB dither reconstruction: the same engine
+     * as the GBC/GBA ones, with the GB configuration
+     * (Jade colour-fold, dither field as a heightmap of
+     * the intended grey, local mean over 5x5). Off by
+     * default, and only in effect for GB games while on;
+     * it replaces edge smoothing and the display chain
+     * while on, like the others.
+     */
+    fun reconGbEnabled(): Boolean = readBoolean(KEY_RECON_GB, false)
+    fun setReconGbEnabled(enabled: Boolean) = write(KEY_RECON_GB, enabled.toString())
+
+    /**
      * The LCD grid over the reconstruction (Robert,
      * 2026-11-14): one toggle for all three systems, off
      * by default. It layers GRID_FRAGMENT at 15% on top
-     * of whichever reconstruction is on — GBC and GBA now,
-     * GB when its engine lands in Task 5.
+     * of whichever reconstruction is on — all three systems.
      * It does nothing on its own: the renderer only
      * reads it inside drawRecon.
      */

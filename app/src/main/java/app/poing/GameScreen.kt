@@ -217,11 +217,11 @@ fun GameScreen(
     // off, and the recon passes draw instead.
     val display = remember {
         val wanted = DisplayChain.forSystem(system)
-        // Task 6 — the GBC reconstruction toggle only
-        // affects GBC games; Task 7 adds the GBA toggle
-        // beside it, same rule; the GB toggle arrives
-        // with its engine in Task 5.
+        // Each system's reconstruction toggle only
+        // affects its own games (GB, GBC, GBA — Tasks
+        // 5, 6, 7, same rule).
         val recon = when {
+            system == GameSystem.GB && appSettings.reconGbEnabled() -> ReconMode.GB
             system == GameSystem.GBC && appSettings.reconGbcEnabled() -> ReconMode.GBC
             system == GameSystem.GBA && appSettings.reconGbaEnabled() -> ReconMode.GBA
             else -> ReconMode.OFF
