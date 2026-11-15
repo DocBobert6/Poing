@@ -166,11 +166,6 @@ fun LibraryScreen(
     // not lost.
     var coversVersion by remember { mutableStateOf(0) }
     var connectivityVersion by remember { mutableStateOf(0) }
-    // The diagnostic (2026-11-15): Retry re-runs the fetch
-    // pass on demand — a pass that lands nothing used to leave
-    // no retry until the library was re-entered or the network
-    // flapped, and a silent failure gave no reason to retry.
-    var coverRetryVersion by remember { mutableStateOf(0) }
     val fetchGuard = remember { AtomicBoolean(false) }
     val fetchPending = remember { AtomicBoolean(false) }
     DisposableEffect(Unit) {
@@ -186,7 +181,7 @@ fun LibraryScreen(
         watcher.start()
         onDispose { watcher.stop() }
     }
-    LaunchedEffect(games, connectivityVersion, coversVersion, coverRetryVersion) {
+    LaunchedEffect(games, connectivityVersion, coversVersion) {
         if (!fetchGuard.compareAndSet(false, true)) {
             fetchPending.set(true)
             return@LaunchedEffect
@@ -533,12 +528,21 @@ fun LibraryScreen(
                 )
                 // A small clickable text, not a TextButton: the
                 // button's 48dp minimum height is what the bar
-                // would otherwise cost the screen.
+                // would otherwise cost the screen. Retry re-runs
+                // the pass on demand through the same trigger
+                // the Wi-Fi watcher uses (connectivityVersion):
+                // a pass that lands nothing used to leave no
+                // retry until the library was re-entered or the
+                // network flapped, and a silent failure gave no
+                // reason to retry. (A separate retry key was
+                // tried first and never re-ran the pass in the
+                // Robolectric retry test — the shared trigger
+                // is the one the passing Wi-Fi test exercises.)
                 Text(
                     "Retry",
                     modifier = Modifier
                         .testTag("cover-art-retry")
-                        .clickable { coverRetryVersion++ }
+                        .clickable { connectivityVersion++ }
                         .padding(horizontal = 8.dp, vertical = 4.dp),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.primary,
