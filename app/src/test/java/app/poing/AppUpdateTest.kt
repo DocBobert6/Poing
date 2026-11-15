@@ -197,8 +197,9 @@ class AppUpdateTest {
     @Test
     fun currentVersionReadsTheApkVersionName() {
         val context = ApplicationProvider.getApplicationContext<Context>()
-        // The test APK carries the app's versionName (0.1.0).
-        assertEquals(AppVersion(0, 1, 0), currentAppVersion(context))
+        // The test APK carries the app's versionName (0.1.0-alpha.1
+        // since the Step 4 version bump).
+        assertEquals(AppVersion(0, 1, 0, listOf("alpha", "1")), currentAppVersion(context))
     }
 
     @Test

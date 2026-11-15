@@ -3,8 +3,14 @@ name: Android CI
 # Poing! Phase 2: the mGBA libretro core imported at a pinned commit,
 # built stock and untouched, plus the JNI bridge to it and a bare
 # player spike (app.poing) with a Licences screen and a Robolectric
-# startup gate. No releases: a push to main only builds and verifies.
-# No keystore yet.
+# startup gate. A push to main builds and verifies a debug APK. A
+# push of a v* tag additionally builds the SIGNED release APK: the
+# keystore is restored from the POING_KEYSTORE_BASE64 secret, the
+# release is assembled with it, its signature and version are
+# verified, and the APK is uploaded as the poing-apk-release
+# artifact — the GitHub release itself is created from that
+# artifact only after it is verified, never from an unverified
+# build.
 #
 # Core: mGBA at 7a12d6d4b9acb14c0ae62c9166b6a2f3d08007f6
 # (libretro/mgba HEAD, 2026-09-16, "Libretro: Disable debug
@@ -24,6 +30,7 @@ name: Android CI
 on:
   push:
     branches: [ main ]
+    tags: [ 'v*' ]
   workflow_dispatch:
 
 permissions:
@@ -282,6 +289,70 @@ jobs:
               sys.exit(1)
           print('dex register guard OK')
           PYEOF
+
+      - name: Restore release keystore (tags only)
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          set -euo pipefail
+          # The keystore itself is never in the repo: it arrives
+          # base64-encoded in the POING_KEYSTORE_BASE64 secret and
+          # is written to the runner's temp dir, which is wiped
+          # with the runner. The signing config reads it through
+          # POING_KEYSTORE_PATH (see app/build.gradle.kts).
+          echo "$POING_KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/poing-release.keystore"
+          echo "POING_KEYSTORE_PATH=$RUNNER_TEMP/poing-release.keystore" >> "$GITHUB_ENV"
+        env:
+          POING_KEYSTORE_BASE64: ${{ secrets.POING_KEYSTORE_BASE64 }}
+
+      - name: Build signed release APK (tags only)
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: ./gradlew :app:assembleRelease
+        env:
+          POING_KEYSTORE_PASSWORD: ${{ secrets.POING_KEYSTORE_PASSWORD }}
+          POING_KEY_ALIAS: ${{ secrets.POING_KEY_ALIAS }}
+          POING_KEY_PASSWORD: ${{ secrets.POING_KEY_PASSWORD }}
+
+      - name: Verify release APK signature and version (tags only)
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          set -euo pipefail
+          APK=$(ls app/build/outputs/apk/release/*.apk | head -1)
+          echo "release APK: $APK ($(stat -c%s "$APK") bytes)"
+          APKSIGNER=$(ls "$ANDROID_HOME/build-tools/"*/apksigner | sort -V | tail -1)
+          "$APKSIGNER" verify --verbose --print-certs "$APK"
+          # The tag and the version must agree: the versionName in
+          # build.gradle.kts must equal the tag minus its leading
+          # 'v', and the versionCode must be above the debug builds
+          # (code 1). The signed alpha needs an uninstall first, by
+          # design — it is a new key, so it cannot install over a
+          # debug build.
+          AAPT=$(ls "$ANDROID_HOME/build-tools/"*/aapt2 | sort -V | tail -1)
+          BADGING=$("$AAPT" dump badging "$APK" | head -1)
+          echo "$BADGING"
+          VERSION_NAME=$(grep -oP 'versionName = "\K[^"]+' app/build.gradle.kts)
+          VERSION_CODE=$(grep -oP 'versionCode = \K[0-9]+' app/build.gradle.kts)
+          TAG_NAME="${GITHUB_REF#refs/tags/v}"
+          [ "$VERSION_NAME" = "$TAG_NAME" ] || {
+            echo "tag $TAG_NAME != versionName $VERSION_NAME"
+            exit 1
+          }
+          [ "$VERSION_CODE" -gt 1 ] || {
+            echo "versionCode must be above the debug builds (1): $VERSION_CODE"
+            exit 1
+          }
+          echo "$BADGING" | grep -q "name='app.poing' versionCode='$VERSION_CODE' versionName='$VERSION_NAME'" || {
+            echo "release APK is not $VERSION_NAME / versionCode $VERSION_CODE: $BADGING"
+            exit 1
+          }
+          echo "release APK verified: signed, app.poing $VERSION_NAME/code $VERSION_CODE"
+
+      - name: Upload release APK artifact (tags only)
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: actions/upload-artifact@v4
+        with:
+          name: poing-apk-release
+          path: app/build/outputs/apk/release/*.apk
+          if-no-files-found: error
 
       - name: Upload core artifact
         uses: actions/upload-artifact@v4

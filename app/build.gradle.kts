@@ -12,17 +12,46 @@ android {
         applicationId = "app.poing"
         minSdk = 24
         targetSdk = 36
-        versionCode = 1
-        versionName = "0.1.0"
+        versionCode = 2
+        versionName = "0.1.0-alpha.1"
     }
 
-    // Phase 1: no release signing. The release keystore is minted
-    // at the first signed release (fresh keystore, never the
-    // HowlingDog, Mariner or MainMenu signer). Until then only the
-    // debug APK exists, as a CI artifact.
+    // Signed alpha (Step 4, 2026-11-15): the release keystore is
+    // fresh for Poing! (never the HowlingDog, Mariner or MainMenu
+    // signer), minted with keytool (PKCS12, alias "poing", RSA
+    // 4096, 10,000 days, CN=Poing!). It is NOT in the repo: CI
+    // restores it from the POING_KEYSTORE_BASE64 secret, and the
+    // backup lives at ~/workspace/poing/keystore/ (outside the
+    // repo, never committed). The same key signs every release —
+    // the in-app updater depends on it, so losing it breaks
+    // future updates. The signing config only exists when all
+    // four values are present (environment variables, or Gradle
+    // properties of the same names for a local signed build), so
+    // ordinary debug builds need nothing.
+    signingConfigs {
+        val keystorePath = System.getenv("POING_KEYSTORE_PATH")
+            ?: project.findProperty("poingKeystorePath")?.toString()
+        val keystorePassword = System.getenv("POING_KEYSTORE_PASSWORD")
+            ?: project.findProperty("poingKeystorePassword")?.toString()
+        val keyAlias = System.getenv("POING_KEY_ALIAS")
+            ?: project.findProperty("poingKeyAlias")?.toString()
+        val keyPassword = System.getenv("POING_KEY_PASSWORD")
+            ?: project.findProperty("poingKeyPassword")?.toString()
+        if (keystorePath != null && keystorePassword != null &&
+            keyAlias != null && keyPassword != null
+        ) {
+            create("release") {
+                storeFile = file(keystorePath)
+                storePassword = keystorePassword
+                this.keyAlias = keyAlias
+                this.keyPassword = keyPassword
+            }
+        }
+    }
     buildTypes {
         release {
             isMinifyEnabled = false
+            signingConfigs.findByName("release")?.let { signingConfig = it }
         }
     }
     compileOptions {

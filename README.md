@@ -2,7 +2,7 @@
 
 **Poing!** is a free, open-source standalone Game Boy / Game Boy Color / Game Boy Advance emulator for Android — all three systems in one app, around the mGBA libretro core. No ads, no paid version.
 
-**Status: in development toward v0.1.0-alpha.1.** The app is playable end to end (library, player, saves, RetroAchievements, cover art, in-app updates); the signed alpha release has not been cut yet — debug builds come from CI only, and there is no keystore yet. The link cable (Phase 7) is still undecided: phone-to-phone over the local network is the v1 scope, and single-device self-link was proven not feasible, so the fork decision for exposing the core's link API is still open.
+**Status: first signed alpha — v0.1.0-alpha.1.** The app is playable end to end (library, player, saves, RetroAchievements, cover art, in-app updates). The alpha is signed with a fresh release key, so it does **not** install over the debug builds — uninstall the debug build first (which wipes local saves; RetroAchievements progress is server-side and safe). The link cable (Phase 7) is still undecided: phone-to-phone over the local network is the v1 scope, and single-device self-link was proven not feasible, so the fork decision for exposing the core's link API is still open.
 
 - Package: `app.poing`
 - Repo: https://github.com/DocBobert6/Poing
@@ -37,7 +37,7 @@ Note on the upstream tree: it contains test-suite ROMs under `cinema/` (blargg /
 
 ## Building
 
-CI (`.github/workflows/android.yml`) builds the stock core for arm64-v8a with CMake (`-DLIBMGBA_ONLY=ON -DBUILD_LIBRETRO=ON`, NDK 27.2.12479018), verifies the `.so` is an ARM64 ELF with all `retro_*` entry points exported, builds the JNI bridge (which links rcheevos for RetroAchievements), runs the unit tests and the Robolectric startup gate, checks no app method exceeds 255 registers, and assembles a debug APK (CI artifact only — no releases yet, no keystore yet). Local Gradle does not run in this sandbox; CI is the verification path.
+CI (`.github/workflows/android.yml`) builds the stock core for arm64-v8a with CMake (`-DLIBMGBA_ONLY=ON -DBUILD_LIBRETRO=ON`, NDK 27.2.12479018), verifies the `.so` is an ARM64 ELF with all `retro_*` entry points exported, builds the JNI bridge (which links rcheevos for RetroAchievements), runs the unit tests and the Robolectric startup gate, checks no app method exceeds 255 registers, and assembles a debug APK (CI artifact). A push of a `v*` tag additionally builds the signed release APK: the keystore is restored from CI secrets, the release is assembled with it, and its signature and version are verified in CI before the GitHub release is created from that artifact. The release keystore was minted 2026-11-15, fresh for Poing! (never the HowlingDog, Mariner or MainMenu signer); it is not in the repo — CI restores it from secrets and the backup lives outside the repo. The same key signs every release, so an update installs over the previous install. Local Gradle does not run in this sandbox; CI is the verification path.
 
 The plan, with the running build record, lives in `~/workspace/poing/PLAN.md` (§15); the remote tip after each landed build is recorded in `remote-tip.txt`.
 
