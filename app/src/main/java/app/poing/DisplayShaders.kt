@@ -1209,10 +1209,20 @@ object DisplayShaders {
           if (text > 0.5) cls = 3.0;
           if (field >= 0.3) cls = 2.0;
           if (isolated > 0.5) cls = 4.0;
+          // R8: collapse ONLY where the final class is
+          // DITHER. A text+pattern texel (the Task 5 pattern
+          // exemption zeroes noCollapse for it) used to
+          // collapse to the dither mean — a half-step value
+          // — while keeping class TEXT, and Pass B's snap
+          // only fires when the colour moved or the class
+          // is DITHER, so the mean passed through off-grid
+          // (V-Rally: 3,505 pixels, max dist 0.01612). A
+          // TEXT texel keeps its own colour now; the class
+          // is already computed above.
           vec3 rgb = c0;
-          if (fieldOk > 0.5) {
+          if (fieldOk > 0.5 && cls == 2.0) {
             rgb = mean5;
-          } else if (patOk > 0.5) {
+          } else if (patOk > 0.5 && cls == 2.0) {
             rgb = ditherAvg;
           }
           gl_FragColor = vec4(rgb, cls / 4.0);

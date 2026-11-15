@@ -583,6 +583,19 @@ class DisplayShadersTest {
         // all systems) gates the collapse.
         assertTrue(src.contains("float shadeDist;"))
         assertTrue(src.contains("float guard = step(shadeDist, uDitherGuardHi)"))
+        // R8 (2026-11-15): the collapse fires ONLY where the
+        // final class is DITHER. A text+pattern texel (the
+        // Task 5 pattern exemption zeroes noCollapse for
+        // it) used to collapse to the dither mean — a
+        // half-step value — while keeping class TEXT, and
+        // Pass B's snap only fires when the colour moved or
+        // the class is DITHER, so the mean passed through
+        // off-grid (V-Rally: 3,505 pixels, max dist
+        // 0.01612). A TEXT texel keeps its own colour now.
+        assertTrue(src.contains("if (fieldOk > 0.5 && cls == 2.0)"))
+        assertTrue(src.contains("} else if (patOk > 0.5 && cls == 2.0) {"))
+        assertFalse(src.contains("if (fieldOk > 0.5) {"))
+        assertFalse(src.contains("} else if (patOk > 0.5) {"))
     }
 
     @Test
