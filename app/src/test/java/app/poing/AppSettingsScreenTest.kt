@@ -181,8 +181,11 @@ class AppSettingsScreenTest {
 
     @Test
     fun movingHapticsStrengthSliderPersists() {
-        // Alpha.8 — dragging the slider to halfway writes 50
-        // to the store (steps of 5: 50 is a valid stop).
+        // Alpha.8 — setting the slider to 50 writes 50 to
+        // the store (steps of 5: 50 is a valid stop).
+        // SetProgress takes the TARGET VALUE in the slider's
+        // range (0..100 here), not a fraction: 0.5f would
+        // set the value to 0.5, which truncates to 0.
         val s = store()
         composeRule.setContent {
             PoingTheme {
@@ -192,7 +195,7 @@ class AppSettingsScreenTest {
         composeRule.onNodeWithTag("settings-list")
             .performScrollToNode(hasTestTag("haptics-strength-slider"))
         composeRule.onNodeWithTag("haptics-strength-slider")
-            .performSemanticsAction(SemanticsActions.SetProgress) { it(0.5f) }
+            .performSemanticsAction(SemanticsActions.SetProgress) { it(50f) }
         assertEquals(50, AppSettingsStore(temp.root).hapticsStrength())
         composeRule.onNodeWithText("50%").assertIsDisplayed()
     }
