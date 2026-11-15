@@ -1,17 +1,17 @@
-## Poing! v0.1.0-alpha.4 — cover-art stall fix
+## Poing! v0.1.0-alpha.5 — landed covers now show on the tiles
 
-The fourth signed alpha of Poing!, the standalone Game Boy / Game Boy Color / Game Boy Advance emulator for Android (mGBA core, one app, arm64-v8a only).
+The fifth signed alpha of Poing!, the standalone Game Boy / Game Boy Color / Game Boy Advance emulator for Android (mGBA core, one app, arm64-v8a only).
 
-**Install first — read this:** this alpha is signed with the same release key as alpha.1, alpha.2 and alpha.3, so it installs straight over alpha.3 — no uninstall needed, saves and settings carry over. It will **not** install over the debug builds (different key). Uninstall the debug build first. Uninstalling wipes local saves (battery saves + save states); RetroAchievements progress is server-side and safe.
+**Install first — read this:** this alpha is signed with the same release key as alpha.1, alpha.2, alpha.3 and alpha.4, so it installs straight over alpha.4 — no uninstall needed, saves and settings carry over. It will **not** install over the debug builds (different key). Uninstall the debug build first. Uninstalling wipes local saves (battery saves + save states); RetroAchievements progress is server-side and safe.
 
 ## Download
 
-The signed APK is attached to this release: `poing-v0.1.0-alpha.4.apk` (size + SHA-256 in the Build section below).
+The signed APK is attached to this release: `poing-v0.1.0-alpha.5.apk` (size + SHA-256 in the Build section below).
 
-## What changed in alpha.4
+## What changed in alpha.5
 
-- Cover art no longer stalls: the trace caught the real bug — the 45-second budget bounded only the download, while the pass waited on an unbounded join for the slowest index, so a stuck GBA index held the whole pass (and every cover) forever. The join is now bounded by one budget, a stalled index is named "timed out" in the trace, and covers for systems whose index is already ready land at once instead of waiting on the slowest one. Two smaller races found along the way are fixed too: concurrent index events could lose a system's status entry, and a timed-out index could be re-reported as "cancelled".
-- What you should see now: GB and GBC covers land within seconds of opening the library; the GBA index either loads and its covers follow, or it reads "index gba failed: timed out" at about 45 seconds with the pass ending — never a minutes-long stall with 0 landed. Tap Trace in the library's status bar to see the pass, newest first.
+- Landed covers now show on the tiles: alpha.4 fixed the fetch — covers landed in seconds — but the tiles kept their placeholders. The decode only ran after the whole fetch pass returned, and the pass waits up to 45 seconds on a slow GBA index after the covers land, while the status line already says they landed. Each cover is now decoded into the tile the moment it lands, so it appears within seconds of the status line saying so — no waiting for the pass to end, no Retry, no scroll.
+- What you should see now: open the library and the GB and GBC covers appear on their tiles as they land, while the pass is still running. Tap Trace to see the pass, newest first.
 
 ## What is in it
 
