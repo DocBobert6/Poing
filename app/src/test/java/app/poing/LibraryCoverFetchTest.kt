@@ -6,6 +6,7 @@ import android.net.NetworkCapabilities
 import android.net.NetworkInfo
 import android.os.Looper
 import android.util.Base64
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithContentDescription
@@ -328,15 +329,25 @@ class LibraryCoverFetchTest {
         }
         val repository = CoverRepository(context.filesDir, httpGet)
         setWifiOn()
+        // One setContent: the rule's activity takes content
+        // exactly once — a second setContent throws
+        // IllegalStateException. Leaving and re-entering is a
+        // state flip instead: the screen leaves composition
+        // (its watcher stops) and comes back, while the
+        // repository — held here, as PoingHome holds it —
+        // survives.
+        val showLibrary = mutableStateOf(true)
         try {
             composeRule.setContent {
-                LibraryScreen(
-                    notice = null,
-                    onPlay = {},
-                    onLicences = {},
-                    onSettings = {},
-                    repository = repository,
-                )
+                if (showLibrary.value) {
+                    LibraryScreen(
+                        notice = null,
+                        onPlay = {},
+                        onLicences = {},
+                        onSettings = {},
+                        repository = repository,
+                    )
+                }
             }
             composeRule.waitForText("TETRIS")
             composeRule.waitUntil(timeoutMillis = 10_000) {
@@ -353,15 +364,9 @@ class LibraryCoverFetchTest {
             // Leave and re-enter: the same repository, a fresh
             // composition — the cover must still show, with no
             // second download of either the index or the art.
-            composeRule.setContent {
-                LibraryScreen(
-                    notice = null,
-                    onPlay = {},
-                    onLicences = {},
-                    onSettings = {},
-                    repository = repository,
-                )
-            }
+            showLibrary.value = false
+            composeRule.waitForIdle()
+            showLibrary.value = true
             composeRule.waitForText("TETRIS")
             composeRule.waitForIdle()
             composeRule.onAllNodesWithContentDescription("Cover art for TETRIS")
