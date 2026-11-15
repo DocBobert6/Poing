@@ -182,4 +182,35 @@ class DisplayRendererTest {
         assertTrue(renderer.ensureColourProgram())
         assertTrue(renderer.ensureReconPrograms())
     }
+
+    /**
+     * The edge-fallback bug (Robert, 2026-11-14, Golden
+     * Sun GBA): the dev-stats line read "plain (edge fell
+     * back)" with edge smoothing ON. Perf fix 9 made the
+     * programs lazy, but the edge branch built only the
+     * edge program — drawEdge's pass 0 needs the colour
+     * program too, and nothing in the edge branch built
+     * it, so in a fresh EGL context (no chain ever run)
+     * every frame fell back to plain. This pins the
+     * contract end to end: a fresh renderer with edge on
+     * draws EDGE on its first frame. Robolectric's GLES20
+     * stubs succeed (programs build, framebuffers report
+     * complete, textures get ids), so the path runs here
+     * exactly as the lazy-contract test documents.
+     */
+    @Test
+    fun edgeBranchBuildsColourProgramInAFreshContext() {
+        val renderer = DisplayRenderer()
+        renderer.onSurfaceCreated(null, null)
+        renderer.onSurfaceChanged(null, 800, 600)
+        renderer.setDisplay(
+            DisplayChain.CLEAN,
+            JadeMode.FSTN,
+            EdgeMode.EDGE,
+            GameSystem.GBA,
+        )
+        renderer.setFrame(Bitmap.createBitmap(240, 160, Bitmap.Config.ARGB_8888))
+        renderer.onDrawFrame(null)
+        assertEquals(DrawPath.EDGE, renderer.lastDrawPath)
+    }
 }

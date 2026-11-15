@@ -458,6 +458,11 @@ class DisplayRenderer : GLSurfaceView.Renderer {
         // back to plain, so the game stays visible.
         if (edgeMode != EdgeMode.OFF) {
             ensureEdgeProgram()
+            // The edge pass's pass 0 needs the colour
+            // program too (Robert, 2026-11-14: a fresh EGL
+            // context fell back to plain on every frame
+            // because nothing in this branch built it).
+            ensureColourProgram()
             if (edgeProgram != 0) {
                 drawEdge()
             } else {
