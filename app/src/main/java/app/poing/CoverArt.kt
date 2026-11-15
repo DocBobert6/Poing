@@ -59,13 +59,37 @@ fun interface CoverArtFetcher {
     fun beginPass() {}
 
     /**
-     * Load the indexes for these systems now, in parallel — the
-     * pass calls this before any art, so one slow system cannot
-     * hold the others behind it (see
-     * [LibretroThumbnailsFetcher.prefetchIndexes]). The default
-     * is a no-op: fakes and NoOp fetch art without an index.
+     * Start loading the indexes for these systems now, in
+     * parallel — the pass calls this before any art, so one
+     * slow system cannot hold the others behind it (see
+     * [LibretroThumbnailsFetcher.prefetchIndexes]). It returns
+     * at once: the loads run on their own threads, and
+     * [awaitIndexes] is what waits for them (bounded). The
+     * default is a no-op: fakes and NoOp fetch art without an
+     * index.
      */
     fun prefetchIndexes(systems: Set<GameSystem>) {}
+
+    /**
+     * True when the index for [system] is already available
+     * without a download — in memory, or cached on disk — so
+     * art for it can be fetched now without waiting on any
+     * load. The default is false: fakes and NoOp fetch art
+     * without an index, so the pass fetches theirs after the
+     * (no-op) await instead of in the ready phase.
+     */
+    fun isIndexReady(system: GameSystem): Boolean = false
+
+    /**
+     * Wait for the in-flight index loads started by
+     * [prefetchIndexes] — bounded by the fetcher's own index
+     * budget, for all of them together, not one each. A load
+     * that never resolves is named "timed out" and abandoned,
+     * so the pass moves on to art instead of waiting forever
+     * (see [LibretroThumbnailsFetcher.awaitIndexes]). The
+     * default is a no-op.
+     */
+    fun awaitIndexes() {}
 
     /**
      * Abort any in-flight download, now — Retry calls this
@@ -377,6 +401,12 @@ class LibretroThumbnailsFetcher(
     // the status line can still name it until a load succeeds.
     private val lastIndexFailure = ConcurrentHashMap<GameSystem, String>()
 
+    // Index loads currently running (see [prefetchIndexes]):
+    // one daemon thread per system. The await path joins them
+    // with a deadline (see [awaitIndexes]); loadIndex waits
+    // on one instead of starting a second download.
+    private val indexThreads = ConcurrentHashMap<GameSystem, Thread>()
+
     // Every httpGet runs on this pool with a total budget (see
     // getBudgeted): a fake or a socket that never returns is
     // bounded by the budget, not by the caller's patience.
@@ -423,28 +453,112 @@ class LibretroThumbnailsFetcher(
     }
 
     /**
-     * Load the indexes for these systems now, one thread per
-     * system, and wait for all of them. The old pass fetched
+     * Start the index loads for these systems now, one daemon
+     * thread per system, and return at once — the pass does
+     * NOT wait here (see [awaitIndexes]). The old pass fetched
      * indexes lazily in game order, so the 6 MB GBA tree —
      * first game alphabetically — held every other system
      * behind it for the whole download, and the status sat at
-     * "fetching… 0 landed". Each load is bounded by the index
-     * budget, so the join is bounded by one budget, not the
-     * sum of three. Systems already cached (memory or failed
-     * this pass) are skipped, never re-downloaded.
+     * "fetching… 0 landed". The alpha.2 fix then started them
+     * in parallel but joined them with a bare `t.join()` —
+     * unbounded — on the claim that each load is bounded by
+     * the index budget, so the join is bounded too. That claim
+     * is false as a guarantee: the budget bounds only the
+     * download inside [getBudgeted]; the load also reads the
+     * disk cache, parses the JSON, writes the cache file and
+     * delivers events, and a thread stuck in any of that — or
+     * in a platform network phase the budget cannot reach —
+     * held the join, and with it the whole pass, forever. On
+     * device (2026-11-15, alpha.3) the GBA load sat at "index
+     * gba started" for three and a half minutes with no
+     * timeout and zero covers landed, while the GB/GBC indexes
+     * sat cached and unused. So the join lives in
+     * [awaitIndexes], bounded by one budget for all of them,
+     * and the pass lands art for ready systems before it waits
+     * at all (see [fetchMissingCovers]). Systems already
+     * cached (memory or failed this pass) are skipped, never
+     * re-downloaded; a system whose load is already in flight
+     * is not started twice.
      */
     override fun prefetchIndexes(systems: Set<GameSystem>) {
         val missing = systems.filter { system ->
             !indexCache.containsKey(system) && !failedIndex.containsKey(system)
         }
         if (missing.isEmpty()) return
-        val threads = missing.map { system ->
-            Thread({ loadIndex(system) }, "poing-index-${system.name.lowercase()}").apply {
-                isDaemon = true
-                start()
-            }
+        for (system in missing) {
+            val thread = Thread(
+                {
+                    try {
+                        loadIndex(system)
+                    } finally {
+                        // The load finished (or died): it is no
+                        // longer in flight. The two-arg remove
+                        // only drops this thread, never a newer
+                        // one for the same system.
+                        indexThreads.remove(system, Thread.currentThread())
+                    }
+                },
+                "poing-index-${system.name.lowercase()}",
+            ).apply { isDaemon = true }
+            // Record before starting, atomically: loadIndex
+            // must see this thread as the in-flight one and
+            // not wait on itself, and a second prefetch for
+            // the same system must not start a second load.
+            val started = indexThreads.compute(system) { _, existing ->
+                if (existing != null && existing.isAlive) existing else thread
+            } == thread
+            if (started) thread.start()
         }
-        for (t in threads) t.join()
+    }
+
+    /** The index is already in memory or cached on disk (see [CoverArtFetcher.isIndexReady]). */
+    override fun isIndexReady(system: GameSystem): Boolean =
+        indexCache.containsKey(system) ||
+            indexFile(system).let { it.isFile && it.length() > 0 }
+
+    /**
+     * Wait for the in-flight index loads, bounded by ONE
+     * index budget for all of them together (a deadline, not
+     * one budget each). A load that is still running when its
+     * share of the deadline expires is abandoned: the thread
+     * is interrupted (best effort — a socket read ignores
+     * interrupt, a sleep or a latch does not) and the system
+     * is named "timed out", in the trace and the status line,
+     * so the pass moves on to art. A thread that finishes late
+     * still writes its index into memory — the next pass then
+     * uses it, and its late IndexLoaded is an accurate trace
+     * line, not an error.
+     */
+    override fun awaitIndexes() {
+        val deadline = System.currentTimeMillis() + indexBudgetMs
+        for ((system, _) in indexThreads.toMap()) {
+            awaitIndex(system, deadline - System.currentTimeMillis())
+        }
+    }
+
+    /**
+     * Wait for the in-flight load of one system, up to
+     * [budgetMs] (a non-positive budget means "do not wait").
+     * True when the index is in memory afterwards. On a
+     * timeout the load is abandoned and the system is marked
+     * failed with "timed out" (see [awaitIndexes]); when the
+     * load finished on its own, its own failure — if any —
+     * was already recorded by [loadIndex], so nothing is
+     * recorded here.
+     */
+    private fun awaitIndex(system: GameSystem, budgetMs: Long): Boolean {
+        val thread = indexThreads[system] ?: return indexCache.containsKey(system)
+        if (budgetMs > 0) thread.join(budgetMs)
+        if (thread.isAlive) {
+            thread.interrupt()
+            indexThreads.remove(system, thread)
+            failedIndex[system] = "timed out"
+            lastIndexFailure[system] = "timed out"
+            onEvent(CoverArtFetchEvent.IndexFailed(system, "timed out"))
+            return false
+        }
+        indexThreads.remove(system, thread)
+        return indexCache.containsKey(system)
     }
 
     /**
@@ -520,6 +634,16 @@ class LibretroThumbnailsFetcher(
             // names it from the first failure — do not
             // re-download, and do not count it again.
             return null
+        }
+        // A prefetch thread may already be loading this index:
+        // wait for it (bounded by the index budget) instead of
+        // starting a second download of the same 6 MB tree.
+        // The prefetch thread itself skips this — it IS the
+        // in-flight thread, and joining itself would deadlock.
+        val inFlight = indexThreads[system]
+        if (inFlight != null && inFlight != Thread.currentThread() && inFlight.isAlive) {
+            if (!awaitIndex(system, indexBudgetMs)) return null
+            return indexCache[system]
         }
         val loaded = loadIndexUncached(system)
         if (loaded == null) {
@@ -793,6 +917,12 @@ class CoverArtStore(
     /** Load the indexes for these systems now, in parallel (see [CoverArtFetcher.prefetchIndexes]). */
     fun prefetchIndexes(systems: Set<GameSystem>) = fetcher.prefetchIndexes(systems)
 
+    /** True when the index for [system] is already available without a download (see [CoverArtFetcher.isIndexReady]). */
+    fun isIndexReady(system: GameSystem): Boolean = fetcher.isIndexReady(system)
+
+    /** Wait for the in-flight index loads, bounded (see [CoverArtFetcher.awaitIndexes]). */
+    fun awaitIndexes() = fetcher.awaitIndexes()
+
     /** Abort any in-flight download, now — Retry calls this before restarting the pass. */
     fun cancelFetch() = fetcher.cancelInflight()
 
@@ -940,24 +1070,47 @@ fun fetchMissingCovers(
     var landed = false
     try {
         art.beginPass()
-        if (networkAvailable) {
-            // The three indexes in parallel, before any art: the
-            // old pass fetched them lazily in game order, so the
-            // 6 MB GBA tree (first game alphabetically) held every
-            // other system behind it for the whole download, and
-            // the status sat at "fetching… 0 landed".
-            art.prefetchIndexes(games.filter { !art.hasCover(it) }.map { it.system }.toSet())
-        }
         var landedCount = 0
-        for (game in games) {
-            // A Retry tap cancels the pass: stop after the current
-            // game instead of grinding through the rest, so the
-            // restart the tap queued starts promptly.
-            if (art.passCancelled()) break
-            if (landedCount >= maxNew) break
-            if (!art.hasCover(game) && art.coverOrFetch(game, networkAvailable) != null) {
-                landed = true
-                landedCount++
+        if (networkAvailable) {
+            val missing = games.filter { !art.hasCover(it) }
+            // The three indexes in parallel — started, not
+            // waited on. The old pass fetched them lazily in
+            // game order, so the 6 MB GBA tree (first game
+            // alphabetically) held every other system behind
+            // it for the whole download, and the status sat at
+            // "fetching… 0 landed". The alpha.2 fix started
+            // them in parallel but joined them with a bare,
+            // unbounded join — and on device (2026-11-15,
+            // alpha.3) the GBA load sat at "index gba started"
+            // for three and a half minutes, so the pass never
+            // reached the art at all. So the pass now lands art
+            // in two phases: first for the systems whose index
+            // is already ready (cached) — at once, never
+            // waiting on the slowest index — then, bounded by
+            // one index budget, for the rest.
+            art.prefetchIndexes(missing.map { it.system }.toSet())
+            for (game in missing) {
+                // A Retry tap cancels the pass: stop after the
+                // current game instead of grinding through the
+                // rest, so the restart the tap queued starts
+                // promptly.
+                if (art.passCancelled()) break
+                if (landedCount >= maxNew) break
+                if (art.isIndexReady(game.system) && art.coverOrFetch(game, networkAvailable) != null) {
+                    landed = true
+                    landedCount++
+                }
+            }
+            if (landedCount < maxNew && !art.passCancelled()) {
+                art.awaitIndexes()
+                for (game in missing) {
+                    if (art.passCancelled()) break
+                    if (landedCount >= maxNew) break
+                    if (!art.hasCover(game) && art.coverOrFetch(game, networkAvailable) != null) {
+                        landed = true
+                        landedCount++
+                    }
+                }
             }
         }
     } catch (e: CancellationException) {
