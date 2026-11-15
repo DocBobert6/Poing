@@ -15,6 +15,7 @@ import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 import java.io.File
+import java.util.concurrent.CountDownLatch
 import java.util.concurrent.atomic.AtomicInteger
 
 /**
@@ -163,6 +164,53 @@ class CoverRepositoryTest {
         assertTrue("connect hang must fail on the budget, took ${elapsed}ms", elapsed < 10_000)
         assertEquals(IndexState.Failed("timed out"), r.indexes.value[GameSystem.GBA])
         r.close()
+    }
+
+    @Test
+    fun blockingNetworkCallCannotHoldThePipelinePastItsBudget() = runBlocking {
+        // The 2026-11-15 16:46 device evidence: alpha.4's pass
+        // started 16:46:09 and was still "fetching gba index…
+        // 0 landed" ~2.5 minutes later, with no "timed out" —
+        // the 45s join deadline never fired. The stall sits
+        // where a coroutine timeout cannot reach it: DNS/
+        // connect, before any socket exists for disconnect()
+        // to close. The test above proves the CANCELLABLE
+        // shape (delay) — this one proves the BLOCKING shape:
+        // a latch wait that ignores coroutine cancellation
+        // entirely, the way a DNS lookup ignores it. A
+        // withTimeout around such a call cannot unwind the
+        // thread it is stuck on — so the pipeline must never
+        // await the call itself: it races it and abandons it
+        // on timeout, and the index still fails on the budget.
+        val stuck = CountDownLatch(1)
+        val httpGet: suspend (String, Int) -> HttpFetchResult = { _, _ ->
+            stuck.await()
+            HttpFetchResult.httpFailure(500)
+        }
+        val r = repo(httpGet, indexBudgetMs = 500)
+        val g = game("gba1", "GOLDEN SUN", "golden-sun.gba", GameSystem.GBA)
+        try {
+            val start = System.currentTimeMillis()
+            r.setGames(listOf(g))
+            r.setGate(CoverArtGate.OPEN, "Wi-Fi")
+            assertTrue(
+                "a blocking network call must not hold the pipeline",
+                r.awaitIdle(timeoutMs = 5_000),
+            )
+            val elapsed = System.currentTimeMillis() - start
+            assertTrue("index must fail on the budget, took ${elapsed}ms", elapsed < 10_000)
+            assertEquals(IndexState.Failed("timed out"), r.indexes.value[GameSystem.GBA])
+            assertEquals(CoverState.Failed("index gba: timed out"), r.covers.value["gba1"])
+            assertTrue(
+                r.trace.value.any {
+                    it is CoverTraceEvent.IndexFailed && it.detail == "timed out"
+                },
+            )
+        } finally {
+            // Let the abandoned call unwind.
+            stuck.countDown()
+            r.close()
+        }
     }
 
     @Test
@@ -716,6 +764,56 @@ class CoverRepositoryTest {
         val scan = r.trace.value.filterIsInstance<CoverTraceEvent.DiskScan>()
         assertEquals(1, scan.size)
         assertEquals(0, scan.single().restored)
+        assertEquals(1, scan.single().discarded)
+        r.close()
+    }
+
+    @Test
+    fun startupScanRestoresGoodFilesAndHealsCorruptOnes() = runBlocking {
+        // The 2026-11-15 16:46 device evidence: "12 without
+        // cover" is down from 22 — the 10 covers that "landed"
+        // at 15:10 are files on the phone — yet not one tile
+        // shows a cover. The startup scan must sort the disk
+        // on first launch: a file that decodes IS a cover
+        // (restored to Ready with no network at all — no art
+        // download for it), and a file that does not is
+        // deleted and its game re-downloads. "File exists" is
+        // never "has cover"; the test above proves the corrupt
+        // half, this one proves both halves together, the way
+        // the device holds them.
+        val coversDir = File(temp.root, "covers").apply { mkdirs() }
+        File(coversDir, "gb1.png").writeBytes(TINY_PNG)
+        File(coversDir, "gb2.png").writeBytes("not an image".toByteArray())
+        val treeCalls = AtomicInteger(0)
+        val artCalls = AtomicInteger(0)
+        val httpGet: suspend (String, Int) -> HttpFetchResult = { url, _ ->
+            if (url.contains("git/trees")) {
+                treeCalls.incrementAndGet()
+                HttpFetchResult.success(treeJson.toByteArray())
+            } else {
+                artCalls.incrementAndGet()
+                HttpFetchResult.success(TINY_PNG)
+            }
+        }
+        val r = repo(httpGet)
+        val games = listOf(
+            game("gb1", "TETRIS", "tetris.gb", GameSystem.GB),
+            game("gb2", "DR MARIO", "drmario.gb", GameSystem.GB),
+        )
+        r.setGames(games)
+        r.setGate(CoverArtGate.OPEN, "Wi-Fi")
+        assertTrue(r.awaitIdle())
+        assertTrue(r.covers.value["gb1"] is CoverState.Ready)
+        assertTrue(r.covers.value["gb2"] is CoverState.Ready)
+        // The index downloaded once; art exactly once — for
+        // the healed game only. The restored cover needed no
+        // network at all.
+        assertEquals(1, treeCalls.get())
+        assertEquals(1, artCalls.get())
+        assertEquals(TINY_PNG.toList(), r.coverFile(games[1]).readBytes().toList())
+        val scan = r.trace.value.filterIsInstance<CoverTraceEvent.DiskScan>()
+        assertEquals(1, scan.size)
+        assertEquals(1, scan.single().restored)
         assertEquals(1, scan.single().discarded)
         r.close()
     }

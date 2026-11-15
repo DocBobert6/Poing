@@ -8,6 +8,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.TimeoutCancellationException
+import kotlinx.coroutines.async
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -52,8 +53,22 @@ import kotlin.coroutines.resume
  *    concurrency: one scope (SupervisorJob + Dispatchers.IO),
  *    one Job per system pipeline, [withTimeout] for every
  *    budget, cancellation via Job.cancel() + socket disconnect.
- *    A hang is impossible to express: every suspend point has
- *    a timeout or a cancellable parent.
+ *    And one place where a plain withTimeout is NOT enough:
+ *    the network call itself. A withTimeout around a blocking
+ *    call cannot unwind the thread it is stuck on — and a
+ *    call stuck in DNS/connect, before any socket exists for
+ *    disconnect() to close, ignores both. (Device evidence
+ *    2026-11-15 16:46: alpha.4's pass started 16:46:09 and
+ *    was still "fetching gba index… 0 landed" ~2.5 minutes
+ *    later, with no "timed out" — the 45s join deadline never
+ *    fired.) So [boundedGet] RACES the call: it runs on its
+ *    own IO thread, the pipeline awaits it with a timeout,
+ *    and on timeout the thread is abandoned, not awaited —
+ *    the pipeline moves on at the budget, whatever the thread
+ *    is stuck in. The connection's own timeouts (10s connect,
+ *    15s read) and disconnect-on-cancel are the first line of
+ *    defence — they abort a real socket stall promptly — but
+ *    the race is the guarantee, not the fallback.
  * 5. Verify before you trust. Bytes are decoded IN MEMORY before
  *    they touch disk. Only decodable bytes are written. The
  *    write and the state publish happen in the same worker
@@ -434,10 +449,12 @@ class RealHttpClient {
  * same on-disk formats as the old pipeline, so nothing already
  * on the device is orphaned.
  * @param httpGet the network layer. The default is the real
- * client; tests inject a fake. A fake that never returns must
- * suspend cancellably ([kotlinx.coroutines.delay] or a
- * suspendCancellableCoroutine) — a blocking sleep ignores
- * coroutine cancellation, so the budget could not end it.
+ * client; tests inject a fake. A fake that blocks (a latch,
+ * a sleep) no longer holds a pipeline: [boundedGet] races
+ * the call and abandons its thread on timeout — but a
+ * blocking fake still leaks that thread until it returns,
+ * so cancellable fakes ([kotlinx.coroutines.delay] or a
+ * suspendCancellableCoroutine) are still preferred.
  * @param decode the in-memory decode. The default is
  * [decodeCoverBytes]; tests inject a controlled double for
  * the truncated-bytes case, where the platform decoder's
@@ -1021,12 +1038,34 @@ class CoverRepository(
      * returns, a socket that trickles forever. A timeout is
      * named "timed out"; an external cancellation propagates
      * (the caller resets the game to Missing).
+     *
+     * The budget is enforced by a RACE, not by awaiting the
+     * call under a withTimeout: a withTimeout around a
+     * blocking call cannot unwind the thread it is stuck on,
+     * and a call stuck in DNS/connect — before any socket
+     * exists for disconnect() to close — ignores both the
+     * coroutine cancellation and the connection timeouts.
+     * (Device evidence 2026-11-15 16:46: alpha.4's pass
+     * started 16:46:09 and was still "fetching gba index… 0
+     * landed" ~2.5 minutes later, with no "timed out" — the
+     * 45s join deadline never fired.) So the call runs on its
+     * own IO thread and the pipeline awaits the DEFERRED with
+     * a timeout: on timeout the thread is abandoned — its Job
+     * is cancelled (best effort: a socket read aborts on
+     * disconnect, a pre-socket stall ignores it) and the
+     * pipeline moves on at the budget. The deferred is a
+     * child of the repository scope, not of the pipeline job,
+     * so an abandoned child never blocks the caller — and the
+     * finally-cancel means a gate close abandons it too.
      */
     private suspend fun boundedGet(url: String, maxBytes: Int, budgetMs: Long): HttpFetchResult {
-        return try {
-            withTimeout(budgetMs) { httpGet(url, maxBytes) }
+        val deferred = scope.async(Dispatchers.IO) { httpGet(url, maxBytes) }
+        try {
+            return withTimeout(budgetMs) { deferred.await() }
         } catch (_: TimeoutCancellationException) {
-            HttpFetchResult(null, null, "timed out")
+            return HttpFetchResult(null, null, "timed out")
+        } finally {
+            deferred.cancel()
         }
     }
 
