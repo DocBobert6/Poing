@@ -774,6 +774,10 @@ class CoverRepositoryTest {
         // be re-attempted for every game of the system in the
         // same pass — each GBA game re-downloaded the 6 MB
         // tree. One attempt per system per pipeline run now.
+        // The 403 lands on the FIRST step (the top-level
+        // tree), so the subtree is never attempted: one tree
+        // call per attempt, not two — the count that matters
+        // is one attempt for three games, not one per game.
         val treeCalls = AtomicInteger(0)
         val httpGet: suspend (String, Int) -> HttpFetchResult = { url, _ ->
             if (url.contains("git/trees")) {
@@ -792,14 +796,14 @@ class CoverRepositoryTest {
         r.setGames(games)
         r.setGate(CoverArtGate.OPEN, "Wi-Fi")
         assertTrue(r.awaitIdle())
-        assertEquals(2, treeCalls.get())
+        assertEquals(1, treeCalls.get())
         for (g in games) {
             assertEquals(CoverState.Failed("index gb: HTTP 403"), r.covers.value[g.id])
         }
         // An explicit retry re-attempts it.
         r.retryFailed()
         assertTrue(r.awaitIdle())
-        assertEquals(4, treeCalls.get())
+        assertEquals(2, treeCalls.get())
         r.close()
     }
 
