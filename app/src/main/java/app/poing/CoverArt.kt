@@ -648,8 +648,17 @@ class LibretroThumbnailsFetcher(
         val loaded = loadIndexUncached(system)
         if (loaded == null) {
             val detail = lastIndexFailure[system] ?: "unknown"
-            failedIndex[system] = detail
-            onEvent(CoverArtFetchEvent.IndexFailed(system, detail))
+            // Record the failure once per system per pass. The
+            // join timeout (see awaitIndex) can already have
+            // named this system "timed out" — and the thread it
+            // interrupted then unwinds through getBudgeted with
+            // "cancelled" (an interrupt, not a Retry). Without
+            // this guard that late "cancelled" overwrote the
+            // "timed out" in the status line and the trace, so a
+            // budget firing read as a cancellation.
+            if (failedIndex.putIfAbsent(system, detail) == null) {
+                onEvent(CoverArtFetchEvent.IndexFailed(system, detail))
+            }
             return null
         }
         indexCache[system] = loaded
