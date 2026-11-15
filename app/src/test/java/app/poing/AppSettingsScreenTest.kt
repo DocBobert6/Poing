@@ -562,9 +562,14 @@ class AppSettingsScreenTest {
         assertTrue("dragging up should save a smaller cy than the 0.5 default", gb.control(ControlId.DPAD).cy < 0.5f)
         assertEquals(ControlLayout.DEFAULT, reopened.loadDefault(GameSystem.GBC))
         assertEquals(ControlLayout.DEFAULT, reopened.loadDefault(GameSystem.GBA))
-        // The GB row now says it is customised, and only it.
+        // The GB row now says it is customised, and only it:
+        // scroll the row back into view first, so the label
+        // is asserted on a composed row, not on an empty tree.
         // Substring: the row is clickable, so its texts merge
         // into one node ("GB default layout … Customised").
+        composeRule.onNodeWithTag("settings-list")
+            .performScrollToNode(hasTestTag("default-layout-gb"))
         composeRule.onAllNodesWithText("Customised", substring = true).assertCountEquals(1)
+        composeRule.onAllNodesWithText("Factory default", substring = true).assertCountEquals(2)
     }
 }

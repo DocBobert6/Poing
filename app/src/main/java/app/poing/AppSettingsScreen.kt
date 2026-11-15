@@ -368,10 +368,16 @@ fun AppSettingsScreen(
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
                 )
             }
-            item {
+            // The key carries the edit nonce: a plain state
+            // read inside the item below did NOT refresh the
+            // rows after an edit closed (the "Customised"
+            // label stayed "Factory default" in CI), so the
+            // rows are keyed on the nonce instead — after an
+            // edit the old rows leave and fresh rows compose,
+            // re-reading which handhelds are customised.
+            item(key = "default-layouts-$defaultsNonce") {
                 DefaultLayoutRows(
                     layoutStore = layoutStore,
-                    defaultsNonce = defaultsNonce,
                     onEdit = { editingDefaultSystem = it },
                 )
             }
@@ -948,19 +954,15 @@ fun AppSettingsScreen(
  * Overlay defaults (Robert, 2026-11-14): the per-handheld
  * default-layout rows. Kept out of AppSettingsScreen itself
  * so the settings method stays under the dex guard (HowlingDog
- * v1.3.0 lesson). defaultsNonce is a parameter only: changing
- * it recomposes this section, so the "Customised" labels
- * re-read after an edit closes.
+ * v1.3.0 lesson). The rows are keyed on the edit nonce at the
+ * call site, so they re-read which handhelds are customised
+ * after an edit closes.
  */
 @Composable
 private fun DefaultLayoutRows(
     layoutStore: ControlLayoutStore,
-    defaultsNonce: Int,
     onEdit: (GameSystem) -> Unit,
 ) {
-    // defaultsNonce is a parameter only: changing it
-    // recomposes this section, so the "Customised" labels
-    // re-read after an edit closes.
     Column(modifier = Modifier.fillMaxWidth()) {
         for (system in GameSystem.entries) {
             Column(
