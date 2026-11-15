@@ -282,12 +282,73 @@ class ThumbnailsTest {
     }
 
     @Test
+    fun parseTreeJsonAcceptsBareFilenames() {
+        // The subtree form (alpha.7): the Named_Boxarts
+        // subtree lists bare filenames, no prefix to strip.
+        // Other directories and non-PNG files are still not
+        // boxarts, and neither is the directory entry itself.
+        val json = """{"tree":[
+            {"path":"Tetris (World).png","type":"blob"},
+            {"path":"Dr. Mario (World).png","type":"blob"},
+            {"path":"readme.txt","type":"blob"},
+            {"path":".gitignore","type":"blob"}
+        ]}"""
+        assertEquals(
+            listOf("Tetris (World).png", "Dr. Mario (World).png"),
+            Thumbnails.parseTreeJson(json),
+        )
+    }
+
+    @Test
+    fun parseBoxartsTreeShaFindsTheSha() {
+        // The top-level tree, as GitHub returns it: the
+        // Named_Boxarts entry is a tree with a 40-hex SHA.
+        val json = """{"tree":[
+            {"path":".gitignore","mode":"100644","type":"blob","sha":"aa4d15e8d0170000000000000000000000000000","size":11},
+            {"path":"Named_Boxarts","mode":"040000","type":"tree","sha":"2c2d40e5a278b71e327d5cdb728ee52bea6f40b0"},
+            {"path":"Named_Snaps","mode":"040000","type":"tree","sha":"bc1d975e2caa0000000000000000000000000000"}
+        ]}"""
+        assertEquals(
+            "2c2d40e5a278b71e327d5cdb728ee52bea6f40b0",
+            Thumbnails.parseBoxartsTreeSha(json),
+        )
+    }
+
+    @Test
+    fun parseBoxartsTreeShaReturnsNullWithoutTheEntry() {
+        // No Named_Boxarts entry: a wrong endpoint, or a repo
+        // that restructured. The caller fails the index with
+        // the reason instead of guessing a SHA.
+        assertNull(
+            Thumbnails.parseBoxartsTreeSha(
+                """{"tree":[{"path":"Named_Snaps","type":"tree","sha":"${"b".repeat(40)}"}]}""",
+            ),
+        )
+        // A blob NAMED Named_Boxarts is not the directory:
+        // the type must be "tree".
+        assertNull(
+            Thumbnails.parseBoxartsTreeSha(
+                """{"tree":[{"path":"Named_Boxarts","type":"blob","sha":"${"c".repeat(40)}"}]}""",
+            ),
+        )
+        assertNull(Thumbnails.parseBoxartsTreeSha("""{"tree":[]}"""))
+    }
+
+    @Test
     fun reposArePerSystem() {
         assertEquals("Nintendo_-_Game_Boy", Thumbnails.repoFor(GameSystem.GB))
         assertEquals("Nintendo_-_Game_Boy_Color", Thumbnails.repoFor(GameSystem.GBC))
         assertEquals("Nintendo_-_Game_Boy_Advance", Thumbnails.repoFor(GameSystem.GBA))
         assertTrue(
-            Thumbnails.indexUrl(GameSystem.GBA).contains("Nintendo_-_Game_Boy_Advance"),
+            Thumbnails.topTreeUrl(GameSystem.GBA)
+                .contains("Nintendo_-_Game_Boy_Advance"),
+        )
+        assertTrue(
+            Thumbnails.topTreeUrl(GameSystem.GBA).endsWith("/git/trees/master"),
+        )
+        assertTrue(
+            Thumbnails.subtreeUrl(GameSystem.GBA, "2c2d40e5a278b71e327d5cdb728ee52bea6f40b0")
+                .endsWith("/git/trees/2c2d40e5a278b71e327d5cdb728ee52bea6f40b0"),
         )
     }
 }

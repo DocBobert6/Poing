@@ -922,7 +922,26 @@ class CoverRepository(
             // accepted as before (its entries still match).
         }
         recordTrace(CoverTraceEvent.IndexStarted(System.currentTimeMillis(), system))
-        val result = boundedGet(Thumbnails.indexUrl(system), MAX_TREE_BYTES, indexBudgetMs)
+        // The two-step load (alpha.7): the whole-repo tree is
+        // 7.19 MB for GBA and needs ~160 KB/s to finish in the
+        // budget — Robert's speed to api.github.com is bounded
+        // ~45–160 KB/s, so GBA always timed out while GB/GBC
+        // made it. Step (a) fetches the top-level tree
+        // (~1.7 KB) and takes the Named_Boxarts subtree SHA
+        // from it, fresh on every load, never hardcoded; step
+        // (b) fetches that subtree (GBA 2.09 MB / 5,961
+        // entries). Each step goes through boundedGet with its
+        // own budget, and the whole load still sits inside the
+        // one withTimeout in ensureIndex.
+        val topResult = boundedGet(Thumbnails.topTreeUrl(system), MAX_TREE_BYTES, indexBudgetMs)
+        val topJson = topResult.bytes?.decodeToString()
+            ?: return IndexLoadResult.Failed(topResult.error ?: "no bytes")
+        if (TRUNCATED_FLAG.containsMatchIn(topJson)) {
+            return IndexLoadResult.Failed("index truncated")
+        }
+        val sha = Thumbnails.parseBoxartsTreeSha(topJson)
+            ?: return IndexLoadResult.Failed("no Named_Boxarts tree")
+        val result = boundedGet(Thumbnails.subtreeUrl(system, sha), MAX_TREE_BYTES, indexBudgetMs)
         val json = result.bytes?.decodeToString()
             ?: return IndexLoadResult.Failed(result.error ?: "no bytes")
         if (TRUNCATED_FLAG.containsMatchIn(json)) {
@@ -1074,22 +1093,28 @@ class CoverRepository(
         const val MAX_ART_BYTES: Int = 2 * 1024 * 1024
 
         /**
-         * The GBA tree JSON measured 7.2 MB on 2026-11-14 — the
-         * cap sits just above it. A tree that grows past the cap
-         * fails the fetch (placeholder, no crash) instead of
-         * downloading without a bound.
+         * The GBA subtree JSON measured 2.09 MB on 2026-11-15
+         * (the whole-repo tree it replaced was 7.19 MB and
+         * growing against this cap) — the cap sits ~2x above
+         * the largest legitimate subtree response. A response
+         * past the cap fails the fetch (placeholder, no crash)
+         * instead of downloading without a bound.
          */
-        const val MAX_TREE_BYTES: Int = 8 * 1024 * 1024
+        const val MAX_TREE_BYTES: Int = 4 * 1024 * 1024
 
         /**
          * Total budget for one index download (see
-         * [ensureIndex]): 45s at the GBA tree's 6 MB is
-         * ~130 KB/s — a connection slower than that fails fast
-         * with "timed out" rather than holding the pipeline
-         * open for minutes. The budgets were never the problem
-         * once enforced per-step; they stay.
+         * [ensureIndex]): 60s at the GBA subtree's 2.09 MB is
+         * ~35 KB/s — below the ~45 KB/s floor the GB tree
+         * already proves on Robert's device — while still
+         * failing fast with "timed out" instead of holding
+         * the pipeline open for minutes. (The old 45s was set
+         * for a 6–7 MB payload that needed ~160 KB/s and
+         * never made it.) Each step of the two-step load gets
+         * this budget, and the whole load sits inside one
+         * withTimeout of the same length.
          */
-        const val INDEX_BUDGET_MS: Long = 45_000
+        const val INDEX_BUDGET_MS: Long = 60_000
 
         /** Total budget for one art file (see [processGame]). */
         const val ART_BUDGET_MS: Long = 20_000

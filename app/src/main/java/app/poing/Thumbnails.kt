@@ -16,6 +16,22 @@ package app.poing
  *    in one call (GBA measured 7.2 MB), so the index cap is 8 MB.
  *    The index is fetched once per system and cached on device.
  *
+ *    Update (alpha.7, 2026-11-15): the whole-repo tree is the
+ *    reason GBA never loads — 7.19 MB needs ~160 KB/s to finish
+ *    in the 45s budget, and Robert's speed to api.github.com is
+ *    bounded ~45–160 KB/s, so GBA always times out while GB
+ *    (2.02 MB) and GBC (1.42 MB) make it. The index is now the
+ *    Named_Boxarts SUBTREE, in two steps: the top-level tree
+ *    (~1.7 KB) gives the subtree's SHA, then the subtree itself
+ *    (GBA 2.09 MB / 5,961 entries, GB ~0.55 MB, GBC ~0.53 MB).
+ *    Same code path for all three systems; the SHA is fetched
+ *    fresh on every index load, never hardcoded. HowlingDog's
+ *    contents endpoint was NOT adopted: it truncates at 1,000
+ *    entries, and the paginated form is ~9 MB for GBA — worse
+ *    than the whole-repo tree. The subtree is HowlingDog's
+ *    principle (fetch the smallest index that answers the
+ *    question) at GBA scale.
+ *
  * 2. GB/GBC/GBA have no catalogue number, so the matcher
  *    normalizes aggressively and tries BOTH the filename stem
  *    (usually the full No-Intro name) and the ROM header title
@@ -59,13 +75,25 @@ object Thumbnails {
     }
 
     /**
-     * The filename index: the git-trees listing of the whole repo.
-     * One call per system, cached on device. No API key; the
-     * unauthenticated limit is 60/hr, and the cache means the
-     * call happens once per system, ever.
+     * Step (a) of the two-step index load (alpha.7): the
+     * top-level tree, NON-recursive (~1.7 KB). Its
+     * Named_Boxarts entry carries the subtree SHA that step
+     * (b) fetches. One call per system, cached on device. No
+     * API key; the unauthenticated limit is 60/hr, and the
+     * cache means the call happens once per system, ever.
      */
-    fun indexUrl(system: GameSystem): String =
-        "https://api.github.com/repos/libretro-thumbnails/${repoFor(system)}/git/trees/master?recursive=1"
+    fun topTreeUrl(system: GameSystem): String =
+        "https://api.github.com/repos/libretro-thumbnails/${repoFor(system)}/git/trees/master"
+
+    /**
+     * Step (b): the Named_Boxarts subtree itself, NON-recursive
+     * — 2.09 MB / 5,961 entries for GBA, ~0.55 MB for GB,
+     * ~0.53 MB for GBC. The SHA comes fresh from the top-level
+     * tree on every index load, never hardcoded: it changes
+     * whenever boxarts change.
+     */
+    fun subtreeUrl(system: GameSystem, sha: String): String =
+        "https://api.github.com/repos/libretro-thumbnails/${repoFor(system)}/git/trees/$sha"
 
     /** The download URL for one box-art filename. */
     fun artUrl(system: GameSystem, fileName: String): String {
@@ -73,14 +101,46 @@ object Thumbnails {
         return "https://raw.githubusercontent.com/libretro-thumbnails/${repoFor(system)}/master/Named_Boxarts/$encoded"
     }
 
-    /** The filenames under Named_Boxarts/ in a git-trees response. */
+    /**
+     * The Named_Boxarts subtree SHA from a top-level tree
+     * response: the entry whose path is exactly
+     * "Named_Boxarts" and whose type is "tree". Null when the
+     * entry is absent (a wrong endpoint, or a repo that
+     * restructured) — the caller fails the index with the
+     * reason instead of guessing a SHA. Pure, unit-testable.
+     */
+    fun parseBoxartsTreeSha(json: String): String? {
+        val pathAt = Regex(""""path"\s*:\s*"Named_Boxarts"""").find(json) ?: return null
+        // The entry is one flat object: path, mode, type, sha,
+        // url. Slice to its closing brace so a later entry's
+        // sha can never be mistaken for this one's.
+        val end = json.indexOf('}', pathAt.range.first).takeIf { it >= 0 } ?: return null
+        val entry = json.substring(pathAt.range.first, end)
+        if (!Regex(""""type"\s*:\s*"tree"""").containsMatchIn(entry)) return null
+        return Regex(""""sha"\s*:\s*"([0-9a-fA-F]{40})"""")
+            .find(entry)?.groupValues?.get(1)
+    }
+
+    /**
+     * The filenames under Named_Boxarts/ in a git-trees
+     * response — in EITHER form: the whole-repo tree lists
+     * "Named_Boxarts/<name>.png" (prefix stripped), and the
+     * subtree (alpha.7) lists bare "<name>.png" (kept as-is).
+     * Anything else — other directories, non-PNG files, the
+     * directory entry itself — is not a boxart.
+     */
     fun parseTreeJson(json: String): List<String> {
         val pattern = Regex(""""path"\s*:\s*"((?:[^"\\]|\\.)*)"""")
         return pattern.findAll(json).mapNotNull { m ->
-            m.groupValues[1]
+            val path = m.groupValues[1]
                 .replace("\\\"", "\"").replace("\\\\", "\\")
-                .takeIf { it.startsWith("Named_Boxarts/") && it.endsWith(".png", ignoreCase = true) }
-                ?.removePrefix("Named_Boxarts/")
+            when {
+                path.startsWith("Named_Boxarts/") &&
+                    path.endsWith(".png", ignoreCase = true) ->
+                    path.removePrefix("Named_Boxarts/")
+                !path.contains('/') && path.endsWith(".png", ignoreCase = true) -> path
+                else -> null
+            }
         }.toList()
     }
 

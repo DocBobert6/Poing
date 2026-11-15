@@ -57,6 +57,34 @@ class CoverRepositoryTest {
         {"path":"Named_Snaps/Tetris (World).png","type":"blob"}
     ]}"""
 
+    // The two-step load (alpha.7): the top-level tree, and the
+    // Named_Boxarts subtree with BARE filenames. The SHA is
+    // deliberately NOT the live one — the two-step test proves
+    // the subtree URL carries the SHA the top tree returned.
+    private val topTreeJson = """{"tree":[
+        {"path":".gitignore","type":"blob"},
+        {"path":"Named_Boxarts","type":"tree","sha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
+        {"path":"Named_Snaps","type":"tree","sha":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}
+    ]}"""
+
+    private val subtreeJson = """{"tree":[
+        {"path":"Tetris (World).png","type":"blob"},
+        {"path":"Dr. Mario (World).png","type":"blob"}
+    ]}"""
+
+    /**
+     * Tree routing for the two-step load: .../git/trees/master
+     * is the top-level tree, a SHA URL is the subtree. The
+     * subtree fixture uses the bare-filename form; the
+     * whole-tree fixture (prefixed form) still works through
+     * the same parser, so the older tests keep their shape.
+     */
+    private fun treeHttpResult(url: String): HttpFetchResult = when {
+        url.endsWith("/git/trees/master") -> HttpFetchResult.success(topTreeJson.toByteArray())
+        url.contains("/git/trees/") -> HttpFetchResult.success(subtreeJson.toByteArray())
+        else -> HttpFetchResult.success(TINY_PNG)
+    }
+
     private fun game(id: String, title: String, sourceName: String, system: GameSystem) =
         LibraryGame(
             id = id,
@@ -126,7 +154,7 @@ class CoverRepositoryTest {
         val httpGet: suspend (String, Int) -> HttpFetchResult = { url, _ ->
             when {
                 url.contains("Nintendo_-_Game_Boy_Advance") -> hangForever()
-                url.contains("git/trees") -> HttpFetchResult.success(treeJson.toByteArray())
+                url.contains("git/trees") -> treeHttpResult(url)
                 else -> HttpFetchResult.success(TINY_PNG)
             }
         }
@@ -214,6 +242,128 @@ class CoverRepositoryTest {
     }
 
     @Test
+    fun blockedSubtreeCallCannotHoldThePipelinePastItsBudget() = runBlocking {
+        // The test above proves the race for a hang on the
+        // FIRST step (the top-level tree). This one proves it
+        // for the SECOND: the top tree answers at once, the
+        // subtree call blocks on a latch the way a DNS/connect
+        // stall blocks — and the pipeline must still fail on
+        // the budget, not wait for the thread. If the race had
+        // a hole on the second step, this is where it would
+        // show: the index would stay Loading past the budget.
+        val stuck = CountDownLatch(1)
+        val httpGet: suspend (String, Int) -> HttpFetchResult = { url, _ ->
+            when {
+                url.endsWith("/git/trees/master") -> treeHttpResult(url)
+                url.contains("/git/trees/") -> {
+                    stuck.await()
+                    HttpFetchResult.httpFailure(500)
+                }
+                else -> HttpFetchResult.success(TINY_PNG)
+            }
+        }
+        val r = repo(httpGet, indexBudgetMs = 500)
+        val g = game("gba1", "GOLDEN SUN", "golden-sun.gba", GameSystem.GBA)
+        try {
+            val start = System.currentTimeMillis()
+            r.setGames(listOf(g))
+            r.setGate(CoverArtGate.OPEN, "Wi-Fi")
+            assertTrue(
+                "a blocking subtree call must not hold the pipeline",
+                r.awaitIdle(timeoutMs = 5_000),
+            )
+            val elapsed = System.currentTimeMillis() - start
+            assertTrue("subtree stall must fail on the budget, took ${elapsed}ms", elapsed < 10_000)
+            assertEquals(IndexState.Failed("timed out"), r.indexes.value[GameSystem.GBA])
+            assertEquals(CoverState.Failed("index gba: timed out"), r.covers.value["gba1"])
+            assertTrue(
+                r.trace.value.any {
+                    it is CoverTraceEvent.IndexFailed && it.detail == "timed out"
+                },
+            )
+        } finally {
+            stuck.countDown()
+            r.close()
+        }
+    }
+
+    /** A subtree JSON of roughly [entries] × 54 bytes: N boxart entries of a fixed shape. */
+    private fun sizedSubtreeJson(entries: Int): String {
+        val sb = StringBuilder("{\"tree\":[")
+        for (i in 0 until entries) {
+            if (i > 0) sb.append(',')
+            sb.append("{\"path\":\"Game Number ${"%04d".format(i)} (World).png\",\"type\":\"blob\"}")
+        }
+        sb.append("]}")
+        return sb.toString()
+    }
+
+    @Test
+    fun subtreeCompletesAtFiftyKilobytesPerSecond() = runBlocking {
+        // The diagnosis, pinned as a test (alpha.7): at
+        // Robert's proven ~50 KB/s to api.github.com, the
+        // 2.09 MB GBA subtree needs ~42s — inside the 60s
+        // budget — while the 7.19 MB whole-repo tree needs
+        // ~144s and always timed out at 45s. The sizes and
+        // the budget are scaled down 100x here (20.9 KB in
+        // 600ms at 50 B/ms is the same ratio), so the test
+        // runs in under a second; the fake delivers bytes at
+        // exactly 50 B/ms, so the timing is the payload's,
+        // not the fake's. The game matches entry 0000.
+        val bytes = sizedSubtreeJson(330).toByteArray()
+        assertTrue("subtree fixture must be ~20 KB, was ${bytes.size}", bytes.size in 15_000..21_000)
+        val httpGet: suspend (String, Int) -> HttpFetchResult = { url, _ ->
+            when {
+                url.endsWith("/git/trees/master") -> treeHttpResult(url)
+                url.contains("/git/trees/") -> {
+                    delay(bytes.size / 50L)
+                    HttpFetchResult.success(bytes)
+                }
+                else -> HttpFetchResult.success(TINY_PNG)
+            }
+        }
+        val r = repo(httpGet, indexBudgetMs = 600)
+        val g = game("gba1", "GAME NUMBER 0000", "game-number-0000.gba", GameSystem.GBA)
+        r.setGames(listOf(g))
+        r.setGate(CoverArtGate.OPEN, "Wi-Fi")
+        assertTrue(r.awaitIdle())
+        assertEquals(IndexState.Ready(330, fromCache = false), r.indexes.value[GameSystem.GBA])
+        assertTrue(r.covers.value["gba1"] is CoverState.Ready)
+        r.close()
+    }
+
+    @Test
+    fun wholeTreeSizedPayloadTimesOutAtFiftyKilobytesPerSecond() = runBlocking {
+        // The negative control for the test above: the same
+        // 50 B/ms delivery, the same 600ms budget, but a
+        // payload the size of the OLD whole-repo tree
+        // (7.19 MB, scaled 100x to ~72 KB) — it cannot
+        // finish, and the index fails "timed out". If this
+        // test ever went green, the diagnosis would be wrong:
+        // the size would not be what kills GBA.
+        val bytes = sizedSubtreeJson(1400).toByteArray()
+        assertTrue("whole-tree fixture must be ~72 KB, was ${bytes.size}", bytes.size in 65_000..85_000)
+        val httpGet: suspend (String, Int) -> HttpFetchResult = { url, _ ->
+            when {
+                url.endsWith("/git/trees/master") -> treeHttpResult(url)
+                url.contains("/git/trees/") -> {
+                    delay(bytes.size / 50L)
+                    HttpFetchResult.success(bytes)
+                }
+                else -> HttpFetchResult.success(TINY_PNG)
+            }
+        }
+        val r = repo(httpGet, indexBudgetMs = 600)
+        val g = game("gba1", "GAME NUMBER 0000", "game-number-0000.gba", GameSystem.GBA)
+        r.setGames(listOf(g))
+        r.setGate(CoverArtGate.OPEN, "Wi-Fi")
+        assertTrue(r.awaitIdle())
+        assertEquals(IndexState.Failed("timed out"), r.indexes.value[GameSystem.GBA])
+        assertEquals(CoverState.Failed("index gba: timed out"), r.covers.value["gba1"])
+        r.close()
+    }
+
+    @Test
     fun slowDownloadPastTheBudgetStillTimesOut() = runBlocking {
         // A trickle that never stalls 15s — it just takes
         // longer than the total budget. The old per-read stall
@@ -244,13 +394,18 @@ class CoverRepositoryTest {
         // in the step is named "timed out". The stall here is
         // the parse itself: a 150k-entry tree, with a 50ms
         // budget — the cooperative yield after the parse lets
-        // the timeout land mid-step instead of after it.
+        // the timeout land mid-step instead of after it. (With
+        // the two-step load the stall is in the SUBTREE parse:
+        // the top-level tree is small, so the fake answers it
+        // at once and returns the big tree only for the
+        // subtree call.)
         val big = bigTreeJson(150_000)
         val httpGet: suspend (String, Int) -> HttpFetchResult = { url, _ ->
             when {
+                url.endsWith("/git/trees/master") -> treeHttpResult(url)
                 url.contains("Nintendo_-_Game_Boy_Advance") ->
                     HttpFetchResult.success(big.toByteArray())
-                url.contains("git/trees") -> HttpFetchResult.success(treeJson.toByteArray())
+                url.contains("git/trees") -> treeHttpResult(url)
                 else -> HttpFetchResult.success(TINY_PNG)
             }
         }
@@ -283,7 +438,7 @@ class CoverRepositoryTest {
             httpGet = { url, _ ->
                 when {
                     url.contains("Nintendo_-_Game_Boy_Advance") -> hangForever()
-                    url.contains("git/trees") -> HttpFetchResult.success(treeJson.toByteArray())
+                    url.contains("git/trees") -> treeHttpResult(url)
                     else -> HttpFetchResult.success(TINY_PNG)
                 }
             },
@@ -380,7 +535,7 @@ class CoverRepositoryTest {
             when {
                 url.contains("git/trees") -> {
                     treeCalls.incrementAndGet()
-                    HttpFetchResult.success(treeJson.toByteArray())
+                    treeHttpResult(url)
                 }
                 else -> {
                     artCalls.incrementAndGet()
@@ -394,7 +549,7 @@ class CoverRepositoryTest {
         r.setGate(CoverArtGate.OPEN, "Wi-Fi")
         assertTrue(r.awaitIdle())
         assertTrue(r.covers.value["gb1"] is CoverState.Ready)
-        assertEquals(1, treeCalls.get())
+        assertEquals(2, treeCalls.get())
         assertEquals(1, artCalls.get())
         assertTrue(temp.root.resolve("art-index-gb.txt").isFile)
         assertTrue(r.coverFile(g).isFile)
@@ -402,8 +557,42 @@ class CoverRepositoryTest {
         // Ready, and the index is cached in memory.
         r.setGames(listOf(g))
         assertTrue(r.awaitIdle())
-        assertEquals(1, treeCalls.get())
+        assertEquals(2, treeCalls.get())
         assertEquals(1, artCalls.get())
+        r.close()
+    }
+
+    @Test
+    fun twoStepIndexLoadFetchesTopTreeThenSubtree() = runBlocking {
+        // Alpha.7: the index is the Named_Boxarts SUBTREE, not
+        // the whole-repo tree. The top-level tree is fetched
+        // first and its SHA — not a hardcoded one — is the
+        // subtree URL. The fixture SHA is a run of 'a's,
+        // nothing like the live one, so a hardcoded SHA in
+        // production code would fetch the wrong URL here.
+        // Two tree calls per index load, in order.
+        val urls = java.util.Collections.synchronizedList(mutableListOf<String>())
+        val httpGet: suspend (String, Int) -> HttpFetchResult = { url, _ ->
+            urls.add(url)
+            when {
+                url.contains("/git/trees/") -> treeHttpResult(url)
+                else -> HttpFetchResult.success(TINY_PNG)
+            }
+        }
+        val r = repo(httpGet)
+        val g = game("gb1", "TETRIS", "tetris.gb", GameSystem.GB)
+        r.setGames(listOf(g))
+        r.setGate(CoverArtGate.OPEN, "Wi-Fi")
+        assertTrue(r.awaitIdle())
+        assertTrue(r.covers.value["gb1"] is CoverState.Ready)
+        val treeUrls = urls.filter { it.contains("/git/trees/") }
+        assertEquals(2, treeUrls.size)
+        assertTrue(treeUrls[0].endsWith("/git/trees/master"))
+        assertTrue(treeUrls[0].contains("Nintendo_-_Game_Boy"))
+        assertTrue(
+            treeUrls[1].endsWith("/git/trees/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"),
+        )
+        assertEquals(IndexState.Ready(2, fromCache = false), r.indexes.value[GameSystem.GB])
         r.close()
     }
 
@@ -413,7 +602,7 @@ class CoverRepositoryTest {
         val httpGet: suspend (String, Int) -> HttpFetchResult = { url, _ ->
             if (url.contains("git/trees")) {
                 treeCalls.incrementAndGet()
-                HttpFetchResult.success(treeJson.toByteArray())
+                treeHttpResult(url)
             } else {
                 HttpFetchResult.success(TINY_PNG)
             }
@@ -427,7 +616,7 @@ class CoverRepositoryTest {
         )
         r.setGate(CoverArtGate.OPEN, "Wi-Fi")
         assertTrue(r.awaitIdle())
-        assertEquals(1, treeCalls.get())
+        assertEquals(2, treeCalls.get())
         // A third game of the same system reuses the memory cache too.
         r.setGames(
             listOf(
@@ -437,7 +626,7 @@ class CoverRepositoryTest {
             ),
         )
         assertTrue(r.awaitIdle())
-        assertEquals(1, treeCalls.get())
+        assertEquals(2, treeCalls.get())
         r.close()
     }
 
@@ -448,7 +637,7 @@ class CoverRepositoryTest {
         val httpGet: suspend (String, Int) -> HttpFetchResult = { url, _ ->
             if (url.contains("git/trees")) {
                 treeCalls.incrementAndGet()
-                HttpFetchResult.success(treeJson.toByteArray())
+                treeHttpResult(url)
             } else {
                 artCalls.incrementAndGet()
                 HttpFetchResult.httpFailure(404)
@@ -465,12 +654,12 @@ class CoverRepositoryTest {
         // state, not a memo — but just as terminal.
         r.setGames(listOf(unknown))
         assertTrue(r.awaitIdle())
-        assertEquals(1, treeCalls.get())
+        assertEquals(2, treeCalls.get())
         assertEquals(0, artCalls.get())
         // A forced index reload re-queues it — and re-downloads the index.
         r.refreshIndex(GameSystem.GB)
         assertTrue(r.awaitIdle())
-        assertEquals(2, treeCalls.get())
+        assertEquals(4, treeCalls.get())
         assertEquals(CoverState.NoMatch("no art in index"), r.covers.value["gb9"])
         r.close()
     }
@@ -478,7 +667,7 @@ class CoverRepositoryTest {
     @Test
     fun cachedIndexSurvivesANewRepositoryWithNoNetwork() = runBlocking {
         val httpGet: suspend (String, Int) -> HttpFetchResult = { url, _ ->
-            if (url.contains("git/trees")) HttpFetchResult.success(treeJson.toByteArray())
+            if (url.contains("git/trees")) treeHttpResult(url)
             else HttpFetchResult.success(TINY_PNG)
         }
         val first = repo(httpGet)
@@ -506,7 +695,7 @@ class CoverRepositoryTest {
     @Test
     fun indexesArePerSystem() = runBlocking {
         val httpGet: suspend (String, Int) -> HttpFetchResult = { url, _ ->
-            if (url.contains("git/trees")) HttpFetchResult.success(treeJson.toByteArray())
+            if (url.contains("git/trees")) treeHttpResult(url)
             else HttpFetchResult.success(TINY_PNG)
         }
         val r = repo(httpGet)
@@ -527,7 +716,7 @@ class CoverRepositoryTest {
     fun noMatchMeansNoDownload() = runBlocking {
         val artCalls = AtomicInteger(0)
         val httpGet: suspend (String, Int) -> HttpFetchResult = { url, _ ->
-            if (url.contains("git/trees")) HttpFetchResult.success(treeJson.toByteArray())
+            if (url.contains("git/trees")) treeHttpResult(url)
             else {
                 artCalls.incrementAndGet()
                 HttpFetchResult.httpFailure(404)
@@ -558,8 +747,14 @@ class CoverRepositoryTest {
 
     @Test
     fun emptyIndexFailsLoudly() = runBlocking {
-        val httpGet: suspend (String, Int) -> HttpFetchResult = { _, _ ->
-            HttpFetchResult.success("""{"tree":[]}""".toByteArray())
+        // The top-level tree is fine; the SUBTREE is empty.
+        val httpGet: suspend (String, Int) -> HttpFetchResult = { url, _ ->
+            when {
+                url.endsWith("/git/trees/master") -> treeHttpResult(url)
+                url.contains("/git/trees/") ->
+                    HttpFetchResult.success("""{"tree":[]}""".toByteArray())
+                else -> HttpFetchResult.success(TINY_PNG)
+            }
         }
         val r = repo(httpGet)
         r.setGames(listOf(game("gb1", "TETRIS", "tetris.gb", GameSystem.GB)))
@@ -597,14 +792,14 @@ class CoverRepositoryTest {
         r.setGames(games)
         r.setGate(CoverArtGate.OPEN, "Wi-Fi")
         assertTrue(r.awaitIdle())
-        assertEquals(1, treeCalls.get())
+        assertEquals(2, treeCalls.get())
         for (g in games) {
             assertEquals(CoverState.Failed("index gb: HTTP 403"), r.covers.value[g.id])
         }
         // An explicit retry re-attempts it.
         r.retryFailed()
         assertTrue(r.awaitIdle())
-        assertEquals(2, treeCalls.get())
+        assertEquals(4, treeCalls.get())
         r.close()
     }
 
@@ -626,7 +821,7 @@ class CoverRepositoryTest {
     @Test
     fun artFailureDetailIsReported() = runBlocking {
         val httpGet: suspend (String, Int) -> HttpFetchResult = { url, _ ->
-            if (url.contains("git/trees")) HttpFetchResult.success(treeJson.toByteArray())
+            if (url.contains("git/trees")) treeHttpResult(url)
             else HttpFetchResult.httpFailure(404)
         }
         val r = repo(httpGet)
@@ -642,7 +837,7 @@ class CoverRepositoryTest {
     @Test
     fun indexLoadedEventReportsEntriesAndCache() = runBlocking {
         val httpGet: suspend (String, Int) -> HttpFetchResult = { url, _ ->
-            if (url.contains("git/trees")) HttpFetchResult.success(treeJson.toByteArray())
+            if (url.contains("git/trees")) treeHttpResult(url)
             else HttpFetchResult.success(TINY_PNG)
         }
         val r = repo(httpGet)
@@ -677,7 +872,7 @@ class CoverRepositoryTest {
         // is not held hostage by it.
         val httpGet: suspend (String, Int) -> HttpFetchResult = { url, _ ->
             when {
-                url.contains("git/trees") -> HttpFetchResult.success(treeJson.toByteArray())
+                url.contains("git/trees") -> treeHttpResult(url)
                 else -> hangForever()
             }
         }
@@ -712,7 +907,7 @@ class CoverRepositoryTest {
         val good = AtomicInteger(0)
         val httpGet: suspend (String, Int) -> HttpFetchResult = { url, _ ->
             when {
-                url.contains("git/trees") -> HttpFetchResult.success(treeJson.toByteArray())
+                url.contains("git/trees") -> treeHttpResult(url)
                 else -> if (good.get() == 0) HttpFetchResult.success(TRUNCATED_PNG)
                 else HttpFetchResult.success(TINY_PNG)
             }
@@ -751,7 +946,7 @@ class CoverRepositoryTest {
         val coversDir = File(temp.root, "covers").apply { mkdirs() }
         File(coversDir, "gb1.png").writeBytes("not an image".toByteArray())
         val httpGet: suspend (String, Int) -> HttpFetchResult = { url, _ ->
-            if (url.contains("git/trees")) HttpFetchResult.success(treeJson.toByteArray())
+            if (url.contains("git/trees")) treeHttpResult(url)
             else HttpFetchResult.success(TINY_PNG)
         }
         val r = repo(httpGet)
@@ -789,7 +984,7 @@ class CoverRepositoryTest {
         val httpGet: suspend (String, Int) -> HttpFetchResult = { url, _ ->
             if (url.contains("git/trees")) {
                 treeCalls.incrementAndGet()
-                HttpFetchResult.success(treeJson.toByteArray())
+                treeHttpResult(url)
             } else {
                 artCalls.incrementAndGet()
                 HttpFetchResult.success(TINY_PNG)
@@ -808,7 +1003,7 @@ class CoverRepositoryTest {
         // The index downloaded once; art exactly once — for
         // the healed game only. The restored cover needed no
         // network at all.
-        assertEquals(1, treeCalls.get())
+        assertEquals(2, treeCalls.get())
         assertEquals(1, artCalls.get())
         assertEquals(TINY_PNG.toList(), r.coverFile(games[1]).readBytes().toList())
         val scan = r.trace.value.filterIsInstance<CoverTraceEvent.DiskScan>()
@@ -826,7 +1021,7 @@ class CoverRepositoryTest {
         val httpGet: suspend (String, Int) -> HttpFetchResult = { url, _ ->
             when {
                 url.contains("Nintendo_-_Game_Boy_Advance") -> hangForever()
-                url.contains("git/trees") -> HttpFetchResult.success(treeJson.toByteArray())
+                url.contains("git/trees") -> treeHttpResult(url)
                 else -> HttpFetchResult.success(TINY_PNG)
             }
         }
@@ -875,7 +1070,7 @@ class CoverRepositoryTest {
         // is the Ready count, and the failure is named.
         val httpGet: suspend (String, Int) -> HttpFetchResult = { url, _ ->
             when {
-                url.contains("git/trees") -> HttpFetchResult.success(treeJson.toByteArray())
+                url.contains("git/trees") -> treeHttpResult(url)
                 url.contains("Dr.%20Mario") -> HttpFetchResult.httpFailure(404)
                 else -> HttpFetchResult.success(TINY_PNG)
             }
@@ -905,7 +1100,7 @@ class CoverRepositoryTest {
         val marioCalls = AtomicInteger(0)
         val httpGet: suspend (String, Int) -> HttpFetchResult = { url, _ ->
             when {
-                url.contains("git/trees") -> HttpFetchResult.success(treeJson.toByteArray())
+                url.contains("git/trees") -> treeHttpResult(url)
                 url.contains("Tetris") -> {
                     tetrisCalls.incrementAndGet()
                     HttpFetchResult.success(TINY_PNG)
@@ -942,7 +1137,7 @@ class CoverRepositoryTest {
     fun gateClosedParksAndGateOpenedResumes() = runBlocking {
         val httpGet: suspend (String, Int) -> HttpFetchResult = { url, _ ->
             when {
-                url.contains("git/trees") -> HttpFetchResult.success(treeJson.toByteArray())
+                url.contains("git/trees") -> treeHttpResult(url)
                 else -> {
                     delay(1_000)
                     HttpFetchResult.success(TINY_PNG)
@@ -981,12 +1176,17 @@ class CoverRepositoryTest {
 
     @Test
     fun truncatedIndexFailsLoudly() = runBlocking {
-        val httpGet: suspend (String, Int) -> HttpFetchResult = { _, _ ->
-            HttpFetchResult.success(
-                """{"truncated": true, "tree":[
-                    {"path":"Named_Boxarts/Tetris (World).png","type":"blob"}
-                ]}""".toByteArray(),
-            )
+        // The top-level tree is fine; the SUBTREE is truncated.
+        val httpGet: suspend (String, Int) -> HttpFetchResult = { url, _ ->
+            when {
+                url.endsWith("/git/trees/master") -> treeHttpResult(url)
+                url.contains("/git/trees/") -> HttpFetchResult.success(
+                    """{"truncated": true, "tree":[
+                        {"path":"Tetris (World).png","type":"blob"}
+                    ]}""".toByteArray(),
+                )
+                else -> HttpFetchResult.success(TINY_PNG)
+            }
         }
         val r = repo(httpGet)
         r.setGames(listOf(game("gb1", "TETRIS", "tetris.gb", GameSystem.GB)))
@@ -1032,7 +1232,7 @@ class CoverRepositoryTest {
         // the end of a pass that may never come.
         val httpGet: suspend (String, Int) -> HttpFetchResult = { url, _ ->
             when {
-                url.contains("git/trees") -> HttpFetchResult.success(treeJson.toByteArray())
+                url.contains("git/trees") -> treeHttpResult(url)
                 else -> HttpFetchResult.success(TINY_PNG)
             }
         }
@@ -1058,7 +1258,7 @@ class CoverRepositoryTest {
     fun traceRecordsLifecycleInOrder() = runBlocking {
         val httpGet: suspend (String, Int) -> HttpFetchResult = { url, _ ->
             when {
-                url.contains("git/trees") -> HttpFetchResult.success(treeJson.toByteArray())
+                url.contains("git/trees") -> treeHttpResult(url)
                 else -> HttpFetchResult.success(TINY_PNG)
             }
         }
@@ -1100,7 +1300,7 @@ class CoverRepositoryTest {
             // tree parses to an empty index, not a loaded one.
             when {
                 url.contains("Nintendo_-_Game_Boy/") -> throw RuntimeException("boom")
-                url.contains("git/trees") -> HttpFetchResult.success(treeJson.toByteArray())
+                url.contains("git/trees") -> treeHttpResult(url)
                 else -> HttpFetchResult.success(TINY_PNG)
             }
         }
@@ -1127,7 +1327,7 @@ class CoverRepositoryTest {
     fun traceIsCappedAtOneHundred() = runBlocking {
         val httpGet: suspend (String, Int) -> HttpFetchResult = { url, _ ->
             when {
-                url.contains("git/trees") -> HttpFetchResult.success(treeJson.toByteArray())
+                url.contains("git/trees") -> treeHttpResult(url)
                 else -> HttpFetchResult.success(TINY_PNG)
             }
         }

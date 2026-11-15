@@ -48,6 +48,26 @@ class CoverArtTraceUiTest {
             {"path":"Named_Boxarts/Tetris (World).png","type":"blob"},
             {"path":"Named_Boxarts/Dr. Mario (World).png","type":"blob"}
         ]}"""
+
+        // The two-step load (alpha.7): the top-level tree, and
+        // the Named_Boxarts subtree with BARE filenames.
+        private val topTreeJson = """{"tree":[
+            {"path":".gitignore","type":"blob"},
+            {"path":"Named_Boxarts","type":"tree","sha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
+            {"path":"Named_Snaps","type":"tree","sha":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}
+        ]}"""
+
+        private val subtreeJson = """{"tree":[
+            {"path":"Tetris (World).png","type":"blob"},
+            {"path":"Dr. Mario (World).png","type":"blob"}
+        ]}"""
+    }
+
+    /** Tree routing for the two-step load: master → top tree, SHA → subtree. */
+    private fun treeHttpResult(url: String): HttpFetchResult = when {
+        url.endsWith("/git/trees/master") -> HttpFetchResult.success(topTreeJson.toByteArray())
+        url.contains("/git/trees/") -> HttpFetchResult.success(subtreeJson.toByteArray())
+        else -> HttpFetchResult.success(TINY_PNG)
     }
 
     private fun seedGame() {
@@ -83,7 +103,7 @@ class CoverArtTraceUiTest {
         seedGame()
         val context = ApplicationProvider.getApplicationContext<Context>()
         val httpGet: suspend (String, Int) -> HttpFetchResult = { url, _ ->
-            if (url.contains("git/trees")) HttpFetchResult.success(treeJson.toByteArray())
+            if (url.contains("git/trees")) treeHttpResult(url)
             else HttpFetchResult.success(TINY_PNG)
         }
         val repository = CoverRepository(context.filesDir, httpGet)

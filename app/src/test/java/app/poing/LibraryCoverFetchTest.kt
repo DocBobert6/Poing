@@ -64,6 +64,26 @@ class LibraryCoverFetchTest {
             {"path":"Named_Boxarts/Tetris (World).png","type":"blob"},
             {"path":"Named_Boxarts/Dr. Mario (World).png","type":"blob"}
         ]}"""
+
+        // The two-step load (alpha.7): the top-level tree, and
+        // the Named_Boxarts subtree with BARE filenames.
+        private val topTreeJson = """{"tree":[
+            {"path":".gitignore","type":"blob"},
+            {"path":"Named_Boxarts","type":"tree","sha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
+            {"path":"Named_Snaps","type":"tree","sha":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}
+        ]}"""
+
+        private val subtreeJson = """{"tree":[
+            {"path":"Tetris (World).png","type":"blob"},
+            {"path":"Dr. Mario (World).png","type":"blob"}
+        ]}"""
+    }
+
+    /** Tree routing for the two-step load: master → top tree, SHA → subtree. */
+    private fun treeHttpResult(url: String): HttpFetchResult = when {
+        url.endsWith("/git/trees/master") -> HttpFetchResult.success(topTreeJson.toByteArray())
+        url.contains("/git/trees/") -> HttpFetchResult.success(subtreeJson.toByteArray())
+        else -> HttpFetchResult.success(TINY_PNG)
     }
 
     private fun seedGame() {
@@ -118,7 +138,7 @@ class LibraryCoverFetchTest {
         val calls = AtomicInteger(0)
         val httpGet: suspend (String, Int) -> HttpFetchResult = { url, _ ->
             calls.incrementAndGet()
-            if (url.contains("git/trees")) HttpFetchResult.success(treeJson.toByteArray())
+            if (url.contains("git/trees")) treeHttpResult(url)
             else HttpFetchResult.success(TINY_PNG)
         }
         val repository = CoverRepository(context.filesDir, httpGet)
@@ -193,7 +213,7 @@ class LibraryCoverFetchTest {
                     while (!released.get()) delay(100)
                     HttpFetchResult.httpFailure(500)
                 }
-                url.contains("git/trees") -> HttpFetchResult.success(treeJson.toByteArray())
+                url.contains("git/trees") -> treeHttpResult(url)
                 else -> HttpFetchResult.success(TINY_PNG)
             }
         }
@@ -321,7 +341,7 @@ class LibraryCoverFetchTest {
         val httpGet: suspend (String, Int) -> HttpFetchResult = { url, _ ->
             if (url.contains("git/trees")) {
                 treeCalls.incrementAndGet()
-                HttpFetchResult.success(treeJson.toByteArray())
+                treeHttpResult(url)
             } else {
                 artCalls.incrementAndGet()
                 HttpFetchResult.success(TINY_PNG)
@@ -359,7 +379,7 @@ class LibraryCoverFetchTest {
                     false
                 }
             }
-            assertEquals(1, treeCalls.get())
+            assertEquals(2, treeCalls.get())
             assertEquals(1, artCalls.get())
             // Leave and re-enter: the same repository, a fresh
             // composition — the cover must still show, with no
@@ -371,7 +391,7 @@ class LibraryCoverFetchTest {
             composeRule.waitForIdle()
             composeRule.onAllNodesWithContentDescription("Cover art for TETRIS")
                 .assertCountEquals(1)
-            assertEquals(1, treeCalls.get())
+            assertEquals(2, treeCalls.get())
             assertEquals(1, artCalls.get())
         } finally {
             repository.close()
