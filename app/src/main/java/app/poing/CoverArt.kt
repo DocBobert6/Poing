@@ -830,6 +830,20 @@ class CoverArtStore(
     val status = mutableStateOf(CoverArtStatus())
 
     /**
+     * The lock for every status/trace update. applyEvent runs on
+     * the fetcher's threads — the three index loads run in
+     * parallel — and every update is a read-modify-write
+     * (`val cur = status.value; status.value = cur.copy(…)`),
+     * so two events landing together used to lose one: each
+     * read the same stale `cur` and the second write overwrote
+     * the first. On device that read as a system silently
+     * missing from the status line; in tests it dropped the
+     * GBC index entry. One lock, held for the copy-and-assign
+     * only — no callbacks inside it, so it cannot deadlock.
+     */
+    private val stateLock = Any()
+
+    /**
      * The fetch trace (see [CoverArtTraceEvent]): every pass
      * event with a timestamp, newest last, capped at
      * [MAX_TRACE_EVENTS]. The library's Trace view reads this
@@ -843,75 +857,85 @@ class CoverArtStore(
 
     /** Append one trace event, dropping the oldest past the cap (see [trace]). */
     fun recordTrace(event: CoverArtTraceEvent) {
-        if (trace.size >= MAX_TRACE_EVENTS) trace.removeAt(0)
-        trace.add(event)
+        synchronized(stateLock) {
+            if (trace.size >= MAX_TRACE_EVENTS) trace.removeAt(0)
+            trace.add(event)
+        }
     }
 
     /** Fold one fetch event into the visible status. Wired as the fetcher's event callback in LibraryScreen. */
     fun applyEvent(event: CoverArtFetchEvent) {
-        val cur = status.value
-        status.value = when (event) {
-            is CoverArtFetchEvent.IndexLoaded -> cur.copy(
-                indexes = cur.indexes + (event.system to
-                    if (event.fromCache) CoverIndexStatus.Cached(event.entries)
-                    else CoverIndexStatus.Downloaded(event.entries)),
-            )
-            is CoverArtFetchEvent.IndexFailed -> cur.copy(
-                indexes = cur.indexes + (event.system to CoverIndexStatus.Failed(event.detail)),
-                failedThisPass = cur.failedThisPass + 1,
-                lastError = "index ${event.system.name.lowercase()}: ${event.detail}",
-                // The failure is named in lastError now; the
-                // stage must not keep claiming the failed
-                // download is still running.
-                stage = null,
-            )
-            is CoverArtFetchEvent.ArtLanded -> cur.copy(
-                landedThisPass = cur.landedThisPass + 1,
-            )
-            is CoverArtFetchEvent.ArtFailed -> cur.copy(
-                failedThisPass = cur.failedThisPass + 1,
-                lastError = "art ${event.game.title}: ${event.detail}",
-                stage = null,
-            )
-            is CoverArtFetchEvent.IndexStarted -> cur.copy(
-                stage = "${event.system.name.lowercase()} index",
-            )
-            is CoverArtFetchEvent.ArtStarted -> cur.copy(
-                stage = "${event.game.system.name.lowercase()} art",
-            )
+        synchronized(stateLock) {
+            val cur = status.value
+            status.value = when (event) {
+                is CoverArtFetchEvent.IndexLoaded -> cur.copy(
+                    indexes = cur.indexes + (event.system to
+                        if (event.fromCache) CoverIndexStatus.Cached(event.entries)
+                        else CoverIndexStatus.Downloaded(event.entries)),
+                )
+                is CoverArtFetchEvent.IndexFailed -> cur.copy(
+                    indexes = cur.indexes + (event.system to CoverIndexStatus.Failed(event.detail)),
+                    failedThisPass = cur.failedThisPass + 1,
+                    lastError = "index ${event.system.name.lowercase()}: ${event.detail}",
+                    // The failure is named in lastError now; the
+                    // stage must not keep claiming the failed
+                    // download is still running.
+                    stage = null,
+                )
+                is CoverArtFetchEvent.ArtLanded -> cur.copy(
+                    landedThisPass = cur.landedThisPass + 1,
+                )
+                is CoverArtFetchEvent.ArtFailed -> cur.copy(
+                    failedThisPass = cur.failedThisPass + 1,
+                    lastError = "art ${event.game.title}: ${event.detail}",
+                    stage = null,
+                )
+                is CoverArtFetchEvent.IndexStarted -> cur.copy(
+                    stage = "${event.system.name.lowercase()} index",
+                )
+                is CoverArtFetchEvent.ArtStarted -> cur.copy(
+                    stage = "${event.game.system.name.lowercase()} art",
+                )
+            }
+            // The trace keeps the same event, timestamped — the
+            // status line only ever shows the latest one, so a pass
+            // that fails three ways in a row reads as one failure.
+            recordTrace(CoverArtTraceEvent.Fetch(System.currentTimeMillis(), event))
         }
-        // The trace keeps the same event, timestamped — the
-        // status line only ever shows the latest one, so a pass
-        // that fails three ways in a row reads as one failure.
-        recordTrace(CoverArtTraceEvent.Fetch(System.currentTimeMillis(), event))
     }
 
     /** A new fetch pass starts: the fetcher's per-pass failure memo clears, and the per-pass counts reset (index states stay). */
     fun beginPass() {
         fetcher.beginPass()
-        val cur = status.value
-        status.value = cur.copy(
-            fetching = true,
-            stage = null,
-            landedThisPass = 0,
-            failedThisPass = 0,
-            lastError = null,
-        )
+        synchronized(stateLock) {
+            val cur = status.value
+            status.value = cur.copy(
+                fetching = true,
+                stage = null,
+                landedThisPass = 0,
+                failedThisPass = 0,
+                lastError = null,
+            )
+        }
     }
 
     /** The gate for this pass, for the status line (and the trace's pass-started line). */
     fun noteGate(gate: CoverArtGate, networkLabel: String? = null) {
-        status.value = status.value.copy(gate = gate, networkLabel = networkLabel)
+        synchronized(stateLock) {
+            status.value = status.value.copy(gate = gate, networkLabel = networkLabel)
+        }
     }
 
     /** The pass finished (landed or not): the library counts, for the status line. */
     fun noteCounts(totalGames: Int, haveCovers: Int) {
-        status.value = status.value.copy(
-            fetching = false,
-            stage = null,
-            totalGames = totalGames,
-            haveCovers = haveCovers,
-        )
+        synchronized(stateLock) {
+            status.value = status.value.copy(
+                fetching = false,
+                stage = null,
+                totalGames = totalGames,
+                haveCovers = haveCovers,
+            )
+        }
     }
 
     /** Load the indexes for these systems now, in parallel (see [CoverArtFetcher.prefetchIndexes]). */
