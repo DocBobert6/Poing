@@ -112,7 +112,8 @@ fun HoldButton(
     unpressedLabel: Color = Color.Black,
     pressedBackground: Color = PoingPurple,
     // Phase 6 (item 7) — haptics: fires once when the finger
-    // lands. Only A/B pass one; Start/Select/L/R stay silent.
+    // lands. Every button passes one; the D-pad fires on a
+    // direction change instead (see DpadControl).
     onDown: (() -> Unit)? = null,
 ) {
     var pressed by remember { mutableStateOf(false) }

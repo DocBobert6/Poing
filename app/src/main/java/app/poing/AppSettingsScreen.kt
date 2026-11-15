@@ -21,6 +21,7 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.RadioButton
+import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -86,6 +87,10 @@ fun AppSettingsScreen(
     var ffSpeed by remember { mutableStateOf(store.ffSpeed()) }
     var inputDisplay by remember { mutableStateOf(store.inputDisplayVisible()) }
     var haptics by remember { mutableStateOf(store.hapticsEnabled()) }
+    // Alpha.8 — haptic strength: the slider, 0–100, 100 by
+    // default. Global, not per-system: strength is about
+    // the player's hand and phone, not the handheld.
+    var hapticsStrength by remember { mutableStateOf(store.hapticsStrength()) }
     var rewindControl by remember { mutableStateOf(store.rewindControlVisible()) }
     // Player chrome (Robert, 2026-11-12) — the dev stats:
     // when on, the top bar stays visible during gameplay;
@@ -289,7 +294,7 @@ fun AppSettingsScreen(
                         style = MaterialTheme.typography.titleMedium,
                     )
                     Text(
-                        "A short click when you press the D-pad or the A and B buttons. On by default.",
+                        "A short click when you press a button — D-pad, A/B, L/R, Start and Select. On by default.",
                         style = MaterialTheme.typography.bodySmall,
                     )
                 }
@@ -301,6 +306,49 @@ fun AppSettingsScreen(
                     },
                     modifier = Modifier.testTag("haptics-switch"),
                 )
+            }
+        }
+        // Alpha.8 — the strength slider, shown only while
+        // haptics is on (same pattern as the fast-forward
+        // speed and the edge grid rows): 0–100 in steps of
+        // 5, 100 by default. 0 silences the click, the same
+        // as the toggle off. The value writes when the drag
+        // ends, not on every step — same as the Cartridge
+        // Surgery sliders.
+        if (haptics) {
+            item {
+                Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
+                    Text(
+                        "Haptic strength",
+                        style = MaterialTheme.typography.titleMedium,
+                    )
+                    Text(
+                        "How strong the button click feels, from 0 (silent) to 100.",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                    Row(
+                        modifier = Modifier.padding(top = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Slider(
+                            value = hapticsStrength.toFloat(),
+                            onValueChange = { hapticsStrength = it.toInt() },
+                            onValueChangeFinished = {
+                                store.setHapticsStrength(hapticsStrength)
+                            },
+                            valueRange = 0f..100f,
+                            steps = 19,
+                            modifier = Modifier
+                                .weight(1f)
+                                .testTag("haptics-strength-slider"),
+                        )
+                        Text(
+                            "$hapticsStrength%",
+                            style = MaterialTheme.typography.bodyMedium,
+                            modifier = Modifier.padding(start = 12.dp),
+                        )
+                    }
+                }
             }
         }
         item {
@@ -997,6 +1045,7 @@ fun AppSettingsScreen(
                     ffSpeed = store.ffSpeed()
                     inputDisplay = store.inputDisplayVisible()
                     haptics = store.hapticsEnabled()
+                    hapticsStrength = store.hapticsStrength()
                     rewindControl = store.rewindControlVisible()
                     devStats = store.devStatsEnabled()
                     jade = store.jadeEnabled()

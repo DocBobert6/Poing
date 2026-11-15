@@ -199,14 +199,16 @@ fun GameScreen(
     val inputDisplayVisible = remember { appSettings.inputDisplayVisible() }
     var displayedMask by remember { mutableStateOf(0) }
 
-    // Phase 6 (item 7) — haptics: a short click for the D-pad and
-    // A/B, on by default, toggleable in Settings. Snapshotted here
-    // like the other player settings: settings can only change on
-    // the Settings screen, never while the player is open.
+    // Phase 6 (item 7) — haptics: a short click for every
+    // overlay button, on by default, toggleable in Settings.
+    // Snapshotted here like the other player settings:
+    // settings can only change on the Settings screen,
+    // never while the player is open.
     val hapticsImpl = remember {
         haptics ?: Haptics(
             context.getSystemService(Vibrator::class.java),
             appSettings.hapticsEnabled(),
+            appSettings.hapticsStrength(),
         )
     }
 

@@ -59,6 +59,35 @@ class AppSettingsStoreTest {
     }
 
     @Test
+    fun hapticsStrengthDefaultsFullAndRoundTripsOnlyOfferedValues() {
+        // Alpha.8 — the strength slider, 0–100, 100 by default.
+        val s = store()
+        assertEquals(100, s.hapticsStrength())
+        assertTrue(s.setHapticsStrength(50))
+        assertEquals(50, s.hapticsStrength())
+        assertEquals(50, AppSettingsStore(temp.root).hapticsStrength())
+        assertTrue(s.setHapticsStrength(0))
+        assertEquals(0, s.hapticsStrength())
+        // -1, 101 and anything else are rejected and change nothing.
+        assertFalse(s.setHapticsStrength(-1))
+        assertFalse(s.setHapticsStrength(101))
+        assertEquals(0, s.hapticsStrength())
+    }
+
+    @Test
+    fun hapticsStrengthClampsStaleValues() {
+        // A hand-edited value outside 0–100 reads clamped,
+        // never out of range.
+        val s = store()
+        java.io.File(temp.root, "app-settings.properties")
+            .writeText("haptics_strength=250\n")
+        assertEquals(100, AppSettingsStore(temp.root).hapticsStrength())
+        java.io.File(temp.root, "app-settings.properties")
+            .writeText("haptics_strength=-40\n")
+        assertEquals(0, AppSettingsStore(temp.root).hapticsStrength())
+    }
+
+    @Test
     fun hapticsDefaultsOnAndRoundTrips() {
         val s = store()
         assertTrue(s.hapticsEnabled())

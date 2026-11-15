@@ -29,6 +29,7 @@ class AppSettingsStore(private val root: File) {
         const val KEY_FF_SPEED = "ff_speed"
         const val KEY_INPUT_DISPLAY = "input_display_visible"
         const val KEY_HAPTICS = "haptics_enabled"
+        const val KEY_HAPTICS_STRENGTH = "haptics_strength"
         const val KEY_REWIND_CONTROL = "rewind_control_visible"
         const val KEY_JADE_CHAIN = "display_jade"
         const val KEY_PRISM_CHAIN = "display_prism"
@@ -63,6 +64,25 @@ class AppSettingsStore(private val root: File) {
      * overlay rule does not apply. */
     fun hapticsEnabled(): Boolean = readBoolean(KEY_HAPTICS, true)
     fun setHapticsEnabled(enabled: Boolean) = write(KEY_HAPTICS, enabled.toString())
+
+    /**
+     * Alpha.8 — haptic strength: the Settings slider, 0–100,
+     * 100 by default. Global, not per-system: strength is
+     * about the player's hand and phone, not the handheld.
+     * 0 silences the click, the same as the toggle off. A
+     * stale or hand-edited value is clamped into range.
+     */
+    fun hapticsStrength(): Int {
+        val raw = readAll()[KEY_HAPTICS_STRENGTH]?.toIntOrNull() ?: return Haptics.DEFAULT_STRENGTH
+        return raw.coerceIn(Haptics.MIN_STRENGTH, Haptics.MAX_STRENGTH)
+    }
+
+    /** False (and nothing stored) when the strength is not one the slider offers. */
+    fun setHapticsStrength(strength: Int): Boolean {
+        if (strength !in Haptics.MIN_STRENGTH..Haptics.MAX_STRENGTH) return false
+        write(KEY_HAPTICS_STRENGTH, strength.toString())
+        return true
+    }
 
     /** The rewind control (hold to step back through the last 30 seconds): off by default (the standing overlay rule). */
     fun rewindControlVisible(): Boolean = readBoolean(KEY_REWIND_CONTROL, false)

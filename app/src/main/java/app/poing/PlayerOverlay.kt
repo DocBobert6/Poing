@@ -43,8 +43,8 @@ fun BoxScope.ControlOverlay(
     held: HeldInput,
     paused: Boolean,
     onInputChanged: () -> Unit,
-    // Haptics click for the D-pad and A/B, gated by the caller
-    // (a running cartridge rumble wins over the click).
+    // Haptics click for every overlay button, gated by the
+    // caller (a running cartridge rumble wins over the click).
     onControlDown: () -> Unit,
 ) {
     val theme = ControlThemes.themeFor(system)
@@ -116,28 +116,28 @@ fun ControlButton(
             pressedBackground = pressed,
         )
         ControlId.L -> HoldButton(
-            "L", InputMask.JOY_L, held, paused, onInputChanged, shoulder = true,
+            "L", InputMask.JOY_L, held, paused, onInputChanged, onDown = onControlDown, shoulder = true,
             sizeDp = spec.sizeDp.dp,
             unpressedBackground = Color(theme.shoulder.background),
             unpressedLabel = Color(theme.shoulder.label),
             pressedBackground = pressed,
         )
         ControlId.R -> HoldButton(
-            "R", InputMask.JOY_R, held, paused, onInputChanged, shoulder = true,
+            "R", InputMask.JOY_R, held, paused, onInputChanged, onDown = onControlDown, shoulder = true,
             sizeDp = spec.sizeDp.dp,
             unpressedBackground = Color(theme.shoulder.background),
             unpressedLabel = Color(theme.shoulder.label),
             pressedBackground = pressed,
         )
         ControlId.START -> HoldButton(
-            "Start", InputMask.JOY_START, held, paused, onInputChanged, pill = true,
+            "Start", InputMask.JOY_START, held, paused, onInputChanged, onDown = onControlDown, pill = true,
             sizeDp = spec.sizeDp.dp,
             unpressedBackground = Color(theme.startSelect.background),
             unpressedLabel = Color(theme.startSelect.label),
             pressedBackground = pressed,
         )
         ControlId.SELECT -> HoldButton(
-            "Select", InputMask.JOY_SELECT, held, paused, onInputChanged, pill = true,
+            "Select", InputMask.JOY_SELECT, held, paused, onInputChanged, onDown = onControlDown, pill = true,
             sizeDp = spec.sizeDp.dp,
             unpressedBackground = Color(theme.startSelect.background),
             unpressedLabel = Color(theme.startSelect.label),

@@ -1,6 +1,7 @@
 package app.poing
 
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.hasTestTag
@@ -13,6 +14,7 @@ import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performScrollToIndex
 import androidx.compose.ui.test.performScrollToNode
+import androidx.compose.ui.test.performSemanticsAction
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.swipe
 import java.io.File
@@ -140,6 +142,52 @@ class AppSettingsScreenTest {
         // switch that is only just inside the viewport.
         composeRule.onNodeWithTag("haptics-switch").performScrollTo().performClick()
         assertFalse(AppSettingsStore(temp.root).hapticsEnabled())
+    }
+
+    @Test
+    fun hapticsStrengthSliderShownWhileHapticsOn() {
+        // Alpha.8 — the strength slider lives under the
+        // Haptics row while haptics is on, 100 by default.
+        val s = store()
+        composeRule.setContent {
+            PoingTheme {
+                AppSettingsScreen(store = s, onCoreOptions = {}, onBack = { })
+            }
+        }
+        composeRule.onNodeWithText("Haptic strength").assertIsDisplayed()
+        composeRule.onNodeWithText("100%").assertIsDisplayed()
+        assertEquals(100, AppSettingsStore(temp.root).hapticsStrength())
+    }
+
+    @Test
+    fun hapticsStrengthSliderHiddenWhileHapticsOff() {
+        // Same pattern as the fast-forward speed and the edge
+        // grid rows: the slider only exists while its toggle
+        // is on.
+        val s = store()
+        s.setHapticsEnabled(false)
+        composeRule.setContent {
+            PoingTheme {
+                AppSettingsScreen(store = s, onCoreOptions = {}, onBack = { })
+            }
+        }
+        composeRule.onAllNodesWithText("Haptic strength").assertCountEquals(0)
+    }
+
+    @Test
+    fun movingHapticsStrengthSliderPersists() {
+        // Alpha.8 — dragging the slider to halfway writes 50
+        // to the store (steps of 5: 50 is a valid stop).
+        val s = store()
+        composeRule.setContent {
+            PoingTheme {
+                AppSettingsScreen(store = s, onCoreOptions = {}, onBack = { })
+            }
+        }
+        composeRule.onNodeWithTag("haptics-strength-slider").performScrollTo()
+            .performSemanticsAction(SemanticsActions.SetProgress) { it(0.5f) }
+        assertEquals(50, AppSettingsStore(temp.root).hapticsStrength())
+        composeRule.onNodeWithText("50%").assertIsDisplayed()
     }
 
     @Test
