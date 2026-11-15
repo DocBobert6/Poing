@@ -152,6 +152,12 @@ class LibraryCoverFetchTest {
         val httpGet: (String, Int) -> HttpFetchResult = { url, _ ->
             if (url.contains("git/trees")) {
                 treeCalls.incrementAndGet()
+                // PROBE (temporary): slow the index fetch so the
+                // pass's "fetching…" status is observable, and
+                // print every call so the XML system-out shows
+                // whether the retry ever reached the network.
+                Thread.sleep(700)
+                println("COVER-PROBE httpGet trees call #${treeCalls.get()}")
                 HttpFetchResult.httpFailure(403)
             } else {
                 HttpFetchResult.success(TINY_PNG)
@@ -194,7 +200,21 @@ class LibraryCoverFetchTest {
         }
         // Retry re-runs the pass: the index is attempted again.
         composeRule.onNodeWithTag("cover-art-retry").performClick()
+        println("COVER-PROBE clicked retry, treeCalls=${treeCalls.get()}")
+        // PROBE (temporary): the pass's "fetching…" status
+        // separates a dead retry trigger (no pass starts) from
+        // a pass that starts but never reaches the network.
+        composeRule.waitUntil(timeoutMillis = 10_000) {
+            try {
+                composeRule.onNodeWithText("fetching", substring = true).assertExists()
+                true
+            } catch (_: AssertionError) {
+                false
+            }
+        }
+        println("COVER-PROBE fetching seen, treeCalls=${treeCalls.get()}")
         composeRule.waitUntil(timeoutMillis = 10_000) { treeCalls.get() == 2 }
+        println("COVER-PROBE treeCalls==2, done")
         composeRule.onNodeWithText("HTTP 403", substring = true).assertExists()
     }
 }
