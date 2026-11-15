@@ -179,6 +179,19 @@ class LibraryCoverFetchTest {
         }
         assertEquals(1, treeCalls.get())
         composeRule.onNodeWithTag("cover-art-status").assertExists()
+        // The pass must have finished before Retry is tapped:
+        // the status line shows the failure as soon as the
+        // event lands, mid-pass, and a tap then relies on the
+        // pending-restart path. The counts ("0/1 covers") only
+        // appear once the pass is done and the guard is free.
+        composeRule.waitUntil(timeoutMillis = 10_000) {
+            try {
+                composeRule.onNodeWithText("0/1 covers", substring = true).assertExists()
+                true
+            } catch (_: AssertionError) {
+                false
+            }
+        }
         // Retry re-runs the pass: the index is attempted again.
         composeRule.onNodeWithTag("cover-art-retry").performClick()
         composeRule.waitUntil(timeoutMillis = 10_000) { treeCalls.get() == 2 }

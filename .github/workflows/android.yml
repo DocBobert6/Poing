@@ -217,6 +217,16 @@ jobs:
       - name: Run unit tests (incl. Robolectric startup gate)
         run: ./gradlew :app:testDebugUnitTest
 
+      - name: Upload unit-test reports on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: unit-test-reports
+          path: |
+            app/build/test-results/testDebugUnitTest/
+            app/build/reports/tests/testDebugUnitTest/
+          if-no-files-found: warn
+
       - name: Build debug APK (proves the app compiles)
         run: ./gradlew :app:assembleDebug
 

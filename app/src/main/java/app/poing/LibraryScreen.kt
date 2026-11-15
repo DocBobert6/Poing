@@ -8,11 +8,13 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.grid.GridCells
@@ -22,6 +24,7 @@ import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -302,6 +305,12 @@ fun LibraryScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .testTag("library-grid"),
+            // Bottom room for the cover-art status bar (an
+            // overlay below): the last item scrolls clear of
+            // it. Trailing padding only — it moves nothing at
+            // the top, so the header and first rows keep their
+            // exact positions.
+            contentPadding = PaddingValues(bottom = 64.dp),
         ) {
         item(span = { GridItemSpan(maxLineSpan) }) {
             // Top bar: the power light. No game is loaded on the
@@ -415,37 +424,6 @@ fun LibraryScreen(
                 }
             }
         }
-        item(span = { GridItemSpan(maxLineSpan) }) {
-            // The cover-art status (2026-11-15): what the fetch
-            // is doing, or why it is not — the gate, the index
-            // states, the last failure. Cover art used to fail
-            // silently with blank tiles and no reason anywhere.
-            // Retry re-runs the pass on demand: a pass that
-            // lands nothing otherwise leaves no retry until the
-            // library is re-entered or the network flaps.
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text(
-                    coverArtStatusLine(art.status.value),
-                    modifier = Modifier
-                        .weight(1f)
-                        .testTag("cover-art-status"),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                TextButton(
-                    onClick = { coverRetryVersion++ },
-                    modifier = Modifier.testTag("cover-art-retry"),
-                ) {
-                    Text("Retry")
-                }
-            }
-        }
         message?.let {
             item(span = { GridItemSpan(maxLineSpan) }) {
                 Text(
@@ -518,12 +496,61 @@ fun LibraryScreen(
             Spacer(Modifier.height(16.dp))
         }
     }
+        // The cover-art status bar (2026-11-15): what the fetch
+        // is doing, or why it is not — the gate, the index
+        // states, the last failure. Cover art used to fail
+        // silently with blank tiles and no reason anywhere.
+        // Retry re-runs the pass on demand: a pass that lands
+        // nothing otherwise leaves no retry until the library
+        // is re-entered or the network flaps. It is a bottom
+        // overlay, NOT a grid item: as a grid item its 48dp
+        // pushed the first game row and the BIOS card out of
+        // the lazy grid's composition window in the narrow
+        // Robolectric window (three red tests, 2026-11-15),
+        // and as an overlay it stays visible while scrolling.
+        // The grid's bottom content padding (above) lets the
+        // last item scroll clear of it.
+        Column(
+            modifier = Modifier.align(Alignment.BottomCenter),
+        ) {
+            HorizontalDivider()
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(MaterialTheme.colorScheme.surface)
+                    .navigationBarsPadding()
+                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    coverArtStatusLine(art.status.value),
+                    modifier = Modifier
+                        .weight(1f)
+                        .testTag("cover-art-status"),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                // A small clickable text, not a TextButton: the
+                // button's 48dp minimum height is what the bar
+                // would otherwise cost the screen.
+                Text(
+                    "Retry",
+                    modifier = Modifier
+                        .testTag("cover-art-retry")
+                        .clickable { coverRetryVersion++ }
+                        .padding(horizontal = 8.dp, vertical = 4.dp),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.primary,
+                )
+            }
+        }
         if (showExitHint) {
             Text(
                 "Press back again to exit",
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
-                    .padding(bottom = 16.dp)
+                    .padding(bottom = 64.dp)
                     .testTag("exit-hint"),
                 color = Color.White,
             )

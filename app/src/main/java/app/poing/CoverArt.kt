@@ -8,7 +8,6 @@ import android.net.NetworkCapabilities
 import android.net.NetworkRequest
 import android.os.Handler
 import android.os.Looper
-import android.util.Log
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.snapshots.SnapshotStateMap
@@ -137,8 +136,6 @@ fun coverArtStatusLine(status: CoverArtStatus): String {
     return "Cover art: ${status.haveCovers}/${status.totalGames} covers · $gatePart$indexPart$err"
 }
 
-private const val COVER_ART_TAG = "CoverArt"
-
 object NoOpCoverArtFetcher : CoverArtFetcher {
     override fun fetch(game: LibraryGame): ByteArray? = null
 }
@@ -203,7 +200,11 @@ class LibretroThumbnailsFetcher(
             val bytes = result.bytes
             if (bytes == null) {
                 val detail = result.error ?: "no bytes"
-                Log.w(COVER_ART_TAG, "Cover art download failed for ${game.title}: $detail")
+                // No Log.w here: android.util.Log throws in plain
+                // JVM unit tests (RuntimeException: Stub!), and
+                // the ArtFailed event below already carries the
+                // reason to the library's status line — the
+                // visible diagnostic.
                 onEvent(CoverArtFetchEvent.ArtFailed(game, detail))
                 return null
             }
@@ -253,7 +254,9 @@ class LibretroThumbnailsFetcher(
         val json = result.bytes?.decodeToString()
         if (json == null) {
             val detail = result.error ?: "no bytes"
-            Log.w(COVER_ART_TAG, "Cover art index download failed for $system: $detail")
+            // No Log.w here, for the same reason as the art
+            // failure above: the IndexFailed event (see
+            // loadIndex) carries the reason to the status line.
             lastIndexFailure[system] = detail
             return null
         }
