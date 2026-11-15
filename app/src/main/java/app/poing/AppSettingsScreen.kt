@@ -922,6 +922,7 @@ fun AppSettingsScreen(
                 Text(
                     "Poing! ${currentVersion.display()}",
                     style = MaterialTheme.typography.titleMedium,
+                    modifier = Modifier.testTag("update-version"),
                 )
                 Text(
                     when {
