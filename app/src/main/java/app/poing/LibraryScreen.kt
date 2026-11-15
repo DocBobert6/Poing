@@ -227,10 +227,14 @@ fun LibraryScreen(
                     games,
                     gate == CoverArtGate.OPEN,
                 )
-                // Decode on IO: existing covers + newly landed
-                // ones. Already-decoded and failed decodes are
-                // no-ops in the store, so a later pass costs
-                // nothing for the covers it already holds.
+                // Decode on IO: covers already on disk when the
+                // pass started — newly landed ones are decoded at
+                // landing time in coverOrFetch, so their tiles
+                // update while the pass is still running (see
+                // CoverArtStore.coverOrFetch). Already-decoded
+                // and failed decodes are no-ops in the store, so
+                // a later pass costs nothing for the covers it
+                // already holds.
                 for (game in games) art.decodeIntoCache(game)
                 art.noteCounts(games.size, games.count { art.hasCover(it) })
                 didLand

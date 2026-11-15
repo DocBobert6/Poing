@@ -13,6 +13,8 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.test.core.app.ApplicationProvider
+import java.io.File
+import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
 import org.junit.Assert.assertEquals
@@ -50,6 +52,11 @@ class LibraryCoverFetchTest {
             "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
             Base64.DEFAULT,
         )
+
+        private val treeJson = """{"tree":[
+            {"path":"Named_Boxarts/Tetris (World).png","type":"blob"},
+            {"path":"Named_Boxarts/Dr. Mario (World).png","type":"blob"}
+        ]}"""
     }
 
     private fun seedGame() {
@@ -137,6 +144,74 @@ class LibraryCoverFetchTest {
         }
         assertTrue("the fetcher must run once Wi-Fi appears", calls.get() >= 1)
         composeRule.onNodeWithText("TETRIS").assertExists()
+    }
+
+    @Test
+    fun landedCoverShowsOnItsTileWhileTheGbaIndexIsStillStuck() {
+        // The device case (2026-11-15, alpha.4): 10 covers land
+        // in ~4s, but the tiles keep their placeholders — the
+        // decode only runs after the whole pass returns, and the
+        // pass waits up to one index budget (45s) on the stuck
+        // GBA index. A landed cover must show on its tile at
+        // landing time, while the pass is still running: no pass
+        // end, no Retry, no scroll.
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        // GB index cached on disk, as on the device.
+        File(context.filesDir, "art-index-gb.txt").writeText("Tetris (World).png\n")
+        seedGame()
+        // A GBA game, so the pass starts the GBA index load too.
+        LibraryStore(context.filesDir)
+            .addRom(GameSystemTest.fakeGbaHeader("GOLDEN SUN"), "golden-sun.gba")
+        val gbaStuck = CountDownLatch(1)
+        val httpGet: (String, Int) -> HttpFetchResult = { url, _ ->
+            when {
+                url.contains("Nintendo_-_Game_Boy_Advance") -> {
+                    try {
+                        gbaStuck.await()
+                    } catch (_: InterruptedException) {
+                        Thread.currentThread().interrupt()
+                    }
+                    HttpFetchResult.httpFailure(500)
+                }
+                url.contains("git/trees") -> HttpFetchResult.success(treeJson.toByteArray())
+                else -> HttpFetchResult.success(TINY_PNG)
+            }
+        }
+        // A 60s budget on purpose: only the test's own release
+        // may end the GBA load — the tile must show the cover
+        // long before that.
+        val fetcher = LibretroThumbnailsFetcher(
+            context.filesDir, httpGet, indexBudgetMs = 60_000, artBudgetMs = 5_000,
+        )
+        setWifiOn()
+        try {
+            composeRule.setContent {
+                LibraryScreen(
+                    notice = null,
+                    onPlay = {},
+                    onLicences = {},
+                    onSettings = {},
+                    coverFetcher = fetcher,
+                )
+            }
+            composeRule.waitForText("TETRIS")
+            // The GB cover lands in phase 1 (index cached); the
+            // pass is still awaiting the GBA index. The tile must
+            // show the cover now.
+            composeRule.waitUntil(timeoutMillis = 10_000) {
+                try {
+                    composeRule.onAllNodesWithContentDescription("Cover art for TETRIS")
+                        .assertCountEquals(1)
+                    true
+                } catch (_: AssertionError) {
+                    false
+                }
+            }
+        } finally {
+            // Let the stuck GBA load unwind.
+            gbaStuck.countDown()
+            fetcher.cancelInflight()
+        }
     }
 
     @Test

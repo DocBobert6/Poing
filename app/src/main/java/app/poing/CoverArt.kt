@@ -824,9 +824,10 @@ class CoverArtStore(
      * Decoded covers, keyed by game id. The tiles read this state
      * map, so a landed cover redraws only its own row — the old
      * tiles decoded in composition and keyed on a global version,
-     * so one landed cover recomposed every row. Populated by the
-     * library's IO fetch effect (see LibraryScreen), never from
-     * composition.
+     * so one landed cover recomposed every row. Populated at
+     * landing time by [coverOrFetch], and for covers already on
+     * disk by the library's IO fetch effect (see LibraryScreen),
+     * never from composition.
      */
     val coverBitmaps: SnapshotStateMap<String, Bitmap> = mutableStateMapOf()
 
@@ -996,6 +997,17 @@ class CoverArtStore(
         return try {
             file.writeBytes(bytes)
             decodeFailedIds -= game.id
+            // Decode at landing time, not at the end of the pass:
+            // the pass can wait up to one index budget (45s) on a
+            // slow system after this cover lands, and the tile
+            // reads coverBitmaps — so a cover decoded only at the
+            // end of the pass leaves its tile a placeholder for
+            // the whole wait, while the status line already says
+            // it landed (2026-11-15, alpha.4 on device: 10 landed
+            // in 4s, none visible). The end-of-pass decode loop
+            // in LibraryScreen stays as the backstop for covers
+            // that were already on disk when the pass started.
+            decodeIntoCache(game)
             file
         } catch (_: Exception) {
             null
