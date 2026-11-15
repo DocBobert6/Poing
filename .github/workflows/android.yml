@@ -424,15 +424,33 @@ jobs:
           # app-release.apk. Same bytes, so the SHA-256 is unchanged.
           APK="poing-$TAG.apk"
           cp "$APK_SRC" "$APK"
-          echo "attaching $APK ($(stat -c%s "$APK") bytes, sha256 $(sha256sum "$APK" | cut -d' ' -f1)) to release $TAG"
+          SIZE=$(stat -c%s "$APK")
+          SHA256=$(sha256sum "$APK" | cut -d' ' -f1)
+          echo "attaching $APK ($SIZE bytes, sha256 $SHA256) to release $TAG"
+          # Final notes: the repo's RELEASE_NOTES.md plus a Build
+          # section carrying the exact bytes of the file being
+          # attached, so the release page shows the size and
+          # SHA-256 (alpha.1's notes linked a CI artifact and had
+          # to carry them by hand; the attached asset still
+          # deserves them).
+          {
+            cat RELEASE_NOTES.md
+            echo ""
+            echo "- Tag $TAG, commit $GITHUB_SHA; workflow run $GITHUB_RUN_ID."
+            echo "- Signed release APK: $APK, $SIZE bytes, SHA-256: \`$SHA256\`."
+            echo "- Signed with the Poing! release key (CN=Poing!); signature and version verified by the build job (apksigner v2)."
+          } > release-notes-final.md
           # A re-run of the tag workflow (or a release created by
-          # hand) must not fail here: create only when missing,
-          # then upload with --clobber so a stale asset is replaced
-          # rather than erroring.
+          # hand) must not fail here: create only when missing —
+          # refreshing the notes in either case, since the notes
+          # file is the source of truth — then upload with
+          # --clobber so a stale asset is replaced rather than
+          # erroring.
           if gh release view "$TAG" >/dev/null 2>&1; then
-            echo "release $TAG already exists — uploading the asset only"
+            echo "release $TAG already exists — refreshing its notes and uploading the asset"
+            gh release edit "$TAG" --notes-file release-notes-final.md
           else
-            gh release create "$TAG" --title "Poing! $TAG" --notes-file RELEASE_NOTES.md
+            gh release create "$TAG" --title "Poing! $TAG" --notes-file release-notes-final.md
           fi
           gh release upload "$TAG" "$APK" --clobber
           echo "release $TAG now carries:"
