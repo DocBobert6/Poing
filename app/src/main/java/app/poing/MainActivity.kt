@@ -42,7 +42,10 @@ class MainActivity : ComponentActivity() {
         // same .so files the player loads); when there is no .so
         // to load — the Robolectric startup gate — init fails
         // gracefully and the app launches without RA.
-        RaClient.init(RaSessionStore(filesDir))
+        // Achievement Center (hub + badges, 2026-11-14): the hub
+        // store is wired here too, so unlocks and set snapshots
+        // are recorded from the first session on.
+        RaClient.init(RaSessionStore(filesDir), hubStore = RaHubStore(filesDir))
         setContent {
             PoingTheme {
                 PoingHome()
@@ -73,6 +76,9 @@ private sealed interface Screen {
     // Phase 6 (item 8c) — the RetroAchievements login screen,
     // reached from Settings.
     data object RaLogin : Screen
+    // Achievement Center (hub + badges, 2026-11-14) — the hub,
+    // reached from the library without launching a game.
+    data object RaHub : Screen
     data class Player(val game: LibraryGame, val loadState: Int? = null, val loadAuto: Boolean = false) : Screen
     data class SaveManager(val game: LibraryGame) : Screen
 }
@@ -169,6 +175,7 @@ fun PoingHome() {
             is Screen.Settings -> screen = Screen.Library
             is Screen.CoreOptions -> screen = Screen.Settings
             is Screen.RaLogin -> screen = Screen.Settings
+            is Screen.RaHub -> screen = Screen.Library
             is Screen.SaveManager -> screen = Screen.Library
             is Screen.Player -> Unit // unreachable: disabled above
         }
@@ -228,6 +235,13 @@ fun PoingHome() {
             session = remember { RaSessionStore(context.filesDir) },
             onBack = { screen = Screen.Settings },
         )
+        is Screen.RaHub -> RaHubScreen(
+            username = RaClient.username,
+            totalPoints = RaClient.userScoreSoftcore,
+            hubStore = remember { RaHubStore(context.filesDir) },
+            badgeStore = remember { RaBadgeStore(context.filesDir) },
+            onBack = { screen = Screen.Library },
+        )
         is Screen.CoreOptions -> CoreOptionsScreen(
             store = optionsStore,
             onBack = { screen = Screen.Settings },
@@ -242,6 +256,7 @@ fun PoingHome() {
             onLicences = { screen = Screen.Licences },
             onSettings = { screen = Screen.Settings },
             onSaveManager = { game -> screen = Screen.SaveManager(game) },
+            onRaHub = { screen = Screen.RaHub },
         )
     }
 }

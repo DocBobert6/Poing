@@ -108,6 +108,7 @@ object Bridge {
     external fun nativeRaLogout()
     external fun nativeRaIsLoggedIn(): Boolean
     external fun nativeRaLoggedInUsername(): String?
+    external fun nativeRaUserScoreSoftcore(): Int
     external fun nativeRaLoadGame(path: String)
     external fun nativeRaUnloadGame()
     external fun nativeRaIsGameLoaded(): Boolean

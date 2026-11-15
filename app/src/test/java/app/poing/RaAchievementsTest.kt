@@ -75,4 +75,42 @@ class RaAchievementsTest {
         assertFalse(list[0].isUnlocked)
         assertEquals("0 / 1 unlocked", RaAchievements.summary(list))
     }
+
+    // Hub + badges (2026-11-14): the badge URLs the native layer
+    // carries (see ra_client.c) parse through, and the display
+    // badge is the unlocked one once earned, the locked one
+    // before that. An empty badge_url from the native layer (the
+    // server gave no badge) is no badge, not an empty URL.
+    @Test
+    fun badgeUrlsParseAndDisplayPicksLockedUntilUnlocked() {
+        val list = RaAchievements.parse(
+            """[
+                {"id":1,"title":"Locked","description":"","points":5,"state":1,"unlocked":0,"badge_url":"https://media.retroachievements.org/Badge/12345.png","badge_locked_url":"https://media.retroachievements.org/Badge/12345_lock.png"},
+                {"id":2,"title":"Earned","description":"","points":10,"state":2,"unlocked":1,"badge_url":"https://media.retroachievements.org/Badge/23456.png","badge_locked_url":"https://media.retroachievements.org/Badge/23456_lock.png"},
+                {"id":3,"title":"NoBadge","description":"","points":1,"state":1,"unlocked":0,"badge_url":"","badge_locked_url":""}
+            ]""",
+        )
+        assertEquals(3, list.size)
+        assertEquals(
+            "https://media.retroachievements.org/Badge/12345_lock.png",
+            list[0].badgeUrlForDisplay(),
+        )
+        assertEquals(
+            "https://media.retroachievements.org/Badge/23456.png",
+            list[1].badgeUrlForDisplay(),
+        )
+        assertNull(list[2].badgeUrl)
+        assertNull(list[2].badgeLockedUrl)
+        assertNull(list[2].badgeUrlForDisplay())
+    }
+
+    @Test
+    fun badgeUrlMissingIsNull() {
+        val list = RaAchievements.parse(
+            """[{"id":1,"title":"Old","description":"","points":1,"state":1,"unlocked":0}]""",
+        )
+        assertEquals(1, list.size)
+        assertNull(list[0].badgeUrl)
+        assertNull(list[0].badgeUrlForDisplay())
+    }
 }

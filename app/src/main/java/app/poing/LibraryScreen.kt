@@ -69,6 +69,9 @@ fun LibraryScreen(
     onSettings: () -> Unit,
     // Phase 6 (item 5) — open the Save Manager for a game.
     onSaveManager: (LibraryGame) -> Unit = {},
+    // Achievement Center (hub + badges, 2026-11-14) — open the
+    // hub, reachable without launching a game.
+    onRaHub: () -> Unit = {},
     // Top bar / back swipe (Robert, 2026-11-12): the first
     // back swipe on the home page shows this hint instead of
     // closing the app — a second swipe within ~2s exits.
@@ -349,6 +352,9 @@ fun LibraryScreen(
                 TextButton(onClick = onSettings) {
                     Text("Settings")
                 }
+                TextButton(onClick = onRaHub) {
+                    Text("Achievements")
+                }
             }
         }
         item(span = { GridItemSpan(maxLineSpan) }) {
@@ -490,6 +496,11 @@ fun LibraryScreen(
                             store.remove(game)
                             // The playtime entry goes with the game.
                             playtime.remove(game.id)
+                            // So does its cached achievement set —
+                            // a removed game is not a played game.
+                            // Its recent unlocks stay: they are
+                            // history, not a claim about the game.
+                            RaHubStore(context.filesDir).removeGame(game.id)
                         }
                         pendingRemove = null
                         message = "Removed ${game.title}."

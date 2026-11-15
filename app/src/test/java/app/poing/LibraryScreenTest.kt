@@ -213,6 +213,26 @@ class LibraryScreenTest {
         composeRule.onAllNodesWithTag("game-row").assertCountEquals(0)
     }
 
+    /**
+     * Achievement Center (hub + badges, 2026-11-14): the library
+     * carries an Achievements entry point, and it opens the hub
+     * without launching a game. Logged out under Robolectric (no
+     * native code, no account), the hub shows its login
+     * explanation.
+     */
+    @Test
+    fun achievementsButtonOpensTheHub() {
+        composeRule.waitForText("Add game")
+        composeRule.onNodeWithText("Achievements").assertIsDisplayed()
+        composeRule.onNodeWithText("Achievements").performClick()
+        composeRule.waitForText(
+            "Log in to RetroAchievements in Settings to see your achievements.",
+        )
+        composeRule.onNodeWithText(
+            "Log in to RetroAchievements in Settings to see your achievements.",
+        ).assertIsDisplayed()
+    }
+
     @Test
     fun shoulderFilterWorksInGrid() {
         seedTwoGames()

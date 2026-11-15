@@ -91,6 +91,18 @@ object RaClient {
     var lastUnlock by mutableStateOf<RaUnlock?>(null)
         private set
 
+    /**
+     * The account's total softcore points (rc_client's user
+     * score_softcore, read through nativeRaUserScoreSoftcore).
+     * Null when logged out or unknown. Poing is softcore only,
+     * so this is the account's total. It is set by the login
+     * response and updated on every award, so reading it needs
+     * no server call — [refreshUserScore] re-reads the cached
+     * value (the hub calls it when it opens).
+     */
+    var userScoreSoftcore by mutableStateOf<Int?>(null)
+        private set
+
     // Leaderboards and rich presence.
     /** The leaderboards for the loaded game (empty when the game has none). */
     var leaderboards by mutableStateOf<List<RaLeaderboard>>(emptyList())
@@ -136,6 +148,22 @@ object RaClient {
     private var session: RaSessionStore? = null
 
     /**
+     * The hub store the per-game cached sets and recent unlocks
+     * live in (set by [init]). Null when the caller did not pass
+     * one — the hub simply has nothing to show.
+     */
+    private var hubStore: RaHubStore? = null
+
+    /**
+     * The game currently loaded in RA, as its stable per-game key
+     * (the ROM file stem — the SHA-256 the library names the file
+     * by, the same key the saves use). Set in [loadGame], cleared
+     * when the game quits, the load fails, or the user logs out.
+     * The hub cache is keyed on it.
+     */
+    private var currentGameBase: String? = null
+
+    /**
      * The game whose achievements are waiting on a login still
      * in flight (see [loadGame]). Cleared when the game quits or
      * the user logs out, so a game that is no longer playing is
@@ -168,12 +196,15 @@ object RaClient {
      * which case the caller logs in explicitly (the login screen
      * does this when the user just typed a password: the typed
      * password is the fresh intent, not the stored token).
-     * Returns false when the native libraries could not be
-     * loaded or the client could not be created.
+     * [hubStore] is where the per-game cached sets and recent
+     * unlocks are recorded (the hub reads them); null means the
+     * hub stays empty. Returns false when the native libraries
+     * could not be loaded or the client could not be created.
      */
-    fun init(session: RaSessionStore, autoLogin: Boolean = true): Boolean {
+    fun init(session: RaSessionStore, autoLogin: Boolean = true, hubStore: RaHubStore? = null): Boolean {
         if (initialised) return true
         this.session = session
+        this.hubStore = hubStore
         if (!Bridge.ensureLoaded()) return false
         Bridge.raHttpRequestHandler = { id, url, post -> onHttpRequest(id, url, post) }
         Bridge.raEventUnlockedHandler = { id, title, desc, points -> onUnlocked(id, title, desc, points) }
@@ -231,10 +262,12 @@ object RaClient {
         pendingGamePath = null
         pendingProgress = null
         pendingProgressReset = false
+        currentGameBase = null
         session?.clear()
         loggedIn = false
         loginPending = false
         username = ""
+        userScoreSoftcore = null
         gameTitle = null
         gameLoaded = false
         achievements = emptyList()
@@ -251,6 +284,10 @@ object RaClient {
      * simply leaves RA inactive for that game.
      */
     fun loadGame(gamePath: String) {
+        // The hub key is set before the initialised check: the
+        // game is known the moment it starts, even when the
+        // login is still in flight (the load waits on it).
+        currentGameBase = java.io.File(gamePath).nameWithoutExtension
         if (!initialised) return
         if (!loggedIn) {
             // The login is still in flight (a stored-token
@@ -273,10 +310,14 @@ object RaClient {
 
     /** The game quit: unload it in the native layer too, and clear the per-game state here. */
     fun onGameQuit() {
+        // The set is snapshotted before it is cleared, so the
+        // hub keeps the game's final state from this session.
+        snapshotCurrentGame()
         if (initialised) Bridge.nativeRaUnloadGame()
         pendingGamePath = null
         pendingProgress = null
         pendingProgressReset = false
+        currentGameBase = null
         gameTitle = null
         gameLoaded = false
         achievements = emptyList()
@@ -461,10 +502,73 @@ object RaClient {
         }
     }
 
-    /** An achievement was unlocked: show the popup and refresh the list. */
+    /** An achievement was unlocked: show the popup, refresh the list, and record it for the hub. */
     fun onUnlocked(id: Int, title: String, description: String, points: Int) {
         lastUnlock = RaUnlock(id, title, description, points)
         refreshAchievements()
+        refreshUserScore()
+        // The unlock is history the moment it pops: the time,
+        // the game and the points go to the hub store with it,
+        // so the hub's recent list survives a restart. The
+        // game's cached set is snapshotted too, with the new
+        // unlock counted.
+        val base = currentGameBase
+        val store = hubStore
+        if (base != null && store != null) {
+            val badge = achievements.find { it.id == id }?.badgeUrl
+            store.recordUnlock(
+                RaRecentUnlock(
+                    achievementId = id,
+                    title = title,
+                    gameId = base,
+                    gameTitle = gameTitle ?: "Unknown game",
+                    points = points,
+                    unlockedAt = System.currentTimeMillis(),
+                    badgeUrl = badge,
+                ),
+            )
+            snapshotCurrentGame()
+        }
+    }
+
+    /** Re-read the account's total softcore points from the native layer (a no-op while logged out or uninitialised). */
+    fun refreshUserScore() {
+        if (!initialised || !loggedIn) {
+            userScoreSoftcore = null
+            return
+        }
+        userScoreSoftcore = Bridge.nativeRaUserScoreSoftcore().takeIf { it >= 0 }
+    }
+
+    /**
+     * Snapshot the loaded game's set into the hub store, for the
+     * hub's per-game rows. A no-op with no game, no store, no
+     * title, or an empty set. The representative badge is the
+     * latest unlocked achievement's badge, else the first
+     * achievement's locked badge.
+     */
+    private fun snapshotCurrentGame() {
+        val base = currentGameBase ?: return
+        val store = hubStore ?: return
+        val title = gameTitle ?: return
+        val list = achievements
+        if (list.isEmpty()) return
+        val unlockedList = list.filter { it.isUnlocked }
+        val representative = unlockedList.lastOrNull()?.badgeUrl
+            ?: list.firstOrNull()?.badgeLockedUrl
+            ?: list.firstOrNull()?.badgeUrl
+        store.snapshotGame(
+            RaHubGame(
+                id = base,
+                title = title,
+                total = list.size,
+                unlocked = unlockedList.size,
+                pointsEarned = unlockedList.sumOf { it.points },
+                pointsTotal = list.sumOf { it.points },
+                lastPlayed = System.currentTimeMillis(),
+                badgeUrl = representative,
+            ),
+        )
     }
 
     /** The login result. */
@@ -482,6 +586,10 @@ object RaClient {
             // both together here).
             Bridge.nativeRaToken()?.takeIf { it.isNotEmpty() }?.let { session?.setToken(it) }
             if (username.isNotEmpty()) session?.setUsername(username)
+            // The login response carries the account's total
+            // softcore points — read it now, so the hub header
+            // has the number without another server call.
+            refreshUserScore()
             // A game start that arrived while this login was in
             // flight left its achievements waiting — load them now
             // that the login completed.
@@ -517,6 +625,10 @@ object RaClient {
             refreshAchievements()
             refreshLeaderboards()
             refreshRichPresence()
+            // The set is cached for the hub the moment it loads,
+            // so a game appears there even when nothing unlocks
+            // in the session.
+            snapshotCurrentGame()
             // A save-state restore that waited for this load.
             val bytes = pendingProgress
             val reset = pendingProgressReset
@@ -525,6 +637,7 @@ object RaClient {
             if (bytes != null) deserializeProgress(bytes)
             else if (reset) resetProgress()
         } else {
+            currentGameBase = null
             gameTitle = null
             achievements = emptyList()
             clearLeaderboardState()

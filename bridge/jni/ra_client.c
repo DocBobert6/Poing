@@ -537,6 +537,14 @@ const char* ra_logged_in_token(void) {
     return user ? user->token : NULL;
 }
 
+int ra_logged_in_score_softcore(void) {
+    const rc_client_user_t* user;
+    if (!g_client)
+        return -1;
+    user = rc_client_get_user_info(g_client);
+    return user ? (int)user->score_softcore : -1;
+}
+
 /* ------------------------------------------------------------------ */
 /* Game load                                                          */
 /* ------------------------------------------------------------------ */
@@ -653,6 +661,8 @@ char* ra_get_achievements_json(void) {
             if (ra_json_append_int(&buf, a->unlocked ? 1 : 0) != 0) goto fail;
             if (ra_json_append(&buf, ",\"badge_url\":") != 0) goto fail;
             if (ra_json_append_string(&buf, a->badge_url) != 0) goto fail;
+            if (ra_json_append(&buf, ",\"badge_locked_url\":") != 0) goto fail;
+            if (ra_json_append_string(&buf, a->badge_locked_url) != 0) goto fail;
             if (ra_json_append(&buf, ",\"rarity\":") != 0) goto fail;
             if (ra_json_append_double(&buf, (double)a->rarity) != 0) goto fail;
             if (ra_json_append(&buf, ",\"measured_progress\":") != 0) goto fail;

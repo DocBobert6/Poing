@@ -1424,6 +1424,11 @@ Java_app_poing_Bridge_nativeRaLoggedInUsername(JNIEnv *env, jobject /* thiz */) 
     return user ? env->NewStringUTF(user) : NULL;
 }
 
+JNIEXPORT jint JNICALL
+Java_app_poing_Bridge_nativeRaUserScoreSoftcore(JNIEnv * /* env */, jobject /* thiz */) {
+    return ra_logged_in_score_softcore();
+}
+
 JNIEXPORT jboolean JNICALL
 Java_app_poing_Bridge_nativeRaLoadGame(JNIEnv *env, jobject /* thiz */, jstring path) {
     const char *cpath;

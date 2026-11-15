@@ -170,6 +170,12 @@ const char* ra_logged_in_username(void);
  * out) — the token the password login returned, for the app to
  * store and re-log in with on the next launch. */
 const char* ra_logged_in_token(void);
+/* The logged-in user's total softcore points (the
+ * rc_client_user_t score_softcore: set by the login response
+ * and updated on every award, so it is live without another
+ * server call). -1 when logged out. Poing is softcore only,
+ * so the softcore score is the account's total. */
+int ra_logged_in_score_softcore(void);
 
 /* Load a game (hash it and fetch its achievement set). Async:
  * the result is delivered through result_cb. console_id must
@@ -199,8 +205,12 @@ int ra_deserialize_progress(const uint8_t* buffer, size_t buffer_size);
 /* The achievements list as a JSON array string (malloc'd; the
  * caller frees it). NULL when no game is loaded. Each entry:
  * id, title, description, points, state (0 inactive, 1 active,
- * 2 unlocked, 3 disabled), unlocked (0/1), badge_url, rarity,
- * measured_progress, measured_percent. */
+ * 2 unlocked, 3 disabled), unlocked (0/1), badge_url,
+ * badge_locked_url, rarity,
+ * measured_progress, measured_percent. The badge URLs are the
+ * full https://media.retroachievements.org/Badge/… URLs
+ * rcheevos builds from the badge name (…_lock.png for the
+ * locked one); either is "" when the server gave no badge. */
 char* ra_get_achievements_json(void);
 
 /* Deliver an HTTP response for a pending server call (called by

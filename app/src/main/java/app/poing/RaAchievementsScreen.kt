@@ -3,18 +3,21 @@ package app.poing
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
@@ -34,7 +37,10 @@ import androidx.compose.ui.unit.sp
  * The header carries the game's rich presence line when the game
  * has one — what RetroAchievements says the player is doing
  * right now. A game RA has not recognised, or a logged-out user,
- * gets a plain explanation instead of an empty list.
+ * gets a plain explanation instead of an empty list. Each row
+ * carries the achievement's badge (the unlocked badge once
+ * earned, the locked one before that), fetched on demand behind
+ * the cover-art network gate and cached on the device.
  *
  * Full-screen look like the Cheats screen: black, DotGothic16
  * title, silver body text.
@@ -55,6 +61,9 @@ fun RaAchievementsScreen(
     val achievements = RaClient.achievements
         .filter { it.state != RaAchievements.STATE_INACTIVE }
     val richPresence = RaClient.richPresence
+    // One badge store for the screen — the rows share it, so a
+    // badge decoded for one row is already there for the next.
+    val badgeStore = rememberRaBadgeStore()
 
     LazyColumn(
         modifier = Modifier
@@ -121,26 +130,38 @@ fun RaAchievementsScreen(
             }
             else -> {
                 items(achievements, key = { it.id }) { achievement ->
-                    Column(modifier = Modifier.fillMaxWidth()) {
-                        Text(
-                            text = achievement.title,
-                            fontSize = 15.sp,
-                            color = if (achievement.isUnlocked) Color(0xFFC9A227) else Color.White,
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        RaBadgeImage(
+                            store = badgeStore,
+                            url = achievement.badgeUrlForDisplay(),
+                            size = 40.dp,
+                            contentDescription = "Badge for ${achievement.title}",
                         )
-                        Text(
-                            text = achievement.description,
-                            fontSize = 13.sp,
-                            color = Color(0xFFC9C9CE),
-                        )
-                        Text(
-                            text = buildString {
-                                append("${achievement.points} pts")
-                                if (achievement.isUnlocked) append(" — Unlocked")
-                                achievement.measuredProgress?.let { append(" — $it") }
-                            },
-                            fontSize = 13.sp,
-                            color = Color(0xFF9E9EA5),
-                        )
+                        Spacer(Modifier.width(12.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = achievement.title,
+                                fontSize = 15.sp,
+                                color = if (achievement.isUnlocked) Color(0xFFC9A227) else Color.White,
+                            )
+                            Text(
+                                text = achievement.description,
+                                fontSize = 13.sp,
+                                color = Color(0xFFC9C9CE),
+                            )
+                            Text(
+                                text = buildString {
+                                    append("${achievement.points} pts")
+                                    if (achievement.isUnlocked) append(" — Unlocked")
+                                    achievement.measuredProgress?.let { append(" — $it") }
+                                },
+                                fontSize = 13.sp,
+                                color = Color(0xFF9E9EA5),
+                            )
+                        }
                     }
                 }
             }

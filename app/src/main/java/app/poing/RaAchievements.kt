@@ -8,8 +8,10 @@ package app.poing
  * builds it from the rc_client list; each entry carries the id,
  * title, description, points, state, and — for measured
  * achievements — the progress string and percent. Badge images
- * are out of scope for v1 (no image loader in the project),
- * so no badge URL is carried.
+ * are the full media.retroachievements.org URLs rcheevos builds
+ * from the badge name (Badge/<name>.png unlocked,
+ * Badge/<name>_lock.png locked), carried here as [badgeUrl] /
+ * [badgeLockedUrl] (null when the server gave no badge).
  *
  * States mirror rc_client_achievement_state: INACTIVE (0) means
  * the achievement can never be earned in this game, ACTIVE (1)
@@ -36,8 +38,15 @@ data class RaAchievement(
     val unlocked: Boolean,
     val measuredProgress: String? = null,
     val measuredPercent: Double? = null,
+    /** Full badge URL from the native layer, or null when the server gave no badge. */
+    val badgeUrl: String? = null,
+    /** Full locked-badge URL (the _lock.png variant), or null when the server gave no badge. */
+    val badgeLockedUrl: String? = null,
 ) {
     val isUnlocked: Boolean get() = unlocked || state == RaAchievements.STATE_UNLOCKED
+
+    /** The badge to show: the unlocked badge once earned, the locked one before that. */
+    fun badgeUrlForDisplay(): String? = if (isUnlocked) badgeUrl else badgeLockedUrl ?: badgeUrl
 }
 
 object RaAchievements {
@@ -49,10 +58,11 @@ object RaAchievements {
     /**
      * Parse the achievements JSON from the native layer: an array
      * of objects with id, title, description, points, state,
-     * unlocked (an int, 0/1), and optionally measured_progress /
-     * measured_percent. Malformed JSON (or a non-array) parses to
-     * an empty list — a bad payload must never crash the list
-     * screen. A single malformed entry is skipped, not fatal.
+     * unlocked (an int, 0/1), badge_url, badge_locked_url, and
+     * optionally measured_progress / measured_percent. Malformed
+     * JSON (or a non-array) parses to an empty list — a bad
+     * payload must never crash the list screen. A single
+     * malformed entry is skipped, not fatal.
      */
     fun parse(json: String): List<RaAchievement> {
         val values = try {
@@ -94,6 +104,10 @@ object RaAchievements {
             },
             measuredProgress = measuredProgress,
             measuredPercent = measuredPercent,
+            // The native layer emits "" when the server gave no
+            // badge — that is no badge, not an empty URL.
+            badgeUrl = (obj["badge_url"] as? String)?.takeIf { it.isNotEmpty() },
+            badgeLockedUrl = (obj["badge_locked_url"] as? String)?.takeIf { it.isNotEmpty() },
         )
     }
 

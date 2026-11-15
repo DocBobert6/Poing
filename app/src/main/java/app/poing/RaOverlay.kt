@@ -1,11 +1,15 @@
 package app.poing
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
@@ -30,6 +34,10 @@ import kotlinx.coroutines.delay
 @Composable
 fun RaUnlockPopup(paused: Boolean) {
     val unlock = RaClient.lastUnlock
+    // The badge store is remembered for the popup's lifetime,
+    // not per unlock — a missing badge leaves the placeholder
+    // box, and the disk cache survives between popups.
+    val badgeStore = rememberRaBadgeStore()
     LaunchedEffect(unlock) {
         if (unlock != null) {
             delay(4000)
@@ -37,15 +45,31 @@ fun RaUnlockPopup(paused: Boolean) {
         }
     }
     if (unlock != null && !paused) {
-        Text(
-            text = "Achievement Unlocked: ${unlock.title} (+${unlock.points} pts)",
-            color = Color(0xFFC9A227),
-            fontWeight = FontWeight.Bold,
+        // The badge comes from the refreshed list (onUnlocked
+        // refreshes it before the popup shows), so the chip
+        // carries the achievement's own image, not just its
+        // name.
+        val badgeUrl = RaClient.achievements.find { it.id == unlock.id }?.badgeUrl
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier
                 .padding(top = 8.dp)
                 .background(Color(0xFF1A1A1A), RoundedCornerShape(4.dp))
                 .padding(horizontal = 12.dp, vertical = 6.dp),
-        )
+        ) {
+            RaBadgeImage(
+                store = badgeStore,
+                url = badgeUrl,
+                size = 32.dp,
+                contentDescription = "Badge for ${unlock.title}",
+            )
+            Spacer(Modifier.width(8.dp))
+            Text(
+                text = "Achievement Unlocked: ${unlock.title} (+${unlock.points} pts)",
+                color = Color(0xFFC9A227),
+                fontWeight = FontWeight.Bold,
+            )
+        }
     }
 }
 
