@@ -161,7 +161,12 @@ class CoverArtTraceTest {
         // "fetching…" with no reason.
         val ended = art.trace.last() as CoverArtTraceEvent.PassEnded
         assertEquals("error: RuntimeException", ended.note)
-        assertTrue(lines(art.trace).contains("pass ended — 0 landed, 0 failed — error: RuntimeException"))
+        // The duration sits between the counts and the note
+        // ("pass ended — 0 landed, 0 failed (0s) — error: …"),
+        // so assert the parts, not one literal.
+        val text = lines(art.trace)
+        assertTrue(text.contains("pass ended — 0 landed, 0 failed"))
+        assertTrue(text.contains("error: RuntimeException"))
     }
 
     @Test
