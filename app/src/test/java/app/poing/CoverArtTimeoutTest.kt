@@ -237,8 +237,10 @@ class CoverArtTimeoutTest {
             }
         }
         // GB/GBC indexes cached on disk, as on the device.
-        val indexLines =
-            "Named_Boxarts/Tetris (World).png\nNamed_Boxarts/Dr. Mario (World).png\n"
+        // The cache file holds BARE filenames: parseTreeJson
+        // strips the "Named_Boxarts/" prefix before the file
+        // is written (see loadIndexUncached).
+        val indexLines = "Tetris (World).png\nDr. Mario (World).png\n"
         File(temp.root, "art-index-gb.txt").writeText(indexLines)
         File(temp.root, "art-index-gbc.txt").writeText(indexLines)
         val fetcher = LibretroThumbnailsFetcher(
