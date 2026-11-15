@@ -552,11 +552,16 @@ fun LibraryScreen(
                 // routing Retry through a LaunchedEffect restart
                 // dropped the restart when the tap landed while
                 // the previous pass was mid-teardown (2026-11-15).
+                // The tap cancels any in-flight download FIRST:
+                // the old pass could be hung in a stalled index
+                // download, and without the cancel the guard
+                // would queue the restart behind it for as long
+                // as the stall lasted.
                 Text(
                     "Retry",
                     modifier = Modifier
                         .testTag("cover-art-retry")
-                        .clickable { scope.launch { runFetchPass() } }
+                        .clickable { art.cancelFetch(); scope.launch { runFetchPass() } }
                         .padding(horizontal = 8.dp, vertical = 4.dp),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.primary,

@@ -12,6 +12,16 @@ import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.snapshots.SnapshotStateMap
 import java.io.File
+import java.net.HttpURLConnection
+import java.util.Collections
+import java.util.concurrent.CancellationException
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.ExecutionException
+import java.util.concurrent.Executors
+import java.util.concurrent.Future
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.TimeoutException
+import java.util.concurrent.atomic.AtomicInteger
 
 /**
  * Cover art, Wi-Fi by default, cached. The source is the
@@ -43,6 +53,27 @@ fun interface CoverArtFetcher {
      * a no-op — fakes and NoOp never need it.
      */
     fun beginPass() {}
+
+    /**
+     * Load the indexes for these systems now, in parallel — the
+     * pass calls this before any art, so one slow system cannot
+     * hold the others behind it (see
+     * [LibretroThumbnailsFetcher.prefetchIndexes]). The default
+     * is a no-op: fakes and NoOp fetch art without an index.
+     */
+    fun prefetchIndexes(systems: Set<GameSystem>) {}
+
+    /**
+     * Abort any in-flight download, now — Retry calls this
+     * before restarting the pass, so a hung fetch does not hold
+     * the restart behind it (see
+     * [LibretroThumbnailsFetcher.cancelInflight]). The default
+     * is a no-op: fakes have nothing to abort.
+     */
+    fun cancelInflight() {}
+
+    /** True when [cancelInflight] was called since the current pass began. The default is false. */
+    fun passCancelled(): Boolean = false
 }
 
 /** One cover-art fetch event, for the library's visible fetch status (see [CoverArtStore]). */
@@ -53,6 +84,17 @@ sealed interface CoverArtFetchEvent {
     data class IndexFailed(val system: GameSystem, val detail: String) : CoverArtFetchEvent
     data class ArtLanded(val game: LibraryGame) : CoverArtFetchEvent
     data class ArtFailed(val game: LibraryGame, val detail: String) : CoverArtFetchEvent
+
+    /**
+     * An index download just started — the status line shows
+     * which system is being fetched while it runs, so a slow
+     * one reads "fetching gba index…" instead of a bare
+     * "fetching…" with nothing to show for it.
+     */
+    data class IndexStarted(val system: GameSystem) : CoverArtFetchEvent
+
+    /** One art file download just started (see [IndexStarted]). */
+    data class ArtStarted(val game: LibraryGame) : CoverArtFetchEvent
 }
 
 /**
@@ -72,7 +114,22 @@ data class HttpFetchResult(
         fun success(bytes: ByteArray) = HttpFetchResult(bytes, 200, null)
         fun httpFailure(statusCode: Int) = HttpFetchResult(null, statusCode, "HTTP $statusCode")
         fun transportFailure(e: Exception) =
-            HttpFetchResult(null, null, e.javaClass.simpleName)
+            HttpFetchResult(
+                null,
+                null,
+                when (e) {
+                    // A read/connect stall and a total-budget
+                    // timeout are the same thing on the status
+                    // line: "timed out", not the class name.
+                    is java.net.SocketTimeoutException -> "timed out"
+                    // A socket closed by cancelInflight (Retry):
+                    // "cancelled", not "SocketException".
+                    is java.net.SocketException ->
+                        if ((e.message ?: "").contains("closed", ignoreCase = true)) "cancelled"
+                        else e.javaClass.simpleName
+                    else -> e.javaClass.simpleName
+                },
+            )
     }
 }
 
@@ -102,6 +159,14 @@ data class CoverArtStatus(
     val gate: CoverArtGate? = null,
     val indexes: Map<GameSystem, CoverIndexStatus> = emptyMap(),
     val fetching: Boolean = false,
+    /**
+     * What the pass is doing right now, e.g. "gba index" or
+     * "gb art" — set by [CoverArtFetchEvent.IndexStarted] /
+     * [CoverArtFetchEvent.ArtStarted], cleared when the pass
+     * ends. The fetching line shows it, so a stalled download
+     * names what it is stalled on.
+     */
+    val stage: String? = null,
     val totalGames: Int = 0,
     val haveCovers: Int = 0,
     val landedThisPass: Int = 0,
@@ -112,8 +177,10 @@ data class CoverArtStatus(
 /** One line for the library: what the fetch is doing, or why it is not. Pure, so it is unit-testable. */
 fun coverArtStatusLine(status: CoverArtStatus): String {
     if (status.fetching) {
-        return "Cover art: fetching… ${status.landedThisPass} landed" +
-            (if (status.failedThisPass > 0) ", ${status.failedThisPass} failed" else "")
+        val what = status.stage?.let { "fetching $it… " } ?: "fetching… "
+        return "Cover art: $what${status.landedThisPass} landed" +
+            (if (status.failedThisPass > 0) ", ${status.failedThisPass} failed" else "") +
+            (status.lastError?.let { " · $it" } ?: "")
     }
     val gatePart = when (status.gate) {
         null -> "checking…"
@@ -152,7 +219,27 @@ object NoOpCoverArtFetcher : CoverArtFetcher {
  */
 class LibretroThumbnailsFetcher(
     private val root: File,
-    private val httpGet: (String, Int) -> HttpFetchResult = ::defaultHttpGet,
+    private val httpGet: (String, Int) -> HttpFetchResult = { url, maxBytes ->
+        realHttp.get(url, maxBytes)
+    },
+    /**
+     * Total budget for one index download (connect + read).
+     * The old code had only a 15s per-read stall timeout, so
+     * a trickle that never stalled 15s held the pass open
+     * indefinitely — the 6 MB GBA tree at a few KB/s is
+     * minutes, all of it reading "fetching… 0 landed". The
+     * budget is a total: slower than ~130 KB/s for the GBA
+     * tree fails fast with "timed out" instead, and the other
+     * systems still land. Injectable so tests can use a short
+     * budget with a fake that never returns. These sit before
+     * [onEvent] so the trailing-lambda form
+     * `LibretroThumbnailsFetcher(root, httpGet) { events += it }`
+     * keeps working — the last parameter must stay the event
+     * callback.
+     */
+    private val indexBudgetMs: Long = INDEX_BUDGET_MS,
+    /** Total budget for one art file (a few hundred KB). See [indexBudgetMs]. */
+    private val artBudgetMs: Long = ART_BUDGET_MS,
     /** One event per fetch outcome, for the library's status line. No-op by default (tests, fakes). */
     var onEvent: (CoverArtFetchEvent) -> Unit = {},
 ) : CoverArtFetcher {
@@ -162,7 +249,9 @@ class LibretroThumbnailsFetcher(
     // re-download the 7.2 MB GBA tree when the file was absent).
     // One library visit, one parse per system. Failures are not
     // cached, so a transient failure retries on the next pass.
-    private val indexCache = mutableMapOf<GameSystem, List<Thumbnails.IndexedArt>>()
+    // Concurrent maps: prefetchIndexes loads the systems on
+    // separate threads (see below).
+    private val indexCache = ConcurrentHashMap<GameSystem, List<Thumbnails.IndexedArt>>()
     // Games whose titles match nothing in the index. The match is
     // deterministic for a fixed index, so a miss is memoized for
     // the fetcher's lifetime — the fetcher is remembered in
@@ -177,13 +266,110 @@ class LibretroThumbnailsFetcher(
     // time and GitHub API calls, and can hold a 403 rate limit
     // open across visits. One attempt per system per pass;
     // beginPass clears it, so the next pass retries.
-    private val failedIndex = mutableMapOf<GameSystem, String>()
+    private val failedIndex = ConcurrentHashMap<GameSystem, String>()
     // The last index failure per system, kept past beginPass so
     // the status line can still name it until a load succeeds.
-    private val lastIndexFailure = mutableMapOf<GameSystem, String>()
+    private val lastIndexFailure = ConcurrentHashMap<GameSystem, String>()
+
+    // Every httpGet runs on this pool with a total budget (see
+    // getBudgeted): a fake or a socket that never returns is
+    // bounded by the budget, not by the caller's patience.
+    // Daemon threads, so a stuck worker can never hold the
+    // process open; a cached pool, so the parallel prefetch
+    // does not serialize on one worker.
+    private val fetchExecutor = Executors.newCachedThreadPool { r ->
+        Thread(r, "poing-cover-fetch").apply { isDaemon = true }
+    }
+    // Futures currently inside getBudgeted, so cancelInflight
+    // can interrupt them (see below).
+    private val inflightFutures = Collections.synchronizedSet(mutableSetOf<Future<*>>())
+
+    // The cancel generation: cancelInflight bumps it, beginPass
+    // baselines it, and the pass loop bails when it moves (see
+    // passCancelled). A cancel from an old pass must not cancel
+    // the new one — the baseline is taken at beginPass, after
+    // any Retry tap that preceded it.
+    private val cancelGen = AtomicInteger(0)
+
+    @Volatile
+    private var passGen = 0
 
     override fun beginPass() {
         failedIndex.clear()
+        passGen = cancelGen.get()
+    }
+
+    override fun passCancelled(): Boolean = cancelGen.get() != passGen
+
+    /**
+     * Abort any in-flight download, now. Cancelling the future
+     * interrupts its worker — which unblocks a sleeping fake
+     * but NOT a plain socket read (socket I/O ignores thread
+     * interrupt) — so the socket is disconnected too, which
+     * aborts the read at once. Retry calls this before
+     * restarting the pass: the old pass then unwinds promptly
+     * instead of holding the restart behind a hung download.
+     */
+    override fun cancelInflight() {
+        cancelGen.incrementAndGet()
+        synchronized(inflightFutures) { inflightFutures.toList() }.forEach { it.cancel(true) }
+        realHttp.cancelAll()
+    }
+
+    /**
+     * Load the indexes for these systems now, one thread per
+     * system, and wait for all of them. The old pass fetched
+     * indexes lazily in game order, so the 6 MB GBA tree —
+     * first game alphabetically — held every other system
+     * behind it for the whole download, and the status sat at
+     * "fetching… 0 landed". Each load is bounded by the index
+     * budget, so the join is bounded by one budget, not the
+     * sum of three. Systems already cached (memory or failed
+     * this pass) are skipped, never re-downloaded.
+     */
+    override fun prefetchIndexes(systems: Set<GameSystem>) {
+        val missing = systems.filter { system ->
+            !indexCache.containsKey(system) && !failedIndex.containsKey(system)
+        }
+        if (missing.isEmpty()) return
+        val threads = missing.map { system ->
+            Thread({ loadIndex(system) }, "poing-index-${system.name.lowercase()}").apply {
+                isDaemon = true
+                start()
+            }
+        }
+        for (t in threads) t.join()
+    }
+
+    /**
+     * One capped GET with a TOTAL budget: the call returns
+     * within [budgetMs] come what may — a fake that never
+     * returns, a socket that trickles forever. On a timeout
+     * the socket is disconnected (so the worker's blocking
+     * read aborts instead of downloading in the background)
+     * and the result names it "timed out".
+     */
+    private fun getBudgeted(url: String, maxBytes: Int, budgetMs: Long): HttpFetchResult {
+        val future = fetchExecutor.submit<HttpFetchResult> { httpGet(url, maxBytes) }
+        inflightFutures += future
+        return try {
+            future.get(budgetMs, TimeUnit.MILLISECONDS)
+        } catch (_: TimeoutException) {
+            realHttp.cancelForUrl(url)
+            future.cancel(true)
+            HttpFetchResult(null, null, "timed out")
+        } catch (_: CancellationException) {
+            HttpFetchResult(null, null, "cancelled")
+        } catch (e: ExecutionException) {
+            val cause = e.cause
+            if (cause is Exception) HttpFetchResult.transportFailure(cause)
+            else HttpFetchResult(null, null, cause?.javaClass?.simpleName ?: "failed")
+        } catch (_: InterruptedException) {
+            Thread.currentThread().interrupt()
+            HttpFetchResult(null, null, "cancelled")
+        } finally {
+            inflightFutures -= future
+        }
     }
 
     override fun fetch(game: LibraryGame): ByteArray? {
@@ -196,7 +382,8 @@ class LibretroThumbnailsFetcher(
                 noMatchIds += game.id
                 return null
             }
-            val result = httpGet(Thumbnails.artUrl(game.system, fileName), MAX_ART_BYTES)
+            onEvent(CoverArtFetchEvent.ArtStarted(game))
+            val result = getBudgeted(Thumbnails.artUrl(game.system, fileName), MAX_ART_BYTES, artBudgetMs)
             val bytes = result.bytes
             if (bytes == null) {
                 val detail = result.error ?: "no bytes"
@@ -210,6 +397,10 @@ class LibretroThumbnailsFetcher(
             }
             onEvent(CoverArtFetchEvent.ArtLanded(game))
             bytes
+        } catch (e: CancellationException) {
+            // A cancelled pass must stay cancelled: never
+            // swallow it as a plain fetch failure.
+            throw e
         } catch (_: Exception) {
             null
         }
@@ -250,7 +441,11 @@ class LibretroThumbnailsFetcher(
                 // Fall through to a fresh fetch.
             }
         }
-        val result = httpGet(Thumbnails.indexUrl(system), MAX_TREE_BYTES)
+        // The status line shows this system while the download
+        // runs — a slow index names itself instead of leaving
+        // the pass at a bare "fetching…".
+        onEvent(CoverArtFetchEvent.IndexStarted(system))
+        val result = getBudgeted(Thumbnails.indexUrl(system), MAX_TREE_BYTES, indexBudgetMs)
         val json = result.bytes?.decodeToString()
         if (json == null) {
             val detail = result.error ?: "no bytes"
@@ -289,44 +484,93 @@ class LibretroThumbnailsFetcher(
          * downloading without a bound.
          */
         const val MAX_TREE_BYTES: Int = 8 * 1024 * 1024
+
+        /**
+         * Total budget for one index download (see
+         * [LibretroThumbnailsFetcher.indexBudgetMs]): 45s at
+         * the GBA tree's 6 MB is ~130 KB/s — a connection
+         * slower than that fails fast with "timed out" rather
+         * than holding the pass open for minutes.
+         */
+        const val INDEX_BUDGET_MS: Long = 45_000
+
+        /** Total budget for one art file (see [LibretroThumbnailsFetcher.artBudgetMs]). */
+        const val ART_BUDGET_MS: Long = 20_000
+
+        /**
+         * The one shared real HTTP layer. The default httpGet
+         * is a constructor default, so it cannot close over a
+         * per-instance layer — and there is exactly one real
+         * fetcher in the app (LibraryScreen), so one shared
+         * layer is the honest shape. Tests inject fakes and
+         * never touch it. Its connection registry is what
+         * lets a timeout or a Retry disconnect a hung socket
+         * (see [RealHttpGet]).
+         */
+        private val realHttp = RealHttpGet()
     }
 }
 
-/** A capped GET: the bytes on success, else the HTTP status or the transport failure — never a bare null. */
-private fun defaultHttpGet(url: String, maxBytes: Int): HttpFetchResult {
-    val conn = try {
-        (java.net.URL(url).openConnection() as java.net.HttpURLConnection).apply {
-            connectTimeout = 10_000
-            readTimeout = 15_000
-            setRequestProperty("User-Agent", "Poing")
-            setRequestProperty("Accept", "application/vnd.github+json")
+/**
+ * A capped GET: the bytes on success, else the HTTP status or
+ * the transport failure — never a bare null. The connection is
+ * registered while it runs, so a timeout or a Retry can
+ * disconnect it: a plain socket read ignores thread
+ * interrupt, so disconnect is the only thing that aborts a
+ * hung read at once.
+ */
+private class RealHttpGet {
+    private val inflight = Collections.synchronizedSet(mutableSetOf<HttpURLConnection>())
+
+    fun get(url: String, maxBytes: Int): HttpFetchResult {
+        val conn = try {
+            (java.net.URL(url).openConnection() as HttpURLConnection).apply {
+                connectTimeout = 10_000
+                readTimeout = 15_000
+                setRequestProperty("User-Agent", "Poing")
+                setRequestProperty("Accept", "application/vnd.github+json")
+            }
+        } catch (e: Exception) {
+            return HttpFetchResult.transportFailure(e)
         }
-    } catch (e: Exception) {
-        return HttpFetchResult.transportFailure(e)
-    }
-    return try {
-        val code = conn.responseCode
-        if (code != java.net.HttpURLConnection.HTTP_OK) {
-            return HttpFetchResult.httpFailure(code)
-        }
-        val out = java.io.ByteArrayOutputStream()
-        conn.inputStream.use { input ->
-            val buf = ByteArray(8192)
-            while (true) {
-                val n = input.read(buf)
-                if (n < 0) break
-                out.write(buf, 0, n)
-                if (out.size() > maxBytes) {
-                    return HttpFetchResult(null, code, "over ${maxBytes}B cap")
+        inflight += conn
+        return try {
+            val code = conn.responseCode
+            if (code != HttpURLConnection.HTTP_OK) {
+                return HttpFetchResult.httpFailure(code)
+            }
+            val out = java.io.ByteArrayOutputStream()
+            conn.inputStream.use { input ->
+                val buf = ByteArray(8192)
+                while (true) {
+                    val n = input.read(buf)
+                    if (n < 0) break
+                    out.write(buf, 0, n)
+                    if (out.size() > maxBytes) {
+                        return HttpFetchResult(null, code, "over ${maxBytes}B cap")
+                    }
                 }
             }
+            HttpFetchResult.success(out.toByteArray())
+        } catch (e: Exception) {
+            HttpFetchResult.transportFailure(e)
+        } finally {
+            inflight -= conn
+            conn.disconnect()
         }
-        HttpFetchResult.success(out.toByteArray())
-    } catch (e: Exception) {
-        HttpFetchResult.transportFailure(e)
-    } finally {
-        conn.disconnect()
     }
+
+    /** Disconnect the in-flight connection for this URL, if any (see [LibretroThumbnailsFetcher.getBudgeted]). */
+    fun cancelForUrl(url: String) {
+        snapshot().filter { it.url.toString() == url }.forEach { it.disconnect() }
+    }
+
+    /** Disconnect every in-flight connection (see [LibretroThumbnailsFetcher.cancelInflight]). */
+    fun cancelAll() {
+        snapshot().forEach { it.disconnect() }
+    }
+
+    private fun snapshot(): List<HttpURLConnection> = synchronized(inflight) { inflight.toList() }
 }
 
 class CoverArtStore(
@@ -368,6 +612,10 @@ class CoverArtStore(
                 indexes = cur.indexes + (event.system to CoverIndexStatus.Failed(event.detail)),
                 failedThisPass = cur.failedThisPass + 1,
                 lastError = "index ${event.system.name.lowercase()}: ${event.detail}",
+                // The failure is named in lastError now; the
+                // stage must not keep claiming the failed
+                // download is still running.
+                stage = null,
             )
             is CoverArtFetchEvent.ArtLanded -> cur.copy(
                 landedThisPass = cur.landedThisPass + 1,
@@ -375,6 +623,13 @@ class CoverArtStore(
             is CoverArtFetchEvent.ArtFailed -> cur.copy(
                 failedThisPass = cur.failedThisPass + 1,
                 lastError = "art ${event.game.title}: ${event.detail}",
+                stage = null,
+            )
+            is CoverArtFetchEvent.IndexStarted -> cur.copy(
+                stage = "${event.system.name.lowercase()} index",
+            )
+            is CoverArtFetchEvent.ArtStarted -> cur.copy(
+                stage = "${event.game.system.name.lowercase()} art",
             )
         }
     }
@@ -385,6 +640,7 @@ class CoverArtStore(
         val cur = status.value
         status.value = cur.copy(
             fetching = true,
+            stage = null,
             landedThisPass = 0,
             failedThisPass = 0,
             lastError = null,
@@ -400,10 +656,20 @@ class CoverArtStore(
     fun noteCounts(totalGames: Int, haveCovers: Int) {
         status.value = status.value.copy(
             fetching = false,
+            stage = null,
             totalGames = totalGames,
             haveCovers = haveCovers,
         )
     }
+
+    /** Load the indexes for these systems now, in parallel (see [CoverArtFetcher.prefetchIndexes]). */
+    fun prefetchIndexes(systems: Set<GameSystem>) = fetcher.prefetchIndexes(systems)
+
+    /** Abort any in-flight download, now — Retry calls this before restarting the pass. */
+    fun cancelFetch() = fetcher.cancelInflight()
+
+    /** True when [cancelFetch] was called since the current pass began. */
+    fun passCancelled(): Boolean = fetcher.passCancelled()
 
     // Decode failures are memoized for the store's lifetime, so a
     // corrupt file is not re-decoded on every fetch pass. A newly
@@ -492,9 +758,21 @@ fun fetchMissingCovers(
     maxNew: Int = MAX_COVERS_PER_PASS,
 ): Boolean {
     art.beginPass()
+    if (networkAvailable) {
+        // The three indexes in parallel, before any art: the
+        // old pass fetched them lazily in game order, so the
+        // 6 MB GBA tree (first game alphabetically) held every
+        // other system behind it for the whole download, and
+        // the status sat at "fetching… 0 landed".
+        art.prefetchIndexes(games.filter { !art.hasCover(it) }.map { it.system }.toSet())
+    }
     var landed = false
     var landedCount = 0
     for (game in games) {
+        // A Retry tap cancels the pass: stop after the current
+        // game instead of grinding through the rest, so the
+        // restart the tap queued starts promptly.
+        if (art.passCancelled()) break
         if (landedCount >= maxNew) break
         if (!art.hasCover(game) && art.coverOrFetch(game, networkAvailable) != null) {
             landed = true
