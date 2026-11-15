@@ -14,7 +14,7 @@ import java.security.MessageDigest
  * carries per achievement (Badge/<name>.png unlocked,
  * Badge/<name>_lock.png locked — see ra_client.c), fetched on
  * demand when a badge is shown, then cached on the device.
- * Same shape as [CoverArtStore]: files under
+ * Same shape as the cover store: files under
  * filesDir/ra-badges/, decoded downsampled (badges are 64x64),
  * never a bulk download, offline or a bad download means the
  * placeholder stays, with no error and no blocking. Wi-Fi only

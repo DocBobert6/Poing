@@ -501,8 +501,8 @@ fun LibraryScreen(
                 // The fetch trace (2026-11-15, alpha.3): the
                 // on-device record of what the fetch did — the
                 // status line alone went quiet on device with no
-                // reason, so the trace keeps every pass event
-                // with a timestamp (see CoverArtTraceEvent).
+                // reason, so the trace keeps every pipeline event
+                // with a timestamp (see CoverTraceEvent).
                 // Same small clickable text as Retry, not a
                 // TextButton, for the same 48dp reason.
                 Text(
