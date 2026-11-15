@@ -181,10 +181,22 @@ fun LibraryScreen(
         watcher.start()
         onDispose { watcher.stop() }
     }
-    LaunchedEffect(games, connectivityVersion, coversVersion) {
+    // The fetch pass itself, shared by the effect below and the
+    // Retry button: read the setting fresh, note the gate, fetch,
+    // decode, note the counts. A user-initiated Retry calls this
+    // directly (scope.launch) instead of bumping an effect key:
+    // routing Retry through a LaunchedEffect restart dropped the
+    // restart when the tap landed while the previous pass was
+    // mid-teardown (three red CI runs, 2026-11-15 — the probe
+    // proved the pass itself always worked, the restart was what
+    // never arrived). Guarded so two passes never overlap; a
+    // trigger that arrives mid-pass sets fetchPending, and the
+    // finishing pass re-runs the effect. Declared before the
+    // effect: a local fun must be declared before use.
+    suspend fun runFetchPass() {
         if (!fetchGuard.compareAndSet(false, true)) {
             fetchPending.set(true)
-            return@LaunchedEffect
+            return
         }
         try {
             val landed = withContext(Dispatchers.IO) {
@@ -214,6 +226,9 @@ fun LibraryScreen(
             fetchGuard.set(false)
             if (fetchPending.compareAndSet(true, false)) connectivityVersion++
         }
+    }
+    LaunchedEffect(games, connectivityVersion, coversVersion) {
+        runFetchPass()
     }
 
     val pickGame = rememberLauncherForActivityResult(
@@ -528,21 +543,20 @@ fun LibraryScreen(
                 )
                 // A small clickable text, not a TextButton: the
                 // button's 48dp minimum height is what the bar
-                // would otherwise cost the screen. Retry re-runs
-                // the pass on demand through the same trigger
-                // the Wi-Fi watcher uses (connectivityVersion):
-                // a pass that lands nothing used to leave no
-                // retry until the library was re-entered or the
-                // network flapped, and a silent failure gave no
-                // reason to retry. (A separate retry key was
-                // tried first and never re-ran the pass in the
-                // Robolectric retry test — the shared trigger
-                // is the one the passing Wi-Fi test exercises.)
+                // would otherwise cost the screen. Retry runs the
+                // fetch pass directly (scope.launch): a pass that
+                // lands nothing used to leave no retry until the
+                // library was re-entered or the network flapped,
+                // and a silent failure gave no reason to retry.
+                // It deliberately does NOT bump an effect key:
+                // routing Retry through a LaunchedEffect restart
+                // dropped the restart when the tap landed while
+                // the previous pass was mid-teardown (2026-11-15).
                 Text(
                     "Retry",
                     modifier = Modifier
                         .testTag("cover-art-retry")
-                        .clickable { connectivityVersion++ }
+                        .clickable { scope.launch { runFetchPass() } }
                         .padding(horizontal = 8.dp, vertical = 4.dp),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.primary,
