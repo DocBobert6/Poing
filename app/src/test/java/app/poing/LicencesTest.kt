@@ -45,7 +45,12 @@ class LicencesTest {
 
     private val context: Context = ApplicationProvider.getApplicationContext()
 
-    private fun notice(): String = loadNoticeText(context)
+    // The notice is wrapped prose: a phrase like "SIL Open Font
+    // License" can split across two lines, so substring checks run
+    // against the text with newlines collapsed to spaces. (This
+    // caught two real failures: the OFL and GPL-3.0 phrases both
+    // wrap in NOTICE.)
+    private fun notice(): String = loadNoticeText(context).replace("\n", " ")
 
     @Test
     fun frontendIsGplAndNotAffiliatedWithNintendo() {
