@@ -28,16 +28,21 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /**
  * Phase 6 — the player settings screen: the app's own settings,
@@ -61,6 +66,18 @@ fun AppSettingsScreen(
     // default control layouts. Null (tests) hides the
     // Controls section, same pattern as optionsStore.
     layoutStore: ControlLayoutStore? = null,
+    // In-app updater (Step 2 of the alpha, 2026-11-15): the
+    // launch check's result, if one ran (null when the launch
+    // check was skipped or failed silently). The section shows
+    // it until "Check for updates" refreshes it.
+    initialUpdateCheck: UpdateCheckResult? = null,
+    // Test seams for the updater: the check and the download,
+    // defaulting to the real GitHub calls. Tests pass fakes so
+    // no network is needed.
+    checkUpdates: (AppVersion) -> UpdateCheckResult = { checkForUpdates(it) },
+    downloadUpdate: (String, java.io.File) -> java.io.File? = { url, dir ->
+        downloadUpdateApk(url, dir)
+    },
     onCoreOptions: () -> Unit,
     onRaLogin: () -> Unit = {},
     onBack: () -> Unit,
@@ -120,6 +137,21 @@ fun AppSettingsScreen(
     var reconGb by remember { mutableStateOf(store.reconGbEnabled()) }
     var reconGrid by remember { mutableStateOf(store.reconGridEnabled()) }
     var footerTaps by remember { mutableStateOf(0) }
+    // In-app updater (2026-11-15): the check result the section
+    // shows, the work in flight, a downloaded APK waiting to be
+    // installed, and whether the install needs the per-app
+    // "install unknown apps" grant first. The check runs only on
+    // the user's tap (or the launch check's result, passed in) —
+    // never on entering Settings, and never in the background.
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val currentVersion = remember { currentAppVersion(context) }
+    var updateResult by remember { mutableStateOf(initialUpdateCheck) }
+    var updateChecking by remember { mutableStateOf(false) }
+    var updateDownloading by remember { mutableStateOf(false) }
+    var downloadedUpdate by remember { mutableStateOf<java.io.File?>(null) }
+    var needsUnknownAppsGrant by remember { mutableStateOf(false) }
+    var updateError by remember { mutableStateOf<String?>(null) }
     // Overlay defaults (Robert, 2026-11-14): which handheld's
     // default layout is being edited in the full-screen
     // editor, null while the list shows. defaultsNonce is
@@ -819,6 +851,141 @@ fun AppSettingsScreen(
                         },
                         modifier = Modifier.testTag("recon-grid-switch"),
                     )
+                }
+            }
+        }
+        // In-app updater (Step 2 of the alpha, 2026-11-15):
+        // "Check for updates" reads the public GitHub releases
+        // and compares the newest tag with this build; nothing
+        // downloads or installs without a tap. A found update
+        // downloads on tap and installs through the system
+        // installer; when the per-app "install unknown apps"
+        // grant is missing, the section says so and opens the
+        // system page for it instead of failing silently.
+        item {
+            Text(
+                "Updates",
+                style = displayTextStyle(DisplaySizeMedium),
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+            )
+        }
+        item {
+            Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
+                Text(
+                    "Poing! ${currentVersion.display()}",
+                    style = MaterialTheme.typography.titleMedium,
+                )
+                Text(
+                    when {
+                        updateChecking -> "Checking for updates…"
+                        updateDownloading -> "Downloading update…"
+                        updateError != null -> updateError!!
+                        downloadedUpdate != null -> "Update downloaded — tap Install to update Poing!."
+                        updateResult is UpdateCheckResult.Available ->
+                            "Update available: ${(updateResult as UpdateCheckResult.Available).release.tag}"
+                        updateResult is UpdateCheckResult.UpToDate -> {
+                            val latest = (updateResult as UpdateCheckResult.UpToDate).latest
+                            if (latest != null) "You're up to date. Latest is ${latest.tag}."
+                            else "You're up to date."
+                        }
+                        updateResult is UpdateCheckResult.Error ->
+                            "Couldn't check for updates: ${(updateResult as UpdateCheckResult.Error).detail}"
+                        else -> "Check for updates to see if a newer Poing! is available. Nothing downloads without your tap."
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                    modifier = Modifier.testTag("update-status"),
+                )
+                Row(modifier = Modifier.padding(top = 8.dp)) {
+                    Button(
+                        onClick = {
+                            scope.launch {
+                                updateChecking = true
+                                updateError = null
+                                val result = withContext(Dispatchers.IO) {
+                                    runCatching { checkUpdates(currentVersion) }.getOrElse {
+                                        UpdateCheckResult.Error(it.javaClass.simpleName)
+                                    }
+                                }
+                                updateResult = result
+                                updateChecking = false
+                            }
+                        },
+                        enabled = !updateChecking && !updateDownloading,
+                        modifier = Modifier.testTag("check-updates-button"),
+                    ) {
+                        Text("Check for updates")
+                    }
+                    if (updateResult is UpdateCheckResult.Available && downloadedUpdate == null) {
+                        Spacer(Modifier.size(8.dp))
+                        Button(
+                            onClick = {
+                                val release =
+                                    (updateResult as UpdateCheckResult.Available).release
+                                scope.launch {
+                                    updateDownloading = true
+                                    updateError = null
+                                    val file = withContext(Dispatchers.IO) {
+                                        runCatching {
+                                            downloadUpdate(
+                                                release.apkUrl,
+                                                context.filesDir.resolve("updates"),
+                                            )
+                                        }.getOrNull()
+                                    }
+                                    updateDownloading = false
+                                    if (file == null) {
+                                        updateError = "Download failed."
+                                    } else {
+                                        downloadedUpdate = file
+                                        if (canInstallUnknownApps(context)) {
+                                            context.startActivity(
+                                                buildInstallIntent(context, file),
+                                            )
+                                        } else {
+                                            needsUnknownAppsGrant = true
+                                        }
+                                    }
+                                }
+                            },
+                            enabled = !updateChecking && !updateDownloading,
+                            modifier = Modifier.testTag("download-update-button"),
+                        ) {
+                            Text("Download & install")
+                        }
+                    }
+                    if (downloadedUpdate != null) {
+                        Spacer(Modifier.size(8.dp))
+                        Button(
+                            onClick = {
+                                val file = downloadedUpdate ?: return@Button
+                                if (canInstallUnknownApps(context)) {
+                                    context.startActivity(buildInstallIntent(context, file))
+                                } else {
+                                    needsUnknownAppsGrant = true
+                                }
+                            },
+                            modifier = Modifier.testTag("install-update-button"),
+                        ) {
+                            Text("Install")
+                        }
+                    }
+                }
+                if (needsUnknownAppsGrant) {
+                    Text(
+                        "Poing! needs permission to install apps before it can update itself.",
+                        style = MaterialTheme.typography.bodySmall,
+                        modifier = Modifier.padding(top = 8.dp),
+                    )
+                    Row(modifier = Modifier.padding(top = 8.dp)) {
+                        TextButton(
+                            onClick = {
+                                context.startActivity(unknownAppsSettingsIntent(context))
+                            },
+                            modifier = Modifier.testTag("unknown-apps-settings-button"),
+                        ) {
+                            Text("Allow installing apps")
+                        }
+                    }
                 }
             }
         }

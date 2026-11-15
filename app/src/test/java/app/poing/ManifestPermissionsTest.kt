@@ -45,6 +45,15 @@ class ManifestPermissionsTest {
     }
 
     @Test
+    fun installPackagesPermissionIsDeclared() {
+        assertTrue(
+            "REQUEST_INSTALL_PACKAGES must be declared — without it " +
+                "the in-app updater cannot hand an APK to the system installer",
+            requestedPermissions().contains("android.permission.REQUEST_INSTALL_PACKAGES"),
+        )
+    }
+
+    @Test
     fun existingPermissionsStillDeclared() {
         val permissions = requestedPermissions()
         assertTrue(permissions.contains("android.permission.ACCESS_NETWORK_STATE"))

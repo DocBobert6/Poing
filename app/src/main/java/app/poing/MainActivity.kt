@@ -13,7 +13,9 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.withContext
 
 /**
  * Poing! Phase 3 — the library is the home screen. The Phase 2
@@ -126,6 +128,12 @@ fun PoingHome() {
     var booted by remember { mutableStateOf(false) }
     var screen by remember { mutableStateOf<Screen>(Screen.Library) }
     var error by remember { mutableStateOf<String?>(null) }
+    // In-app updater (Step 2 of the alpha, 2026-11-15): the
+    // launch check's result, remembered here so the Settings
+    // section shows it and the library notice survives screen
+    // changes until the user plays a game (which clears it
+    // with the other notices).
+    var launchUpdateCheck by remember { mutableStateOf<UpdateCheckResult?>(null) }
     // Top bar / back swipe (Robert, 2026-11-12): the double
     // back to exit on the library — the first swipe shows the
     // hint, the second within the window closes the app.
@@ -144,6 +152,22 @@ fun PoingHome() {
     LaunchedEffect(Unit) {
         delay(BOOT_SPLASH_MS)
         booted = true
+    }
+    // In-app updater (2026-11-15): one cheap check per launch
+    // against the public GitHub releases — a read only, never a
+    // download. Skipped with no network (the Robolectric startup
+    // gate has none, so it never waits on a socket there), and
+    // silent on any failure. A found update becomes the library
+    // notice and the Settings section's initial state.
+    LaunchedEffect(Unit) {
+        if (!isUpdateNetworkAvailable(context)) return@LaunchedEffect
+        val result = withContext(Dispatchers.IO) {
+            runCatching { checkForUpdates(currentAppVersion(context)) }.getOrNull()
+        } ?: return@LaunchedEffect
+        launchUpdateCheck = result
+        if (result is UpdateCheckResult.Available && error == null) {
+            error = "Update ${result.release.tag} is available — see Settings → Updates."
+        }
     }
     // The hint clears when the window passes, so a swipe after
     // it is gone is a first swipe again, not a second.
@@ -218,6 +242,10 @@ fun PoingHome() {
         is Screen.Licences -> LicencesScreen(onBack = { screen = Screen.Library })
         is Screen.Settings -> AppSettingsScreen(
             store = settingsStore,
+            // In-app updater (2026-11-15): the launch check's
+            // result, so the section shows it without another
+            // network call until "Check for updates" refreshes it.
+            initialUpdateCheck = launchUpdateCheck,
             // Phase 8 — the Jade palette picker lives in the
             // Display section and writes the core's palette
             // option, so the screen needs the core options

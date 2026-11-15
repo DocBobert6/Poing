@@ -562,14 +562,144 @@ class AppSettingsScreenTest {
         assertTrue("dragging up should save a smaller cy than the 0.5 default", gb.control(ControlId.DPAD).cy < 0.5f)
         assertEquals(ControlLayout.DEFAULT, reopened.loadDefault(GameSystem.GBC))
         assertEquals(ControlLayout.DEFAULT, reopened.loadDefault(GameSystem.GBA))
-        // The GB row now says it is customised, and only it:
-        // scroll the row back into view first, so the label
-        // is asserted on a composed row, not on an empty tree.
-        // Substring: the row is clickable, so its texts merge
-        // into one node ("GB default layout … Customised").
+    /**
+     * In-app updater (Step 2 of the alpha, 2026-11-15): the
+     * Updates section shows the current version and a manual
+     * check; a fake checker answers so no network is needed.
+     * The section sits above the Reset row, so the list is
+     * scrolled to it first, like the footer and layout rows.
+     */
+    @Test
+    fun updatesSectionShowsVersionAndCheckButton() {
+        composeRule.setContent {
+            PoingTheme {
+                AppSettingsScreen(store = store(), onCoreOptions = {}, onBack = {})
+            }
+        }
         composeRule.onNodeWithTag("settings-list")
-            .performScrollToNode(hasTestTag("default-layout-gb"))
-        composeRule.onAllNodesWithText("Customised", substring = true).assertCountEquals(1)
-        composeRule.onAllNodesWithText("Factory default", substring = true).assertCountEquals(2)
+            .performScrollToNode(hasTestTag("check-updates-button"))
+        composeRule.onNodeWithText("Poing! 0.1.0", substring = true).assertExists()
+        composeRule.onNodeWithTag("check-updates-button").assertIsDisplayed()
+    }
+
+    @Test
+    fun checkForUpdatesShowsAvailableAndDownload() {
+        val available = UpdateCheckResult.Available(
+            UpdateRelease(
+                "v0.1.0-alpha.2",
+                AppVersion(0, 1, 0, listOf("alpha", "2")),
+                "https://example.com/a2.apk",
+            ),
+        )
+        composeRule.setContent {
+            PoingTheme {
+                AppSettingsScreen(
+                    store = store(),
+                    onCoreOptions = {},
+                    onBack = {},
+                    checkUpdates = { available },
+                )
+            }
+        }
+        composeRule.onNodeWithTag("settings-list")
+            .performScrollToNode(hasTestTag("check-updates-button"))
+        composeRule.onNodeWithTag("check-updates-button").performClick()
+        composeRule.waitUntil(timeoutMillis = 10_000) {
+            try {
+                composeRule.onNodeWithText("Update available: v0.1.0-alpha.2", substring = true)
+                    .assertExists()
+                true
+            } catch (_: AssertionError) {
+                false
+            }
+        }
+        composeRule.onNodeWithTag("download-update-button").assertExists()
+    }
+
+    @Test
+    fun checkForUpdatesShowsUpToDate() {
+        composeRule.setContent {
+            PoingTheme {
+                AppSettingsScreen(
+                    store = store(),
+                    onCoreOptions = {},
+                    onBack = {},
+                    checkUpdates = {
+                        UpdateCheckResult.UpToDate(
+                            UpdateRelease(
+                                "v0.1.0",
+                                AppVersion(0, 1, 0),
+                                "https://example.com/a.apk",
+                            ),
+                        )
+                    },
+                )
+            }
+        }
+        composeRule.onNodeWithTag("settings-list")
+            .performScrollToNode(hasTestTag("check-updates-button"))
+        composeRule.onNodeWithTag("check-updates-button").performClick()
+        composeRule.waitUntil(timeoutMillis = 10_000) {
+            try {
+                composeRule.onNodeWithText("You're up to date.", substring = true).assertExists()
+                true
+            } catch (_: AssertionError) {
+                false
+            }
+        }
+    }
+
+    @Test
+    fun downloadShowsInstallButtonAndWritesTheApk() {
+        val available = UpdateCheckResult.Available(
+            UpdateRelease(
+                "v0.1.0-alpha.2",
+                AppVersion(0, 1, 0, listOf("alpha", "2")),
+                "https://example.com/a2.apk",
+            ),
+        )
+        composeRule.setContent {
+            PoingTheme {
+                AppSettingsScreen(
+                    store = store(),
+                    onCoreOptions = {},
+                    onBack = {},
+                    checkUpdates = { available },
+                    downloadUpdate = { _, dir ->
+                        dir.mkdirs()
+                        File(dir, AppUpdate.APK_FILE_NAME).apply {
+                            writeBytes("fake-apk".toByteArray())
+                        }
+                    },
+                )
+            }
+        }
+        composeRule.onNodeWithTag("settings-list")
+            .performScrollToNode(hasTestTag("check-updates-button"))
+        composeRule.onNodeWithTag("check-updates-button").performClick()
+        composeRule.waitUntil(timeoutMillis = 10_000) {
+            try {
+                composeRule.onNodeWithTag("download-update-button").assertExists()
+                true
+            } catch (_: AssertionError) {
+                false
+            }
+        }
+        composeRule.onNodeWithTag("download-update-button").performClick()
+        // The download runs on IO; the Install button appears
+        // once the file lands, whichever install branch the
+        // device takes (direct install, or the unknown-apps
+        // grant first).
+        composeRule.waitUntil(timeoutMillis = 10_000) {
+            try {
+                composeRule.onNodeWithTag("install-update-button").assertExists()
+                true
+            } catch (_: AssertionError) {
+                false
+            }
+        }
+        val context = androidx.test.core.app.ApplicationProvider
+            .getApplicationContext<android.content.Context>()
+        assertTrue(File(context.filesDir, "updates/${AppUpdate.APK_FILE_NAME}").isFile)
     }
 }

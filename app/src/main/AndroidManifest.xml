@@ -34,6 +34,14 @@
         android:name="android.hardware.camera"
         android:required="false" />
 
+    <!-- In-app updater (Step 2 of the alpha, 2026-11-15): the
+         app installs its own updates through the system
+         installer. REQUEST_INSTALL_PACKAGES is the declaration;
+         the user grants "install unknown apps" per app in
+         Settings, which the updater directs them to when the
+         grant is missing. ManifestPermissionsTest pins this. -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+
     <application
         android:allowBackup="true"
         android:icon="@mipmap/ic_launcher"
@@ -41,6 +49,18 @@
         android:label="@string/app_name"
         android:supportsRtl="true"
         android:theme="@style/Theme.Poing">
+        <!-- In-app updater (2026-11-15): the downloaded APK is
+             handed to the system installer through this
+             provider, so no file path ever leaves the app. -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
         <!-- configChanges: later phases force landscape for the game
              screen; declaring this now pins the rule from Phase 1 so
              a rotation can never recreate the activity and lose state

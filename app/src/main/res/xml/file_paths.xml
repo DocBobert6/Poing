@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- In-app updater (2026-11-15): the downloaded APK lives in
+     filesDir/updates/ and reaches the system installer through
+     the FileProvider. Nothing else is shared. -->
+<paths>
+    <files-path name="updates" path="updates/" />
+</paths>
