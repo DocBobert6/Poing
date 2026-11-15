@@ -15,6 +15,8 @@ import org.junit.rules.TemporaryFolder
  * closed, and an over-cap body is refused. The fetch and the cap
  * run on the plain JVM; the decode runs under Robolectric in
  * [RaBadgeDecodeTest] (BitmapFactory is a stub on the plain JVM).
+ * The PNG-signature gate in decodeIntoCache is pure file I/O, so
+ * the non-PNG rejection is pinned here too.
  */
 class RaBadgeStoreTest {
 
@@ -83,5 +85,18 @@ class RaBadgeStoreTest {
         val s = RaBadgeStore(temp.root, RaBadgeFetcher { big })
         assertNull(s.badgeOrFetch(url, networkAvailable = true))
         assertFalse(s.hasBadge(url))
+    }
+
+    @Test
+    fun nonPngFileIsRejectedWithoutDecoding() {
+        // The PNG-signature gate fires before BitmapFactory, so
+        // this holds on the plain JVM too (no decode attempted).
+        val s = store()
+        s.badgeFile(url).writeBytes("not an image".toByteArray())
+        s.decodeIntoCache(url)
+        assertNull(s.badgeBitmaps[url])
+        // A second pass is a no-op, not a second attempt.
+        s.decodeIntoCache(url)
+        assertNull(s.badgeBitmaps[url])
     }
 }

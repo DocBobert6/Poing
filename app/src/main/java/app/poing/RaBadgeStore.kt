@@ -100,13 +100,42 @@ class RaBadgeStore(
      * Decode the badge file into the state map. Call from IO —
      * never from composition. No-op when there is no file, when
      * it is already decoded, or when a past decode failed.
+     *
+     * Badges are PNGs by contract (media.retroachievements.org
+     * serves Badge/<name>.png), so the file's first 8 bytes must
+     * carry the PNG signature before BitmapFactory sees it: on a
+     * real device BitmapFactory returns null for garbage, but
+     * Robolectric's shadow synthesises a bitmap from any bytes,
+     * so the signature is what makes a corrupt file fail
+     * deterministically in both environments.
      */
     fun decodeIntoCache(url: String) {
         if (badgeBitmaps.containsKey(url) || url in decodeFailedUrls) return
         val file = badgeFile(url)
         if (!file.exists()) return
+        if (!isPng(file)) {
+            decodeFailedUrls += url
+            return
+        }
         val bitmap = decodeCoverFile(file, BADGE_MAX_DIM)
         if (bitmap != null) badgeBitmaps[url] = bitmap else decodeFailedUrls += url
+    }
+
+    private fun isPng(file: File): Boolean {
+        return try {
+            file.inputStream().use { input ->
+                val header = ByteArray(PNG_SIGNATURE.size)
+                var offset = 0
+                while (offset < header.size) {
+                    val n = input.read(header, offset, header.size - offset)
+                    if (n < 0) break
+                    offset += n
+                }
+                offset == header.size && header.contentEquals(PNG_SIGNATURE)
+            }
+        } catch (_: Exception) {
+            false
+        }
     }
 
     /** Cached badge, or a fetch cached for next time (when the network gate allows it). Null means: show the placeholder. */
@@ -147,5 +176,10 @@ class RaBadgeStore(
 
         /** A badge is a few KB; the cap sits far above any real one. */
         const val MAX_BADGE_BYTES: Int = 256 * 1024
+
+        /** PNG file signature: 89 50 4E 47 0D 0A 1A 0A. */
+        private val PNG_SIGNATURE = byteArrayOf(
+            0x89.toByte(), 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A,
+        )
     }
 }
