@@ -8,12 +8,16 @@ import android.net.NetworkCapabilities
 import android.net.NetworkRequest
 import android.os.Handler
 import android.os.Looper
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.snapshots.SnapshotStateList
 import androidx.compose.runtime.snapshots.SnapshotStateMap
 import java.io.File
 import java.net.HttpURLConnection
+import java.text.SimpleDateFormat
 import java.util.Collections
+import java.util.Locale
 import java.util.concurrent.CancellationException
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.ExecutionException
@@ -98,6 +102,101 @@ sealed interface CoverArtFetchEvent {
 }
 
 /**
+ * One line in the cover-art fetch trace (2026-11-15, alpha.3):
+ * the persistent, on-device record of what the fetch did. The
+ * status line alone could not say why a pass never landed a
+ * cover — on device it went quiet with no reason — so the trace
+ * keeps every pass event with a timestamp. It is the record of
+ * the last pass, not just the live one: it survives the pass
+ * ending, and a pass that never starts is itself an entry (see
+ * [CoverArtTraceEvent.PassSkipped], and the empty trace in
+ * [coverArtTraceLines]).
+ */
+sealed interface CoverArtTraceEvent {
+    val atMs: Long
+
+    /** Plain wording for the trace view, e.g. "pass started — gate open (Wi-Fi), 22 games, 22 without cover". */
+    fun line(): String
+
+    data class PassStarted(
+        override val atMs: Long,
+        val gate: CoverArtGate?,
+        val networkLabel: String?,
+        val totalGames: Int,
+        val withoutCover: Int,
+    ) : CoverArtTraceEvent {
+        override fun line(): String {
+            val gatePart = when (gate) {
+                null -> "gate unknown"
+                CoverArtGate.OPEN -> "gate open"
+                CoverArtGate.NO_NETWORK -> "gate closed — no network"
+                CoverArtGate.METERED_NO_OPT_IN -> "gate closed — metered, mobile data off"
+            }
+            val net = networkLabel?.let { " ($it)" } ?: ""
+            return "pass started — $gatePart$net, $totalGames games, $withoutCover without cover"
+        }
+    }
+
+    data class PassEnded(
+        override val atMs: Long,
+        val landed: Int,
+        val failed: Int,
+        val durationMs: Long,
+        val note: String? = null,
+    ) : CoverArtTraceEvent {
+        override fun line(): String {
+            val base = "pass ended — $landed landed, $failed failed (${durationMs / 1000}s)"
+            return if (note != null) "$base — $note" else base
+        }
+    }
+
+    data class PassSkipped(override val atMs: Long, val reason: String) : CoverArtTraceEvent {
+        override fun line(): String = "pass skipped — $reason"
+    }
+
+    /** One fetcher event, timestamped (see [CoverArtFetchEvent]). */
+    data class Fetch(override val atMs: Long, val event: CoverArtFetchEvent) : CoverArtTraceEvent {
+        override fun line(): String = when (val e = event) {
+            is CoverArtFetchEvent.IndexStarted ->
+                "index ${e.system.name.lowercase()} started"
+            is CoverArtFetchEvent.IndexLoaded ->
+                "index ${e.system.name.lowercase()} loaded " +
+                    "(${e.entries} entries${if (e.fromCache) ", cached" else ""})"
+            is CoverArtFetchEvent.IndexFailed ->
+                "index ${e.system.name.lowercase()} failed: ${e.detail}"
+            is CoverArtFetchEvent.ArtStarted -> "art started: ${e.game.title}"
+            is CoverArtFetchEvent.ArtLanded -> "art landed: ${e.game.title}"
+            is CoverArtFetchEvent.ArtFailed -> "art failed: ${e.game.title}: ${e.detail}"
+        }
+    }
+}
+
+/** "HH:mm:ss" for a trace timestamp. Pure, so the trace lines are unit-testable. */
+fun formatTraceTime(atMs: Long): String =
+    SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(java.util.Date(atMs))
+
+/**
+ * The trace view's text: the last pass's events, newest first,
+ * under a header that says whether a pass is running — or, when
+ * the trace is empty, that no fetch pass has started at all.
+ * Pure, so it is unit-testable.
+ */
+fun coverArtTraceLines(trace: List<CoverArtTraceEvent>, fetching: Boolean): String {
+    val header = if (trace.isEmpty()) {
+        "No fetch pass has started since the library opened."
+    } else if (fetching) {
+        "A fetch pass is running."
+    } else {
+        "Last fetch pass:"
+    }
+    val lines = trace.asReversed().map { "${formatTraceTime(it.atMs)} ${it.line()}" }
+    return (listOf(header) + lines).joinToString("\n")
+}
+
+/** How many trace events the store keeps (see [CoverArtStore.trace]): about two full passes. */
+const val MAX_TRACE_EVENTS: Int = 100
+
+/**
  * The outcome of one capped GET: the bytes on success, else the
  * HTTP status (when the server answered) and a short error. The
  * old shape returned null for every failure, so a 403 rate
@@ -157,6 +256,13 @@ sealed interface CoverIndexStatus {
  */
 data class CoverArtStatus(
     val gate: CoverArtGate? = null,
+    /**
+     * Plain wording for the active network ("Wi-Fi", "mobile
+     * data", "no network" — see [coverArtNetworkLabel]), for
+     * the fetch trace: the gate alone cannot tell Wi-Fi from
+     * mobile data when it is open.
+     */
+    val networkLabel: String? = null,
     val indexes: Map<GameSystem, CoverIndexStatus> = emptyMap(),
     val fetching: Boolean = false,
     /**
@@ -599,6 +705,24 @@ class CoverArtStore(
      */
     val status = mutableStateOf(CoverArtStatus())
 
+    /**
+     * The fetch trace (see [CoverArtTraceEvent]): every pass
+     * event with a timestamp, newest last, capped at
+     * [MAX_TRACE_EVENTS]. The library's Trace view reads this
+     * state, so it updates as the pass runs — and it survives
+     * the pass ending, which is the whole point: the status
+     * line alone went quiet on device with no reason. Events
+     * arrive from fetcher threads, as the status does (see
+     * [applyEvent]).
+     */
+    val trace: SnapshotStateList<CoverArtTraceEvent> = mutableStateListOf()
+
+    /** Append one trace event, dropping the oldest past the cap (see [trace]). */
+    fun recordTrace(event: CoverArtTraceEvent) {
+        if (trace.size >= MAX_TRACE_EVENTS) trace.removeAt(0)
+        trace.add(event)
+    }
+
     /** Fold one fetch event into the visible status. Wired as the fetcher's event callback in LibraryScreen. */
     fun applyEvent(event: CoverArtFetchEvent) {
         val cur = status.value
@@ -632,6 +756,10 @@ class CoverArtStore(
                 stage = "${event.game.system.name.lowercase()} art",
             )
         }
+        // The trace keeps the same event, timestamped — the
+        // status line only ever shows the latest one, so a pass
+        // that fails three ways in a row reads as one failure.
+        recordTrace(CoverArtTraceEvent.Fetch(System.currentTimeMillis(), event))
     }
 
     /** A new fetch pass starts: the fetcher's per-pass failure memo clears, and the per-pass counts reset (index states stay). */
@@ -647,9 +775,9 @@ class CoverArtStore(
         )
     }
 
-    /** The gate for this pass, for the status line. */
-    fun noteGate(gate: CoverArtGate) {
-        status.value = status.value.copy(gate = gate)
+    /** The gate for this pass, for the status line (and the trace's pass-started line). */
+    fun noteGate(gate: CoverArtGate, networkLabel: String? = null) {
+        status.value = status.value.copy(gate = gate, networkLabel = networkLabel)
     }
 
     /** The pass finished (landed or not): the library counts, for the status line. */
@@ -733,6 +861,38 @@ fun coverArtGateState(context: Context, allowMobileData: Boolean): CoverArtGate 
 }
 
 /**
+ * Plain wording for the active network, for the fetch trace:
+ * the gate alone cannot tell Wi-Fi from mobile data when it
+ * is open, and on device that distinction is the diagnosis
+ * (a pass that runs on 5G with the toggle on is not the same
+ * as one on unmetered Wi-Fi). The pure form is unit-testable;
+ * the Context form does the same ConnectivityManager query
+ * as [coverArtGateState].
+ */
+fun coverArtNetworkLabel(
+    transportWifi: Boolean,
+    notMetered: Boolean,
+    allowMobileData: Boolean,
+): String = when {
+    transportWifi && notMetered -> "Wi-Fi"
+    transportWifi -> "metered Wi-Fi"
+    allowMobileData -> "mobile data"
+    else -> "mobile data (not allowed)"
+}
+
+fun coverArtNetworkLabel(context: Context, allowMobileData: Boolean): String {
+    val manager = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
+        ?: return "no network"
+    val network = manager.activeNetwork ?: return "no network"
+    val caps = manager.getNetworkCapabilities(network) ?: return "no network"
+    return coverArtNetworkLabel(
+        caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI),
+        caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_METERED),
+        allowMobileData,
+    )
+}
+
+/**
  * True when cover art may be fetched — the gate is open (see
  * [coverArtGateState]). The Boolean answers "may it fetch";
  * the gate state answers "why not", for the status line.
@@ -757,27 +917,65 @@ fun fetchMissingCovers(
     networkAvailable: Boolean,
     maxNew: Int = MAX_COVERS_PER_PASS,
 ): Boolean {
-    art.beginPass()
-    if (networkAvailable) {
-        // The three indexes in parallel, before any art: the
-        // old pass fetched them lazily in game order, so the
-        // 6 MB GBA tree (first game alphabetically) held every
-        // other system behind it for the whole download, and
-        // the status sat at "fetching… 0 landed".
-        art.prefetchIndexes(games.filter { !art.hasCover(it) }.map { it.system }.toSet())
-    }
+    // The trace's pass record (2026-11-15, alpha.3): the pass
+    // starts here, and ends in the finally below — even when an
+    // exception escapes the pass, so a pass that dies mid-flight
+    // is named in the trace instead of leaving the status line
+    // stuck on "fetching…" with no reason. The exception still
+    // propagates (the caller owns the effect); the trace only
+    // records it. A Retry-cancelled pass ends here normally
+    // (the loop breaks on passCancelled), with no error note.
+    val startedAt = System.currentTimeMillis()
+    val statusAtStart = art.status.value
+    art.recordTrace(
+        CoverArtTraceEvent.PassStarted(
+            startedAt,
+            statusAtStart.gate,
+            statusAtStart.networkLabel,
+            games.size,
+            games.count { !art.hasCover(it) },
+        ),
+    )
+    var errorNote: String? = null
     var landed = false
-    var landedCount = 0
-    for (game in games) {
-        // A Retry tap cancels the pass: stop after the current
-        // game instead of grinding through the rest, so the
-        // restart the tap queued starts promptly.
-        if (art.passCancelled()) break
-        if (landedCount >= maxNew) break
-        if (!art.hasCover(game) && art.coverOrFetch(game, networkAvailable) != null) {
-            landed = true
-            landedCount++
+    try {
+        art.beginPass()
+        if (networkAvailable) {
+            // The three indexes in parallel, before any art: the
+            // old pass fetched them lazily in game order, so the
+            // 6 MB GBA tree (first game alphabetically) held every
+            // other system behind it for the whole download, and
+            // the status sat at "fetching… 0 landed".
+            art.prefetchIndexes(games.filter { !art.hasCover(it) }.map { it.system }.toSet())
         }
+        var landedCount = 0
+        for (game in games) {
+            // A Retry tap cancels the pass: stop after the current
+            // game instead of grinding through the rest, so the
+            // restart the tap queued starts promptly.
+            if (art.passCancelled()) break
+            if (landedCount >= maxNew) break
+            if (!art.hasCover(game) && art.coverOrFetch(game, networkAvailable) != null) {
+                landed = true
+                landedCount++
+            }
+        }
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        errorNote = "error: ${e.javaClass.simpleName}"
+        throw e
+    } finally {
+        val cur = art.status.value
+        art.recordTrace(
+            CoverArtTraceEvent.PassEnded(
+                System.currentTimeMillis(),
+                cur.landedThisPass,
+                cur.failedThisPass,
+                System.currentTimeMillis() - startedAt,
+                errorNote,
+            ),
+        )
     }
     return landed
 }

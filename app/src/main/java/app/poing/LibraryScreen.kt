@@ -17,6 +17,8 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
@@ -115,6 +117,9 @@ fun LibraryScreen(
     var message by remember { mutableStateOf<String?>(null) }
     var pendingRemove by remember { mutableStateOf<LibraryGame?>(null) }
     var pendingBiosImport by remember { mutableStateOf<BiosKind?>(null) }
+    // The fetch trace dialog (2026-11-15, alpha.3): the
+    // on-device record of what the cover-art fetch did.
+    var showTrace by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
 
     // Playtimes, read once per refresh into state — the old rows
@@ -195,6 +200,15 @@ fun LibraryScreen(
     // effect: a local fun must be declared before use.
     suspend fun runFetchPass() {
         if (!fetchGuard.compareAndSet(false, true)) {
+            // The trace records a pass that never starts: a
+            // trigger that arrives mid-pass otherwise leaves
+            // nothing behind but a stale status line.
+            art.recordTrace(
+                CoverArtTraceEvent.PassSkipped(
+                    System.currentTimeMillis(),
+                    "another pass is already running",
+                ),
+            )
             fetchPending.set(true)
             return
         }
@@ -207,7 +221,7 @@ fun LibraryScreen(
                 val allowMobileData =
                     AppSettingsStore(context.filesDir).coverArtMobileDataAllowed()
                 val gate = coverArtGateState(context, allowMobileData)
-                art.noteGate(gate)
+                art.noteGate(gate, coverArtNetworkLabel(context, allowMobileData))
                 val didLand = fetchMissingCovers(
                     art,
                     games,
@@ -541,6 +555,22 @@ fun LibraryScreen(
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
+                // The fetch trace (2026-11-15, alpha.3): the
+                // on-device record of what the fetch did — the
+                // status line alone went quiet on device with no
+                // reason, so the trace keeps every pass event
+                // with a timestamp (see CoverArtTraceEvent).
+                // Same small clickable text as Retry, not a
+                // TextButton, for the same 48dp reason.
+                Text(
+                    "Trace",
+                    modifier = Modifier
+                        .testTag("cover-art-trace")
+                        .clickable { showTrace = true }
+                        .padding(horizontal = 8.dp, vertical = 4.dp),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.primary,
+                )
                 // A small clickable text, not a TextButton: the
                 // button's 48dp minimum height is what the bar
                 // would otherwise cost the screen. Retry runs the
@@ -578,6 +608,33 @@ fun LibraryScreen(
                 color = Color.White,
             )
         }
+    }
+
+    // The fetch trace dialog (2026-11-15, alpha.3): the last
+    // pass's events, newest first, with a header that says
+    // whether a pass is running — or that no pass has started
+    // at all, which is itself the diagnosis. The text reads
+    // the store's trace state, so it updates live while a
+    // pass runs; it survives the pass ending, unlike the
+    // status line's latest-only view.
+    if (showTrace) {
+        AlertDialog(
+            onDismissRequest = { showTrace = false },
+            title = { Text("Cover art trace") },
+            text = {
+                Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
+                    Text(
+                        coverArtTraceLines(art.trace, art.status.value.fetching),
+                        modifier = Modifier.testTag("cover-art-trace-lines"),
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showTrace = false }) { Text("Close") }
+            },
+            modifier = Modifier.testTag("cover-art-trace-dialog"),
+        )
     }
 
     pendingRemove?.let { game ->
