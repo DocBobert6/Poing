@@ -563,6 +563,8 @@ class AppSettingsScreenTest {
         assertEquals(ControlLayout.DEFAULT, reopened.loadDefault(GameSystem.GBC))
         assertEquals(ControlLayout.DEFAULT, reopened.loadDefault(GameSystem.GBA))
         // The GB row now says it is customised, and only it.
-        composeRule.onAllNodesWithText("Customised").assertCountEquals(1)
+        // Substring: the row is clickable, so its texts merge
+        // into one node ("GB default layout … Customised").
+        composeRule.onAllNodesWithText("Customised", substring = true).assertCountEquals(1)
     }
 }
