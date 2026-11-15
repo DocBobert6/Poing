@@ -1182,35 +1182,42 @@ fun fetchMissingCovers(
 const val MAX_COVERS_PER_PASS: Int = 12
 
 /**
- * Calls [onChanged] when the cover-art gate opens — the network
- * goes from unusable to usable for cover fetches. Three fixes
- * over the old watcher, which fired on every network event:
- * (1) debounce — a burst of onAvailable/onLost/onCapabilitiesChanged
- * within [DEBOUNCE_MS] collapses to one gate check, so one network
- * flap does not re-run the whole fetch pass several times;
- * (2) gate transition — only closed→open fires, not every
- * capability change (a metered→unmetered flap with the gate still
- * closed is not a retry); (3) the request asks only for networks
+ * Calls [onChanged] when the cover-art gate CHANGES — open→closed
+ * included. Three fixes over the old watcher, which fired on every
+ * network event: (1) debounce — a burst of onAvailable/onLost/
+ * onCapabilitiesChanged within [DEBOUNCE_MS] collapses to one gate
+ * check, so one network flap does not re-run the whole fetch pass
+ * several times; (2) gate transition — only a change fires, not
+ * every capability change (a flap that leaves the gate where it
+ * was is not a retry); (3) the request asks only for networks
  * with internet capability. It deliberately does NOT filter to
  * Wi-Fi: the mobile-data setting lets the gate open on cellular
  * too, and a Wi-Fi-only request would never fire for that user.
+ *
+ * The gate is the full [CoverArtGate], not a Boolean: a
+ * NO_NETWORK→METERED_NO_OPT_IN transition is a change the
+ * status line must show, even though both are closed. And
+ * open→closed fires (the 2026-11-14 watcher deliberately did
+ * not — "not a retry"): the rebuilt repository needs the
+ * gate-closed signal to park its pipelines, and a closed gate
+ * that never reaches it leaves a Loading game behind.
  * Start/stop are the caller's lifecycle (a DisposableEffect);
  * stop cancels a pending debounced check and tolerates an
  * already-unregistered callback.
  */
 class ConnectivityWatcher(
     context: Context,
-    private val gateOpen: () -> Boolean,
+    private val gateState: () -> CoverArtGate,
     private val onChanged: () -> Unit,
 ) {
     private val manager =
         context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
     private val mainHandler = Handler(Looper.getMainLooper())
-    private var lastGateOpen = false
+    private var lastGate: CoverArtGate? = null
     private val check = Runnable {
-        val open = runCatching { gateOpen() }.getOrDefault(false)
-        if (open && !lastGateOpen) onChanged()
-        lastGateOpen = open
+        val gate = runCatching { gateState() }.getOrDefault(CoverArtGate.NO_NETWORK)
+        if (gate != lastGate) onChanged()
+        lastGate = gate
     }
     private val callback = object : ConnectivityManager.NetworkCallback() {
         override fun onAvailable(network: Network) {
@@ -1232,7 +1239,7 @@ class ConnectivityWatcher(
     }
 
     fun start() {
-        lastGateOpen = runCatching { gateOpen() }.getOrDefault(false)
+        lastGate = runCatching { gateState() }.getOrDefault(CoverArtGate.NO_NETWORK)
         val request = NetworkRequest.Builder()
             .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
             .build()

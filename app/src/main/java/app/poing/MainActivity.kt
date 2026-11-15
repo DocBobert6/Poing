@@ -7,6 +7,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -149,6 +150,16 @@ fun PoingHome() {
     val layoutStore = remember {
         ControlLayoutStore(context.filesDir.resolve("control-layouts").apply { mkdirs() })
     }
+    // Cover-art rebuild (2026-11-15): the repository is
+    // application-scoped — created once here, at the setContent
+    // root, and passed to the library — so covers keep
+    // downloading while Robert is in Settings or the player,
+    // and leaving and re-entering the library re-fetches
+    // nothing. Closed when the root composition leaves.
+    val coverRepository = remember { CoverRepository(context.filesDir) }
+    DisposableEffect(Unit) {
+        onDispose { coverRepository.close() }
+    }
     LaunchedEffect(Unit) {
         delay(BOOT_SPLASH_MS)
         booted = true
@@ -285,6 +296,7 @@ fun PoingHome() {
             onSettings = { screen = Screen.Settings },
             onSaveManager = { game -> screen = Screen.SaveManager(game) },
             onRaHub = { screen = Screen.RaHub },
+            repository = coverRepository,
         )
     }
 }

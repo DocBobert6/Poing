@@ -33,6 +33,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -48,7 +49,6 @@ import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * Phase 3 home screen: the library IS the home screen. Games are
@@ -81,24 +81,28 @@ fun LibraryScreen(
     // back swipe on the home page shows this hint instead of
     // closing the app — a second swipe within ~2s exits.
     showExitHint: Boolean = false,
-    // Test seam: a fake fetcher for the cover-art tests. Null
-    // (the default, and what MainActivity passes) means the real
-    // libretro-thumbnails fetcher.
-    coverFetcher: CoverArtFetcher? = null,
+    // Cover-art rebuild (2026-11-15): the application-scoped
+    // repository, created once in PoingHome and passed here. It
+    // is the single source of truth for cover state — the tiles,
+    // the status line and the trace all read its flows.
+    // Required (no default): a screen without a repository has
+    // no covers, and a default here would hide that.
+    repository: CoverRepository,
 ) {
     val context = LocalContext.current
     val store = remember { LibraryStore(context.filesDir) }
     val bios = remember { BiosStore(context.filesDir) }
-    val art = remember {
-        val fetcher = coverFetcher ?: LibretroThumbnailsFetcher(context.filesDir)
-        val artStore = CoverArtStore(context.filesDir, fetcher)
-        // The diagnostic (2026-11-15): the fetcher's events
-        // feed the store's visible status, so the library shows
-        // the gate, the index states and the last failure —
-        // a failed fetch used to leave nothing but blank tiles.
-        if (fetcher is LibretroThumbnailsFetcher) fetcher.onEvent = artStore::applyEvent
-        artStore
-    }
+    // The repository's flows, collected as Compose state: a
+    // landed cover redraws only its own tile, and the status
+    // line and trace follow the same map. `fetching` is the
+    // trace header's wording — any index or art still in
+    // flight.
+    val covers by repository.covers.collectAsState()
+    val indexes by repository.indexes.collectAsState()
+    val gate by repository.gate.collectAsState()
+    val trace by repository.trace.collectAsState()
+    val fetching = indexes.values.any { it is IndexState.Loading } ||
+        covers.values.any { it is CoverState.Loading }
     // Phase 6 (item 5) — playtime totals for the rows; the store
     // is re-read on refresh so a finished session's banked time
     // shows when the player quits back here.
@@ -138,115 +142,50 @@ fun LibraryScreen(
         if (notice != null) message = notice
     }
 
-    // Cover art: fetch for games with no cached cover, on
-    // unmetered Wi-Fi — or on mobile data too, when the user
-    // turns that on in Settings ("Download cover art over
-    // mobile data", off by default). The fetcher is the
-    // libretro-thumbnails collection (see CoverArt.kt): one
-    // file per game, cached on the device, so covers appear
-    // as their tiles are shown.
-    //
-    // Two states, one for each half of the 2026-11-14 fix:
-    // connectivityVersion bumps when the gate opens (the watcher
-    // below), so the fetch re-runs when Wi-Fi appears while the
-    // library is open — the old effect keyed only on `games`, so
-    // the first run on mobile data fetched nothing and there was
-    // never a retry. coversVersion bumps when a fetch pass lands
-    // a cover, so the effect runs another pass — a pass fetches
-    // at most MAX_COVERS_PER_PASS new covers (see CoverArt.kt),
-    // and the loop continues until a pass lands nothing.
-    //
-    // The tiles themselves no longer key on coversVersion: each
-    // reads its decoded bitmap from the store's state map, so a
-    // landed cover redraws only its own row. The fetch effect
-    // decodes on IO (existing covers + newly landed ones), so no
-    // tile ever decodes on the main thread.
-    //
-    // The in-flight guard: the effect restarts when its keys
-    // change, but the old pass keeps running its blocking fetch
-    // loop (cancellation does not interrupt it), so two passes
-    // can overlap. The guard lets one run; a trigger that arrives
-    // while one is running sets fetchPending, and the finishing
-    // pass bumps connectivityVersion so the pending trigger is
-    // not lost.
-    var coversVersion by remember { mutableStateOf(0) }
-    var connectivityVersion by remember { mutableStateOf(0) }
-    val fetchGuard = remember { AtomicBoolean(false) }
-    val fetchPending = remember { AtomicBoolean(false) }
+    // Cover art (rebuild, 2026-11-15): the repository owns the
+    // fetch — the screen only tells it what changed. The game
+    // list goes in whenever it changes (import, remove, first
+    // open); the gate is published on entry and whenever the
+    // network changes. A game that already holds a state
+    // (Loading, Ready, Failed, NoMatch) is never reset by a
+    // later setGames — only new games are classified — so
+    // leaving and re-entering the library re-fetches nothing.
+    // Declared before the effects that use it: a local fun
+    // must be declared before use.
+    suspend fun publishGate() {
+        val allowMobileData = AppSettingsStore(context.filesDir).coverArtMobileDataAllowed()
+        repository.setGate(
+            coverArtGateState(context, allowMobileData),
+            coverArtNetworkLabel(context, allowMobileData),
+        )
+    }
+    LaunchedEffect(games) {
+        repository.setGames(games)
+    }
+    LaunchedEffect(Unit) {
+        publishGate()
+    }
+    // The watcher (rebuild, 2026-11-15): it fires on ANY gate
+    // transition — open→closed included. The old watcher fired
+    // only on closed→open ("not a retry"), but the repository
+    // needs the gate-closed signal to park its pipelines; a
+    // closed gate that never reaches the repository leaves a
+    // Loading game behind and the status line stale. The
+    // callback re-publishes the gate from the network and the
+    // setting, so the watcher stays a change detector and the
+    // screen stays the one place that computes the gate.
     DisposableEffect(Unit) {
         val watcher = ConnectivityWatcher(
             context,
-            gateOpen = {
-                isCoverArtNetworkAvailable(
+            gateState = {
+                coverArtGateState(
                     context,
                     AppSettingsStore(context.filesDir).coverArtMobileDataAllowed(),
                 )
             },
-        ) { connectivityVersion++ }
+        ) { scope.launch { publishGate() } }
         watcher.start()
         onDispose { watcher.stop() }
-    }
-    // The fetch pass itself, shared by the effect below and the
-    // Retry button: read the setting fresh, note the gate, fetch,
-    // decode, note the counts. A user-initiated Retry calls this
-    // directly (scope.launch) instead of bumping an effect key:
-    // routing Retry through a LaunchedEffect restart dropped the
-    // restart when the tap landed while the previous pass was
-    // mid-teardown (three red CI runs, 2026-11-15 — the probe
-    // proved the pass itself always worked, the restart was what
-    // never arrived). Guarded so two passes never overlap; a
-    // trigger that arrives mid-pass sets fetchPending, and the
-    // finishing pass re-runs the effect. Declared before the
-    // effect: a local fun must be declared before use.
-    suspend fun runFetchPass() {
-        if (!fetchGuard.compareAndSet(false, true)) {
-            // The trace records a pass that never starts: a
-            // trigger that arrives mid-pass otherwise leaves
-            // nothing behind but a stale status line.
-            art.recordTrace(
-                CoverArtTraceEvent.PassSkipped(
-                    System.currentTimeMillis(),
-                    "another pass is already running",
-                ),
-            )
-            fetchPending.set(true)
-            return
-        }
-        try {
-            val landed = withContext(Dispatchers.IO) {
-                // The setting is read fresh on every run, and the
-                // effect runs again when the library is re-entered
-                // (returning from Settings re-composes it), so a
-                // toggle change takes effect on the next entry.
-                val allowMobileData =
-                    AppSettingsStore(context.filesDir).coverArtMobileDataAllowed()
-                val gate = coverArtGateState(context, allowMobileData)
-                art.noteGate(gate, coverArtNetworkLabel(context, allowMobileData))
-                val didLand = fetchMissingCovers(
-                    art,
-                    games,
-                    gate == CoverArtGate.OPEN,
-                )
-                // Decode on IO: covers already on disk when the
-                // pass started — newly landed ones are decoded at
-                // landing time in coverOrFetch, so their tiles
-                // update while the pass is still running (see
-                // CoverArtStore.coverOrFetch). Already-decoded
-                // and failed decodes are no-ops in the store, so
-                // a later pass costs nothing for the covers it
-                // already holds.
-                for (game in games) art.decodeIntoCache(game)
-                art.noteCounts(games.size, games.count { art.hasCover(it) })
-                didLand
-            }
-            if (landed) coversVersion++
-        } finally {
-            fetchGuard.set(false)
-            if (fetchPending.compareAndSet(true, false)) connectivityVersion++
-        }
-    }
-    LaunchedEffect(games, connectivityVersion, coversVersion) {
-        runFetchPass()
     }
 
     val pickGame = rememberLauncherForActivityResult(
@@ -484,11 +423,11 @@ fun LibraryScreen(
             if (libraryView == LibraryView.LIST) {
                 items(shown, key = { it.id }, span = { GridItemSpan(maxLineSpan) }) { game ->
                     // The tile reads its decoded bitmap from the
-                    // store's state map, so a landed cover
+                    // repository's covers map, so a landed cover
                     // redraws only this row — no global key.
                     GameRow(
                         game = game,
-                        coverBitmap = art.coverBitmaps[game.id],
+                        coverBitmap = (covers[game.id] as? CoverState.Ready)?.bitmap,
                         onPlay = { onPlay(game) },
                         onRemove = { pendingRemove = game },
                         playtimeSeconds = playtimes[game.id] ?: 0L,
@@ -499,7 +438,7 @@ fun LibraryScreen(
                 items(shown, key = { it.id }) { game ->
                     GameGridCell(
                         game = game,
-                        coverBitmap = art.coverBitmaps[game.id],
+                        coverBitmap = (covers[game.id] as? CoverState.Ready)?.bitmap,
                         onPlay = { onPlay(game) },
                         onRemove = { pendingRemove = game },
                         playtimeSeconds = playtimes[game.id] ?: 0L,
@@ -528,8 +467,8 @@ fun LibraryScreen(
         // is doing, or why it is not — the gate, the index
         // states, the last failure. Cover art used to fail
         // silently with blank tiles and no reason anywhere.
-        // Retry re-runs the pass on demand: a pass that lands
-        // nothing otherwise leaves no retry until the library
+        // Retry re-enqueues the failed games on demand: a
+        // failure otherwise leaves no retry until the library
         // is re-entered or the network flaps. It is a bottom
         // overlay, NOT a grid item: as a grid item its 48dp
         // pushed the first game row and the BIOS card out of
@@ -552,7 +491,7 @@ fun LibraryScreen(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(
-                    coverArtStatusLine(art.status.value),
+                    coverArtStatusLine(covers, indexes, gate, games),
                     modifier = Modifier
                         .weight(1f)
                         .testTag("cover-art-status"),
@@ -577,25 +516,18 @@ fun LibraryScreen(
                 )
                 // A small clickable text, not a TextButton: the
                 // button's 48dp minimum height is what the bar
-                // would otherwise cost the screen. Retry runs the
-                // fetch pass directly (scope.launch): a pass that
-                // lands nothing used to leave no retry until the
+                // would otherwise cost the screen. Retry re-
+                // enqueues exactly the failed games (and re-
+                // attempts a failed index): a Ready game is
+                // untouched, a NoMatch game stays NoMatch — a
+                // failed fetch used to leave no retry until the
                 // library was re-entered or the network flapped,
                 // and a silent failure gave no reason to retry.
-                // It deliberately does NOT bump an effect key:
-                // routing Retry through a LaunchedEffect restart
-                // dropped the restart when the tap landed while
-                // the previous pass was mid-teardown (2026-11-15).
-                // The tap cancels any in-flight download FIRST:
-                // the old pass could be hung in a stalled index
-                // download, and without the cancel the guard
-                // would queue the restart behind it for as long
-                // as the stall lasted.
                 Text(
                     "Retry",
                     modifier = Modifier
                         .testTag("cover-art-retry")
-                        .clickable { art.cancelFetch(); scope.launch { runFetchPass() } }
+                        .clickable { scope.launch { repository.retryFailed() } }
                         .padding(horizontal = 8.dp, vertical = 4.dp),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.primary,
@@ -614,12 +546,12 @@ fun LibraryScreen(
         }
     }
 
-    // The fetch trace dialog (2026-11-15, alpha.3): the last
-    // pass's events, newest first, with a header that says
-    // whether a pass is running — or that no pass has started
+    // The fetch trace dialog (2026-11-15, alpha.3): the
+    // pipeline's events, newest first, with a header that says
+    // whether a fetch is running — or that no fetch has started
     // at all, which is itself the diagnosis. The text reads
-    // the store's trace state, so it updates live while a
-    // pass runs; it survives the pass ending, unlike the
+    // the repository's trace state, so it updates live while a
+    // fetch runs; it survives the fetch ending, unlike the
     // status line's latest-only view.
     if (showTrace) {
         AlertDialog(
@@ -628,7 +560,7 @@ fun LibraryScreen(
             text = {
                 Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
                     Text(
-                        coverArtTraceLines(art.trace, art.status.value.fetching),
+                        coverTraceLines(trace, fetching),
                         modifier = Modifier.testTag("cover-art-trace-lines"),
                         style = MaterialTheme.typography.bodySmall,
                     )
