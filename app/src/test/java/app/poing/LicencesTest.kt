@@ -17,8 +17,8 @@ import org.robolectric.annotation.Config
  *
  * - mGBA core (MPL-2.0) — the pinned core tree, root LICENSE.
  * - inih (BSD-3-Clause) — compiled into the core .so: the top
- *   CMakeLists globs src/third-party/inih/*.c unconditionally,
- *   and `ini_parse_stream` is in the shipped .so's symbol table.
+ *   CMakeLists globs the inih C sources unconditionally, and
+ *   `ini_parse_stream` is in the shipped .so's symbol table.
  * - libretro API header (MIT-style, RetroArch team) — the API
  *   the bridge talks through, src/platform/libretro/libretro.h.
  * - rcheevos (MIT) — the RetroAchievements client, compiled into
