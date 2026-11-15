@@ -377,7 +377,7 @@ class RealHttpClient {
         }
         try {
             return suspendCancellableCoroutine { cont ->
-                cont.invokeOnCompletion { if (cont.isCancelled) conn.disconnect() }
+                cont.invokeOnCancellation { conn.disconnect() }
                 val result = try {
                     val code = conn.responseCode
                     if (code != HttpURLConnection.HTTP_OK) {
