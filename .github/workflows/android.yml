@@ -8,9 +8,15 @@ name: Android CI
 # keystore is restored from the POING_KEYSTORE_BASE64 secret, the
 # release is assembled with it, its signature and version are
 # verified, and the APK is uploaded as the poing-apk-release
-# artifact — the GitHub release itself is created from that
-# artifact only after it is verified, never from an unverified
-# build.
+# artifact. A second job (release, needs: build) then creates the
+# GitHub release for the tag and attaches the signed APK to it,
+# using the workflow's own GITHUB_TOKEN — the release asset upload
+# MUST happen here, inside Actions: uploading from outside (the
+# connector credential used for alpha.1) returns 401 on
+# uploads.github.com, so alpha.1 shipped with no attached APK and
+# its release notes linked the CI artifact instead. The release job
+# only runs after the build job has verified the APK, so the
+# release is never created from an unverified build.
 #
 # Core: mGBA at 7a12d6d4b9acb14c0ae62c9166b6a2f3d08007f6
 # (libretro/mgba HEAD, 2026-09-16, "Libretro: Disable debug
@@ -373,3 +379,61 @@ jobs:
         with:
           name: poing-apk-debug
           path: app/build/outputs/apk/debug/*.apk
+
+  release:
+    name: Attach signed APK to release
+    # Tags only, and only after the build job has verified the
+    # signed APK (signature + version). The release is therefore
+    # never created from an unverified build.
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-latest
+    # The workflow-level permissions are contents: read; this job
+    # needs write to create the release and upload the asset.
+    permissions:
+      contents: write
+    steps:
+      - name: Check out source (for the release notes)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Download signed release APK
+        uses: actions/download-artifact@v4
+        with:
+          name: poing-apk-release
+          path: release-apk
+
+      - name: Create release and attach APK
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          TAG="${GITHUB_REF#refs/tags/}"
+          APK_SRC=$(ls release-apk/*.apk)
+          [ "$(ls release-apk/*.apk | wc -l)" -eq 1 ] || {
+            echo "expected exactly one APK in release-apk/, found:"
+            ls -l release-apk/
+            exit 1
+          }
+          [ -s "$APK_SRC" ] || {
+            echo "release APK is empty: $APK_SRC"
+            exit 1
+          }
+          # A descriptive asset name: the raw Gradle output is
+          # app-release.apk. Same bytes, so the SHA-256 is unchanged.
+          APK="poing-$TAG.apk"
+          cp "$APK_SRC" "$APK"
+          echo "attaching $APK ($(stat -c%s "$APK") bytes, sha256 $(sha256sum "$APK" | cut -d' ' -f1)) to release $TAG"
+          # A re-run of the tag workflow (or a release created by
+          # hand) must not fail here: create only when missing,
+          # then upload with --clobber so a stale asset is replaced
+          # rather than erroring.
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "release $TAG already exists — uploading the asset only"
+          else
+            gh release create "$TAG" --title "Poing! $TAG" --notes-file RELEASE_NOTES.md
+          fi
+          gh release upload "$TAG" "$APK" --clobber
+          echo "release $TAG now carries:"
+          gh release view "$TAG" --json assets --jq '.assets[].name'
