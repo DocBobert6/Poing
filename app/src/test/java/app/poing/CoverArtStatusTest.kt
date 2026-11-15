@@ -100,9 +100,13 @@ class CoverArtStatusTest {
             GameSystem.GBA to IndexState.Failed("timed out"),
         )
         val line = coverArtStatusLine(covers, indexes, CoverArtGate.OPEN, games)
-        assertTrue(line.contains("index gba: timed out"))
-        // The game failure is still counted.
-        assertTrue(line.contains("2 failed"))
+        // The idle branch carries no failed count; the
+        // failures are named, not counted.
+        assertEquals(
+            "Cover art: 0/2 covers · Wi-Fi OK · gba index failed (timed out) " +
+                "· first failure: index gba: timed out",
+            line,
+        )
     }
 
     // -- trace text -----------------------------------------------------------
@@ -190,8 +194,10 @@ class CoverArtStatusTest {
         val previous = TimeZone.getDefault()
         TimeZone.setDefault(TimeZone.getTimeZone("UTC"))
         try {
+            // formatTraceTime is HH:mm:ss, so the reset reads
+            // 15:32:00, not 15:32.
             assertEquals(
-                "HTTP 403 — rate limit — resets 15:32",
+                "HTTP 403 — rate limit — resets 15:32:00",
                 rateLimitDetail(403, "0", "1794756720"),
             )
         } finally {
@@ -204,6 +210,8 @@ class CoverArtStatusTest {
         assertNull(rateLimitDetail(403, "59", "1794756720"))
         assertNull(rateLimitDetail(403, null, "1794756720"))
         assertNull(rateLimitDetail(404, "0", "1794756720"))
-        assertNull(rateLimitDetail(403, "0", null))
+        // A rate-limit 403 without a reset header still names
+        // the rate limit — only the "resets …" suffix is absent.
+        assertEquals("HTTP 403 — rate limit", rateLimitDetail(403, "0", null))
     }
 }

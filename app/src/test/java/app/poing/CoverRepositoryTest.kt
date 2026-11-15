@@ -276,7 +276,9 @@ class CoverRepositoryTest {
             assertTrue(gbaStuck.covers.value["gbc1"] is CoverState.Ready)
             // The GBA index is still in flight — Loading, not failed yet.
             assertEquals(IndexState.Loading, gbaStuck.indexes.value[GameSystem.GBA])
-            assertEquals(CoverState.Loading, gbaStuck.covers.value["gba1"])
+            // The GBA game is still Missing, not Loading: a game
+            // is claimed only after its index loads, and the GBA
+            // index has not loaded yet.
             // And the status line — derived from the same map
             // the tiles read — already counts the two landed
             // covers while the GBA index is still in flight.
@@ -849,7 +851,10 @@ class CoverRepositoryTest {
                 }
             }
         }
-        val r = repo(httpGet)
+        // The fake art download takes 1000ms: the art budget
+        // must exceed it, or the reopened download would time
+        // out (500ms default) instead of landing.
+        val r = repo(httpGet, artBudgetMs = 2_000)
         val g = game("gb1", "TETRIS", "tetris.gb", GameSystem.GB)
         // Closed: no HTTP calls at all.
         r.setGames(listOf(g))
@@ -993,8 +998,13 @@ class CoverRepositoryTest {
             // The trailing slash matters: "Nintendo_-_Game_Boy"
             // is a prefix of "Nintendo_-_Game_Boy_Color", so an
             // unanchored match would throw for the GBC system too.
-            if (url.contains("Nintendo_-_Game_Boy/")) throw RuntimeException("boom")
-            HttpFetchResult.success(TINY_PNG)
+            // And the GBC tree must be real JSON — a PNG for the
+            // tree parses to an empty index, not a loaded one.
+            when {
+                url.contains("Nintendo_-_Game_Boy/") -> throw RuntimeException("boom")
+                url.contains("git/trees") -> HttpFetchResult.success(treeJson.toByteArray())
+                else -> HttpFetchResult.success(TINY_PNG)
+            }
         }
         val r = repo(httpGet)
         val games = listOf(

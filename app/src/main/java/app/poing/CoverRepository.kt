@@ -514,8 +514,16 @@ class CoverRepository(
             withTimeout(timeoutMs) {
                 scanDone.join()
                 while (true) {
+                    // Join jobs that are not COMPLETED, not just
+                    // jobs that are ACTIVE: a cancelled job is
+                    // inactive while it unwinds, and returning
+                    // before the unwind leaves a Loading game
+                    // behind (2026-11-15: gateClosedParksAndGate-
+                    // OpenedResumes failed on exactly this — the
+                    // job was still publishing Missing when
+                    // awaitIdle had already returned true).
                     val active = synchronized(pipelineJobs) {
-                        pipelineJobs.values.filter { it.isActive }
+                        pipelineJobs.values.filter { !it.isCompleted }
                     }
                     if (active.isEmpty()) break
                     active.forEach { it.join() }
@@ -571,7 +579,17 @@ class CoverRepository(
             val running = synchronized(pipelineJobs) {
                 pipelineJobs.entries.filter { it.value.isActive }.map { it.key }
             }
-            pipelineJobs.values.forEach { it.cancel() }
+            val toJoin = pipelineJobs.values.toList()
+            toJoin.forEach { it.cancel() }
+            // Join the cancelled jobs: the unwind (a Loading
+            // game back to Missing) must have happened by the
+            // time this returns — otherwise a caller that reads
+            // the covers right after the gate closes still sees
+            // a stale Loading, and a reopen in the same breath
+            // would race the old job. A cancelled job unwinds
+            // in milliseconds (one state publish), so this does
+            // not stall the caller.
+            toJoin.forEach { it.join() }
             for (system in running) {
                 recordTrace(
                     CoverTraceEvent.PipelineParked(
@@ -705,7 +723,14 @@ class CoverRepository(
     private fun ensurePipeline(system: GameSystem) {
         synchronized(pipelineJobs) {
             val existing = pipelineJobs[system]
-            if (existing != null && existing.isActive) return
+            // A previous run that is not COMPLETED — running, or
+            // cancelled but still unwinding — owns this system:
+            // do not launch a duplicate while it unwinds. (A
+            // cancelled job is not "active", so an isActive
+            // guard would launch a second job that sees the
+            // still-Loading game and breaks immediately, and the
+            // re-queued game would never be picked up.)
+            if (existing != null && !existing.isCompleted) return
             val job = scope.launch { runPipeline(system) }
             pipelineJobs[system] = job
             job.invokeOnCompletion { pipelineJobs.remove(system, job) }
