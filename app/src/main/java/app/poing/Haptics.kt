@@ -27,6 +27,18 @@ class Haptics(
     private val enabled: Boolean = true,
     private val strength: Int = DEFAULT_STRENGTH,
 ) {
+    /** Which effect a click is, for this strength and device. */
+    enum class EffectKind {
+        /** The scaled click primitive (API 30+, vibrator plays primitives). */
+        PRIMITIVE_CLICK,
+
+        /** The system's prebaked click (API 29+, full strength only — it has no amplitude). */
+        PREDEFINED_CLICK,
+
+        /** The 12ms one-shot, amplitude scaled (older devices, or a reduced strength on API 29). */
+        ONE_SHOT,
+    }
+
     fun click() {
         if (!enabled || strength <= 0) return
         val v = vibrator ?: return
@@ -43,18 +55,6 @@ class Haptics(
         const val DEFAULT_STRENGTH = 100
         const val MIN_STRENGTH = 0
         const val MAX_STRENGTH = 100
-
-        /** Which effect a click is, for this strength and device. */
-        enum class EffectKind {
-            /** The scaled click primitive (API 30+, vibrator plays primitives). */
-            PRIMITIVE_CLICK,
-
-            /** The system's prebaked click (API 29+, full strength only — it has no amplitude). */
-            PREDEFINED_CLICK,
-
-            /** The 12ms one-shot, amplitude scaled (older devices, or a reduced strength on API 29). */
-            ONE_SHOT,
-        }
 
         fun effectKind(strength: Int, sdkInt: Int, primitivesSupported: Boolean): EffectKind =
             when {
