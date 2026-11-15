@@ -63,10 +63,14 @@ class AppSettingsScreenTest {
             .performScrollToNode(hasTestTag(tag))
         composeRule.onNodeWithTag(tag).performClick()
         composeRule.onNodeWithTag("handheld-settings-page").assertIsDisplayed()
-        // The page title is a plain Text (the header is not
-        // clickable), so it matches exactly: the row that
-        // opened it named the right handheld.
-        composeRule.onNodeWithText(system.displayName()).assertIsDisplayed()
+        // The page's chain switch tag exists only on that
+        // system's page, so it proves the right page
+        // opened. (A title-text check cannot: the main
+        // list's row keeps the same title as a merged
+        // text entry behind the page, so the text matches
+        // twice.)
+        composeRule.onNodeWithTag("handheld-${system.name.lowercase()}-chain-switch")
+            .assertExists()
     }
 
     /** Alpha.8 — scroll the open handheld page to one of its rows. */
