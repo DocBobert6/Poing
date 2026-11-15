@@ -633,16 +633,19 @@ class DisplayRenderer : GLSurfaceView.Renderer {
             frameH.toFloat(),
         )
         GLES20.glUniform1f(uniform(reconA1Program, "uDitherTol"), params.ditherTol)
-        // GBC is mode 2 (Prism), LUT row 0 — Task 6 is GBC
-        // only; GB / GBA get their modes in Tasks 5 / 7.
-        // The LUT is already uploaded on unit 1 for the
-        // chains, as in the edge pass.
-        GLES20.glUniform1i(uniform(reconA1Program, "uMode"), 2)
+        // The colour-fold mode and LUT row follow the
+        // system: GBC is mode 2 (Prism), LUT row 0; GBA is
+        // mode 3 (Dusk), LUT row 1 (Task 7). GB gets its
+        // mode in Task 5. The LUT is already uploaded on
+        // unit 1 for the chains, as in the edge pass.
+        val reconColourMode = if (reconSystem == GameSystem.GBA) 3 else 2
+        val reconGammaRow = if (reconSystem == GameSystem.GBA) 1f else 0f
+        GLES20.glUniform1i(uniform(reconA1Program, "uMode"), reconColourMode)
         if (gammaLutTextureId != 0) {
             GLES20.glActiveTexture(GLES20.GL_TEXTURE1)
             GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, gammaLutTextureId)
             GLES20.glUniform1i(uniform(reconA1Program, "uGammaLut"), 1)
-            GLES20.glUniform1f(uniform(reconA1Program, "uGammaRow"), 0f)
+            GLES20.glUniform1f(uniform(reconA1Program, "uGammaRow"), reconGammaRow)
         }
         GLES20.glActiveTexture(GLES20.GL_TEXTURE0)
         GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, frameTextureId)
@@ -722,8 +725,10 @@ class DisplayRenderer : GLSurfaceView.Renderer {
         GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, reconTexBId)
         drawQuad(reconBProgram)
         if (gridOn) drawReconGrid()
-        // The dev-stats readout: the reconstruction drew.
-        lastDrawPath = DrawPath.RECON_GBC
+        // The dev-stats readout: the reconstruction drew —
+        // the token names the system (Task 7: GBA reads
+        // "recon-gba").
+        lastDrawPath = if (reconSystem == GameSystem.GBA) DrawPath.RECON_GBA else DrawPath.RECON_GBC
     }
 
     /**

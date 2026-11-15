@@ -108,9 +108,11 @@ fun AppSettingsScreen(
     // unlocked by tapping the version footer 7 times, off
     // by default (locked). The GBC reconstruction toggle
     // lives there, off by default — an experimental quality
-    // path, not straight up out in the open.
+    // path, not straight up out in the open. Task 7 adds
+    // the GBA toggle beside it, same warning, same default.
     var developerUnlocked by remember { mutableStateOf(store.developerUnlocked()) }
     var reconGbc by remember { mutableStateOf(store.reconGbcEnabled()) }
+    var reconGba by remember { mutableStateOf(store.reconGbaEnabled()) }
     var reconGrid by remember { mutableStateOf(store.reconGridEnabled()) }
     var footerTaps by remember { mutableStateOf(0) }
 
@@ -650,8 +652,9 @@ fun AppSettingsScreen(
         // section: only after the version footer has been
         // tapped 7 times. The GBC reconstruction toggle
         // lives here, off by default — an experimental
-        // quality path. The GB / GBA toggles arrive with
-        // their engines in Tasks 5 / 7.
+        // quality path. Task 7 adds the GBA toggle beside
+        // it, same warning, same default. The GB toggle
+        // arrives with its engine in Task 5.
         if (developerUnlocked) {
             item {
                 Text(
@@ -703,11 +706,38 @@ fun AppSettingsScreen(
                 ) {
                     Column(modifier = Modifier.weight(1f)) {
                         Text(
+                            "Reconstruction (GBA)",
+                            style = MaterialTheme.typography.titleMedium,
+                        )
+                        Text(
+                            "The quality path for Game Boy Advance games — line reconstruction instead of edge blending. Experimental, off by default.",
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                    }
+                    Switch(
+                        checked = reconGba,
+                        onCheckedChange = {
+                            store.setReconGbaEnabled(it)
+                            reconGba = it
+                        },
+                        modifier = Modifier.testTag("recon-gba-switch"),
+                    )
+                }
+            }
+            item {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
                             "LCD grid on reconstruction",
                             style = MaterialTheme.typography.titleMedium,
                         )
                         Text(
-                            "Layers the LCD grid at 15% over the reconstruction. One toggle for all systems — GBC now, GB and GBA when their engines land.",
+                            "Layers the LCD grid at 15% over the reconstruction. One toggle for all systems — GBC and GBA now, GB when its engine lands.",
                             style = MaterialTheme.typography.bodySmall,
                         )
                     }
@@ -741,6 +771,7 @@ fun AppSettingsScreen(
                     coverArtMobileData = store.coverArtMobileDataAllowed()
                     developerUnlocked = store.developerUnlocked()
                     reconGbc = store.reconGbcEnabled()
+                    reconGba = store.reconGbaEnabled()
                     reconGrid = store.reconGridEnabled()
                     palette = optionsStore?.get("mgba_gb_colors")
                         ?: CoreOptions.GB_PALETTES.first()

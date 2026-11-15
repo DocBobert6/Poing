@@ -218,12 +218,13 @@ fun GameScreen(
     val display = remember {
         val wanted = DisplayChain.forSystem(system)
         // Task 6 — the GBC reconstruction toggle only
-        // affects GBC games; the GB / GBA toggles arrive
-        // with their engines in Tasks 5 / 7.
-        val recon = if (system == GameSystem.GBC && appSettings.reconGbcEnabled()) {
-            ReconMode.GBC
-        } else {
-            ReconMode.OFF
+        // affects GBC games; Task 7 adds the GBA toggle
+        // beside it, same rule; the GB toggle arrives
+        // with its engine in Task 5.
+        val recon = when {
+            system == GameSystem.GBC && appSettings.reconGbcEnabled() -> ReconMode.GBC
+            system == GameSystem.GBA && appSettings.reconGbaEnabled() -> ReconMode.GBA
+            else -> ReconMode.OFF
         }
         EdgeSmoothing.resolve(
             wanted,

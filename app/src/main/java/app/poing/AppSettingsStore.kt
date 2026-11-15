@@ -43,6 +43,7 @@ class AppSettingsStore(private val root: File) {
         const val KEY_COVER_ART_MOBILE_DATA = "cover_art_mobile_data"
         const val KEY_DEVELOPER_UNLOCKED = "developer_unlocked"
         const val KEY_RECON_GBC = "recon_gbc"
+        const val KEY_RECON_GBA = "recon_gba"
         const val KEY_RECON_GRID = "recon_grid"
         const val DEFAULT_FF_SPEED = 2
         val FF_SPEEDS = setOf(2, 3, 4)
@@ -188,18 +189,28 @@ class AppSettingsStore(private val root: File) {
      * quality path): off by default, and only in effect for
      * GBC games while on. It replaces edge smoothing and
      * the display chain while on (see EdgeSmoothing.resolve).
-     * The GB / GBA toggles arrive with their engines in
-     * Tasks 5 / 7.
+     * The GB toggle arrives with its engine in Task 5.
      */
     fun reconGbcEnabled(): Boolean = readBoolean(KEY_RECON_GBC, false)
     fun setReconGbcEnabled(enabled: Boolean) = write(KEY_RECON_GBC, enabled.toString())
 
     /**
+     * Task 7 — GBA detail reconstruction: the same engine
+     * as the GBC one, with the GBA configuration (Dusk
+     * colour-fold, strictest text protection, Pass A mostly
+     * edge/text/1px). Off by default, and only in effect
+     * for GBA games while on; it replaces edge smoothing
+     * and the display chain while on, like the GBC one.
+     */
+    fun reconGbaEnabled(): Boolean = readBoolean(KEY_RECON_GBA, false)
+    fun setReconGbaEnabled(enabled: Boolean) = write(KEY_RECON_GBA, enabled.toString())
+
+    /**
      * The LCD grid over the reconstruction (Robert,
      * 2026-11-14): one toggle for all three systems, off
      * by default. It layers GRID_FRAGMENT at 15% on top
-     * of whichever reconstruction is on — GBC now, GB
-     * and GBA when their engines land in Tasks 5 / 7.
+     * of whichever reconstruction is on — GBC and GBA now,
+     * GB when its engine lands in Task 5.
      * It does nothing on its own: the renderer only
      * reads it inside drawRecon.
      */

@@ -124,6 +124,19 @@ class EdgeSmoothingTest {
     }
 
     @Test
+    fun resolveTurnsChainAndEdgeOffWhenGbaReconIsOn() {
+        // Task 7 — the GBA reconstruction resolves exactly
+        // like the GBC one: chain off AND edge off, and the
+        // mode it carries is GBA, not GBC.
+        val r = EdgeSmoothing.resolve(
+            DisplayChain.DUSK, true, EdgeMode.EDGE_GRID, ReconMode.GBA,
+        )
+        assertEquals(DisplayChain.CLEAN, r.chain)
+        assertEquals(EdgeMode.OFF, r.edge)
+        assertEquals(ReconMode.GBA, r.recon)
+    }
+
+    @Test
     fun resolveReconOffLeavesTheEdgeRuleUnchanged() {
         // Recon off is exactly the old three-argument
         // resolve: edge on still turns the chain off, edge

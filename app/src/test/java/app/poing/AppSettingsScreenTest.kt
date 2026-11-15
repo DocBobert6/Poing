@@ -431,6 +431,34 @@ class AppSettingsScreenTest {
     }
 
     @Test
+    fun togglingReconGbaPersists() {
+        // Task 7 — the GBA reconstruction toggle, same as
+        // the GBC one: off by default, and the switch
+        // writes it to the store. The section is already
+        // unlocked here (the store is pre-seeded).
+        val s = store()
+        s.setDeveloperUnlocked(true)
+        composeRule.setContent {
+            PoingTheme {
+                AppSettingsScreen(store = s, onCoreOptions = {}, onBack = { })
+            }
+        }
+        assertFalse(AppSettingsStore(temp.root).reconGbaEnabled())
+        // The toggle row sits below the fold in the
+        // LazyColumn — scroll the list to it first.
+        composeRule.onNodeWithTag("settings-list")
+            .performScrollToNode(hasTestTag("recon-gba-switch"))
+        composeRule.onNodeWithTag("recon-gba-switch").performClick()
+        assertTrue(AppSettingsStore(temp.root).reconGbaEnabled())
+        // The GBC toggle is independent: it stays off.
+        assertFalse(AppSettingsStore(temp.root).reconGbcEnabled())
+        composeRule.onNodeWithTag("settings-list")
+            .performScrollToNode(hasTestTag("recon-gba-switch"))
+        composeRule.onNodeWithTag("recon-gba-switch").performClick()
+        assertFalse(AppSettingsStore(temp.root).reconGbaEnabled())
+    }
+
+    @Test
     fun togglingReconGridPersists() {
         // The LCD grid over the reconstruction (Robert,
         // 2026-11-14): one toggle for all systems, off by

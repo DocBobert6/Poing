@@ -54,6 +54,15 @@ class DrawPathTest {
     }
 
     @Test
+    fun reconDrawsReadAsReconGba() {
+        // Task 7 — the GBA token, so a GBA recon frame is
+        // never misread as the GBC one on device.
+        assertEquals("recon-gba", DrawPath.RECON_GBA.displayLabel(edgeOn = false))
+        assertEquals("recon-gba", DrawPath.RECON_GBA.displayLabel(edgeOn = false, reconOn = true))
+        assertEquals("recon-gba", DrawPath.RECON_GBA.displayLabel(edgeOn = true, reconOn = true))
+    }
+
+    @Test
     fun plainDrawsNameTheFallbackWhenReconWasRequested() {
         // Recon requested but plain delivered: the token
         // says so outright — never a quiet "plain".

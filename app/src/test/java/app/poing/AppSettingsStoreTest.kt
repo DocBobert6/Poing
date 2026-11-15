@@ -328,4 +328,19 @@ class AppSettingsStoreTest {
         s.setReconGbcEnabled(false)
         assertFalse(s.reconGbcEnabled())
     }
+
+    @Test
+    fun reconGbaDefaultsOffAndRoundTrips() {
+        // Task 7 — the GBA reconstruction, same rule as the
+        // GBC one: off by default, and the choice survives
+        // a restart. The two toggles are independent keys.
+        val s = store()
+        assertFalse(s.reconGbaEnabled())
+        s.setReconGbaEnabled(true)
+        assertTrue(s.reconGbaEnabled())
+        assertTrue(AppSettingsStore(temp.root).reconGbaEnabled())
+        assertFalse(AppSettingsStore(temp.root).reconGbcEnabled())
+        s.setReconGbaEnabled(false)
+        assertFalse(s.reconGbaEnabled())
+    }
 }

@@ -136,8 +136,8 @@ enum class EdgeMode {
  * Task 6 (2026-11-14) — DLSS-in-spirit reconstruction:
  * the quality path, against the edge mode's fast path.
  * One engine, three per-system configurations; Task 6
- * ships GBC only (GB and GBA get their modes in Tasks
- * 5 / 7 — do not add unwired modes here). Off by
+ * ships GBC, Task 7 adds GBA (GB gets its mode in
+ * Task 5 — do not add an unwired mode here). Off by
  * default, never the default, and never stacked with
  * the chains or the edge mode (see [EdgeSmoothing.resolve]).
  */
@@ -146,6 +146,9 @@ enum class ReconMode {
 
     /** GBC colour reconstruction (Task 6). */
     GBC,
+
+    /** GBA detail reconstruction (Task 7). */
+    GBA,
 }
 
 /** The per-system edge parameters, applied as shader uniforms. */

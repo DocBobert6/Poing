@@ -867,8 +867,8 @@ object DisplayShaders {
         // so a dither's intended colour is the average of
         // the corrected shades. GBC is mode 2 (Prism: the
         // SameBoy ramp, LUT row 0, then the mGBA matrix
-        // x0.94). Task 6 is GBC only; GB / GBA get their
-        // modes (and toggles) in Tasks 5 / 7.
+        // x0.94); GBA is mode 3 (Dusk: the same fold, LUT
+        // row 1 — Task 7). GB gets its mode in Task 5.
         vec3 colourCorrect(vec3 col) {
           if (uMode == 0) {
             float luma = dot(col, vec3(0.299, 0.587, 0.114));
