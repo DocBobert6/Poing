@@ -257,13 +257,13 @@ fun PoingHome() {
             // result, so the section shows it without another
             // network call until "Check for updates" refreshes it.
             initialUpdateCheck = launchUpdateCheck,
-            // Phase 8 — the Jade palette picker lives in the
-            // Display section and writes the core's palette
+            // Phase 8 — the Jade palette picker lives on the
+            // Game Boy page and writes the core's palette
             // option, so the screen needs the core options
             // store too.
             optionsStore = optionsStore,
             // Overlay defaults (Robert, 2026-11-14) — the
-            // Controls section edits the per-handheld default
+            // handheld pages edit the per-handheld default
             // layouts through this store.
             layoutStore = layoutStore,
             onCoreOptions = { screen = Screen.CoreOptions },

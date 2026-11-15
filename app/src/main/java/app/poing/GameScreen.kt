@@ -62,6 +62,39 @@ import kotlin.math.roundToInt
  * exit. The activity declares configChanges, so the rotation never
  * recreates it (see MainActivityStartupTest).
  */
+/**
+ * Alpha.8 — the display resolution for one game, pure
+ * (no native code, no Compose): the chain wanted for the
+ * loaded game's system, that system's reconstruction
+ * toggle, and that system's edge mode, through
+ * EdgeSmoothing.resolve — the chain and the edge stay
+ * alternatives, never stacked, and the reconstruction
+ * wins over both. GameScreen snapshots this at game
+ * start; the unit test pins it per system without
+ * launching the player.
+ */
+internal fun displayResolutionFor(
+    settings: AppSettingsStore,
+    system: GameSystem,
+): DisplayResolution {
+    val wanted = DisplayChain.forSystem(system)
+    // Each system's reconstruction toggle only
+    // affects its own games (GB, GBC, GBA — Tasks
+    // 5, 6, 7, same rule).
+    val recon = when {
+        system == GameSystem.GB && settings.reconGbEnabled() -> ReconMode.GB
+        system == GameSystem.GBC && settings.reconGbcEnabled() -> ReconMode.GBC
+        system == GameSystem.GBA && settings.reconGbaEnabled() -> ReconMode.GBA
+        else -> ReconMode.OFF
+    }
+    return EdgeSmoothing.resolve(
+        wanted,
+        settings.chainEnabled(wanted),
+        settings.edgeMode(system),
+        recon,
+    )
+}
+
 @Composable
 fun GameScreen(
     gamePath: String,
@@ -225,24 +258,7 @@ fun GameScreen(
     // stacked. Task 6 — the reconstruction wins over both:
     // when it is on, the chain is off AND the edge mode is
     // off, and the recon passes draw instead.
-    val display = remember {
-        val wanted = DisplayChain.forSystem(system)
-        // Each system's reconstruction toggle only
-        // affects its own games (GB, GBC, GBA — Tasks
-        // 5, 6, 7, same rule).
-        val recon = when {
-            system == GameSystem.GB && appSettings.reconGbEnabled() -> ReconMode.GB
-            system == GameSystem.GBC && appSettings.reconGbcEnabled() -> ReconMode.GBC
-            system == GameSystem.GBA && appSettings.reconGbaEnabled() -> ReconMode.GBA
-            else -> ReconMode.OFF
-        }
-        EdgeSmoothing.resolve(
-            wanted,
-            appSettings.chainEnabled(wanted),
-            appSettings.edgeMode(),
-            recon,
-        )
-    }
+    val display = remember { displayResolutionFor(appSettings, system) }
     val displayChain = display.chain
     val edgeMode = display.edge
     val reconMode = display.recon
@@ -263,7 +279,7 @@ fun GameScreen(
     // the Worm Light (off by default — an easter egg) and
     // whether a dark room may dim the screen (off by
     // default — dimming can hide the game).
-    val wormLight = remember { appSettings.wormLightEnabled() }
+    val wormLight = remember { appSettings.wormLightEnabled(system) }
     // Worm Light realism (Robert, 2026-11-12): the colour of
     // the lamp's hardware — dark medium gray by default. The
     // light itself is always warm white.
@@ -274,7 +290,7 @@ fun GameScreen(
     // head never disappears behind the D-pad. Outside a
     // drag this is null and nothing extra is drawn.
     var wormLightDragHead by remember { mutableStateOf<WormLightDragHead?>(null) }
-    val opticsDimming = remember { appSettings.opticsDimmingEnabled() }
+    val opticsDimming = remember { appSettings.opticsDimmingEnabled(system) }
 
     // Player chrome (Robert, 2026-11-12) — the top bar hides
     // during active gameplay unless the dev-stats toggle is

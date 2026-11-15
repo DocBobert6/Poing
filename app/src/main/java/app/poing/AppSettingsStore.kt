@@ -114,6 +114,22 @@ class AppSettingsStore(private val root: File) {
     fun setEdgeSmoothingEnabled(enabled: Boolean) = write(KEY_EDGE_SMOOTHING, enabled.toString())
 
     /**
+     * Alpha.8 — edge smoothing per system. The per-system
+     * key is the global key plus the system
+     * ("display_edge_smoothing_gb" and so on). A system
+     * that has never been set falls back to the current
+     * global value, so nothing changes on install: the
+     * global key is the migration source, read once as the
+     * default — it is never copied or reset. A per-system
+     * write touches only that system's key.
+     */
+    fun edgeSmoothingEnabled(system: GameSystem): Boolean =
+        readBoolean(systemKey(KEY_EDGE_SMOOTHING, system), edgeSmoothingEnabled())
+
+    fun setEdgeSmoothingEnabled(system: GameSystem, enabled: Boolean) =
+        write(systemKey(KEY_EDGE_SMOOTHING, system), enabled.toString())
+
+    /**
      * Phase 9 — the combined mode: edge smoothing with a
      * light LCD grid over it, one tap. Only in effect while
      * edge smoothing itself is on — on its own it is
@@ -123,10 +139,23 @@ class AppSettingsStore(private val root: File) {
     fun edgeGridEnabled(): Boolean = readBoolean(KEY_EDGE_GRID, false)
     fun setEdgeGridEnabled(enabled: Boolean) = write(KEY_EDGE_GRID, enabled.toString())
 
+    /** Alpha.8 — the edge grid per system, same pattern as the smoothing toggle above. */
+    fun edgeGridEnabled(system: GameSystem): Boolean =
+        readBoolean(systemKey(KEY_EDGE_GRID, system), edgeGridEnabled())
+
+    fun setEdgeGridEnabled(system: GameSystem, enabled: Boolean) =
+        write(systemKey(KEY_EDGE_GRID, system), enabled.toString())
+
     /** Phase 9 — the edge mode in effect: OFF, EDGE, or EDGE_GRID (the combined mode). */
     fun edgeMode(): EdgeMode {
         if (!edgeSmoothingEnabled()) return EdgeMode.OFF
         return if (edgeGridEnabled()) EdgeMode.EDGE_GRID else EdgeMode.EDGE
+    }
+
+    /** Alpha.8 — the edge mode in effect for one system, from that system's own toggles. */
+    fun edgeMode(system: GameSystem): EdgeMode {
+        if (!edgeSmoothingEnabled(system)) return EdgeMode.OFF
+        return if (edgeGridEnabled(system)) EdgeMode.EDGE_GRID else EdgeMode.EDGE
     }
 
     /**
@@ -136,6 +165,13 @@ class AppSettingsStore(private val root: File) {
      */
     fun wormLightEnabled(): Boolean = readBoolean(KEY_WORM_LIGHT, false)
     fun setWormLightEnabled(enabled: Boolean) = write(KEY_WORM_LIGHT, enabled.toString())
+
+    /** Alpha.8 — the Worm Light per system, same migration pattern as edge smoothing. */
+    fun wormLightEnabled(system: GameSystem): Boolean =
+        readBoolean(systemKey(KEY_WORM_LIGHT, system), wormLightEnabled())
+
+    fun setWormLightEnabled(system: GameSystem, enabled: Boolean) =
+        write(systemKey(KEY_WORM_LIGHT, system), enabled.toString())
 
     /**
      * Worm Light realism (Robert, 2026-11-12) — the colour
@@ -157,6 +193,13 @@ class AppSettingsStore(private val root: File) {
      */
     fun opticsDimmingEnabled(): Boolean = readBoolean(KEY_OPTICS_DIMMING, false)
     fun setOpticsDimmingEnabled(enabled: Boolean) = write(KEY_OPTICS_DIMMING, enabled.toString())
+
+    /** Alpha.8 — dimming per system, same migration pattern as edge smoothing. */
+    fun opticsDimmingEnabled(system: GameSystem): Boolean =
+        readBoolean(systemKey(KEY_OPTICS_DIMMING, system), opticsDimmingEnabled())
+
+    fun setOpticsDimmingEnabled(system: GameSystem, enabled: Boolean) =
+        write(systemKey(KEY_OPTICS_DIMMING, system), enabled.toString())
 
     /**
      * Player chrome (Robert, 2026-11-12) — the dev stats:
@@ -259,6 +302,25 @@ class AppSettingsStore(private val root: File) {
         DisplayChain.CLEAN -> true
     }
 
+    /**
+     * Alpha.8 — the display chain for one system (Jade
+     * for GB, Prism for GBC, Dusk for GBA). The chains
+     * were already per-system keys; these are just the
+     * per-system way to read and write them, for the
+     * handheld pages.
+     */
+    fun chainEnabled(system: GameSystem): Boolean =
+        chainEnabled(DisplayChain.forSystem(system))
+
+    fun setChainEnabled(system: GameSystem, enabled: Boolean) {
+        when (DisplayChain.forSystem(system)) {
+            DisplayChain.JADE -> setJadeEnabled(enabled)
+            DisplayChain.PRISM -> setPrismEnabled(enabled)
+            DisplayChain.DUSK -> setDuskEnabled(enabled)
+            DisplayChain.CLEAN -> Unit
+        }
+    }
+
     /** The fast-forward multiplier (2, 3 or 4); 2 by default. */
     fun ffSpeed(): Int {
         val raw = readAll()[KEY_FF_SPEED]?.toIntOrNull()
@@ -285,6 +347,15 @@ class AppSettingsStore(private val root: File) {
             else -> default
         }
     }
+
+    /**
+     * Alpha.8 — the per-system key for a global key:
+     * "display_edge_smoothing" + GB reads as
+     * "display_edge_smoothing_gb". The global key stays
+     * the migration fallback for a system never set.
+     */
+    private fun systemKey(globalKey: String, system: GameSystem): String =
+        "${globalKey}_${system.name.lowercase()}"
 
     private fun readAll(): Map<String, String> {
         val props = readProperties()

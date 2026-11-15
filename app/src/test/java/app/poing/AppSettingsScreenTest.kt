@@ -4,9 +4,12 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertIsOff
+import androidx.compose.ui.test.assertIsOn
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
@@ -52,6 +55,25 @@ class AppSettingsScreenTest {
     val temp = TemporaryFolder()
 
     private fun store() = AppSettingsStore(temp.root)
+
+    /** Alpha.8 — open one handheld's page from the main list: scroll the list to the row, tap it. */
+    private fun openHandheldPage(system: GameSystem) {
+        val tag = "handheld-${system.name.lowercase()}-row"
+        composeRule.onNodeWithTag("settings-list")
+            .performScrollToNode(hasTestTag(tag))
+        composeRule.onNodeWithTag(tag).performClick()
+        composeRule.onNodeWithTag("handheld-settings-page").assertIsDisplayed()
+        // The page title is a plain Text (the header is not
+        // clickable), so it matches exactly: the row that
+        // opened it named the right handheld.
+        composeRule.onNodeWithText(system.displayName()).assertIsDisplayed()
+    }
+
+    /** Alpha.8 — scroll the open handheld page to one of its rows. */
+    private fun scrollHandheldPageTo(testTag: String) {
+        composeRule.onNodeWithTag("handheld-settings-page")
+            .performScrollToNode(hasTestTag(testTag))
+    }
 
     private fun layoutStore() = ControlLayoutStore(File(temp.root, "control-layouts"))
 
@@ -221,27 +243,19 @@ class AppSettingsScreenTest {
 
     @Test
     fun jadeOnByDefaultAndTogglingPersists() {
+        // Alpha.8 — Jade lives on the Game Boy page now:
+        // open it from the Handheld section.
         val s = store()
         composeRule.setContent {
             PoingTheme {
                 AppSettingsScreen(store = s, onCoreOptions = {}, onBack = { })
             }
         }
-        // The Display section is the last one in the list: its
-        // rows are never composed in the small test window until
-        // the list scrolls there (the item 5b lesson — a bare
-        // onNodeWithTag finds nothing below the fold). Scroll
-        // to the Jade row first: index 11 (header, Player,
-        // fast-forward, input display, haptics, haptics
-        // strength, RA title, RA, rewind, Dev stats,
-        // Display title, Jade).
-        composeRule.onNodeWithTag("settings-list").performScrollToIndex(11)
+        openHandheldPage(GameSystem.GB)
         composeRule.onNodeWithText("Jade").assertIsDisplayed()
         assertTrue(AppSettingsStore(temp.root).jadeEnabled())
-        composeRule.onNodeWithTag("jade-chain-switch").performClick()
+        composeRule.onNodeWithTag("handheld-gb-chain-switch").performClick()
         assertFalse(AppSettingsStore(temp.root).jadeEnabled())
-        // Off hides the palette picker (it lives inside Jade).
-        composeRule.onAllNodesWithText("Game Boy palette").assertCountEquals(0)
     }
 
     @Test
@@ -253,91 +267,92 @@ class AppSettingsScreenTest {
                 AppSettingsScreen(store = s, optionsStore = options, onCoreOptions = {}, onBack = { })
             }
         }
-        // The palette row is index 12 (the Jade row's index 11,
-        // plus the palette row itself — see the Jade test).
-        composeRule.onNodeWithTag("settings-list").performScrollToIndex(12)
+        openHandheldPage(GameSystem.GB)
+        scrollHandheldPageTo("jade-palette-row")
         composeRule.onNodeWithTag("jade-palette-row").performClick()
         composeRule.onNodeWithText("DMG Green").performScrollTo().performClick()
         assertEquals("DMG Green", options.get("mgba_gb_colors"))
+        // Off hides the palette picker (it lives inside Jade).
+        scrollHandheldPageTo("handheld-gb-chain-switch")
+        composeRule.onNodeWithTag("handheld-gb-chain-switch").performClick()
+        composeRule.onAllNodesWithText("Game Boy palette").assertCountEquals(0)
     }
 
     @Test
     fun prismOnByDefaultAndTogglingPersists() {
+        // Alpha.8 — Prism lives on the Game Boy Color page.
         val s = store()
         composeRule.setContent {
             PoingTheme {
                 AppSettingsScreen(store = s, onCoreOptions = {}, onBack = { })
             }
         }
-        // The Prism row is index 12 here (no options store,
-        // so no palette row: header, Player, fast-forward,
-        // input display, haptics, haptics strength, RA
-        // title, RA, rewind, Dev stats, Display title,
-        // Jade, Prism).
-        composeRule.onNodeWithTag("settings-list").performScrollToIndex(12)
+        openHandheldPage(GameSystem.GBC)
         composeRule.onNodeWithText("Prism").assertIsDisplayed()
         assertTrue(AppSettingsStore(temp.root).prismEnabled())
-        composeRule.onNodeWithTag("prism-chain-switch").performClick()
+        composeRule.onNodeWithTag("handheld-gbc-chain-switch").performClick()
         assertFalse(AppSettingsStore(temp.root).prismEnabled())
     }
 
     @Test
     fun duskOnByDefaultAndTogglingPersists() {
+        // Alpha.8 — Dusk lives on the Game Boy Advance page.
         val s = store()
         composeRule.setContent {
             PoingTheme {
                 AppSettingsScreen(store = s, onCoreOptions = {}, onBack = { })
             }
         }
-        // The Dusk row is index 13 here (no options store,
-        // so no palette row: header, Player, fast-forward,
-        // input display, haptics, haptics strength, RA
-        // title, RA, rewind, Dev stats, Display title,
-        // Jade, Prism, Dusk).
-        composeRule.onNodeWithTag("settings-list").performScrollToIndex(13)
+        openHandheldPage(GameSystem.GBA)
         composeRule.onNodeWithText("Dusk").assertIsDisplayed()
         assertTrue(AppSettingsStore(temp.root).duskEnabled())
-        composeRule.onNodeWithTag("dusk-chain-switch").performClick()
+        composeRule.onNodeWithTag("handheld-gba-chain-switch").performClick()
         assertFalse(AppSettingsStore(temp.root).duskEnabled())
     }
 
     @Test
     fun wormLightOffByDefaultAndTogglingPersists() {
+        // Alpha.8 — the Worm Light on/off is per-system now,
+        // on the Game Boy page here.
         val s = store()
         composeRule.setContent {
             PoingTheme {
                 AppSettingsScreen(store = s, onCoreOptions = {}, onBack = { })
             }
         }
-        // The Worm Light row is index 15 here (no options
-        // store, so no palette row: header, Player,
-        // fast-forward, input display, haptics, haptics
-        // strength, RA title, RA, rewind, Dev stats,
-        // Display title, Jade, Prism, Dusk, Edge
-        // smoothing, Worm Light).
-        composeRule.onNodeWithTag("settings-list").performScrollToIndex(15)
+        openHandheldPage(GameSystem.GB)
+        scrollHandheldPageTo("handheld-gb-worm-light-switch")
         composeRule.onNodeWithText("Worm Light").assertIsDisplayed()
-        assertFalse(AppSettingsStore(temp.root).wormLightEnabled())
-        composeRule.onNodeWithTag("worm-light-switch").performClick()
-        assertTrue(AppSettingsStore(temp.root).wormLightEnabled())
+        assertFalse(AppSettingsStore(temp.root).wormLightEnabled(GameSystem.GB))
+        composeRule.onNodeWithTag("handheld-gb-worm-light-switch").performClick()
+        assertTrue(AppSettingsStore(temp.root).wormLightEnabled(GameSystem.GB))
+        // Per-system: the other handhelds stay off.
+        assertFalse(AppSettingsStore(temp.root).wormLightEnabled(GameSystem.GBC))
+        assertFalse(AppSettingsStore(temp.root).wormLightEnabled(GameSystem.GBA))
     }
 
     @Test
     fun wormLightColorSwatchesPickAndPersist() {
-        // The hardware colour is a row of swatches under the
-        // Worm Light switch (Robert, 2026-11-12): dark medium
+        // The hardware colour is a row of swatches in the
+        // Display section (Robert, 2026-11-12): dark medium
         // gray by default, Atomic Purple / Clear / Green /
         // Black to pick from. The light itself is never a
-        // choice — it stays warm white.
+        // choice — it stays warm white. Alpha.8 — the only
+        // row left in Display: the colour is global, while
+        // the Worm Light on/off lives on each handheld's
+        // page.
         val s = store()
         composeRule.setContent {
             PoingTheme {
                 AppSettingsScreen(store = s, onCoreOptions = {}, onBack = { })
             }
         }
-        // The colour row is index 16 here (the Worm Light
-        // row's index 15, plus the colour row itself).
-        composeRule.onNodeWithTag("settings-list").performScrollToIndex(16)
+        // The colour row is index 13 here (header, Player,
+        // fast-forward, input display, haptics, haptics
+        // strength, RA title, RA, rewind, Dev stats,
+        // Handheld title, handheld rows, Display title,
+        // colour row).
+        composeRule.onNodeWithTag("settings-list").performScrollToIndex(13)
         composeRule.onNodeWithText("Worm Light colour").assertIsDisplayed()
         assertEquals(WormLightColor.DEFAULT, AppSettingsStore(temp.root).wormLightColor())
         composeRule.onNodeWithTag("worm-light-color-ATOMIC_PURPLE").performClick()
@@ -351,20 +366,22 @@ class AppSettingsScreenTest {
 
     @Test
     fun opticsDimmingOffByDefaultAndTogglingPersists() {
+        // Alpha.8 — dimming is per-system now, on the Game
+        // Boy Advance page here.
         val s = store()
         composeRule.setContent {
             PoingTheme {
                 AppSettingsScreen(store = s, onCoreOptions = {}, onBack = { })
             }
         }
-        // The dimming row is index 17 here (the Worm Light
-        // row's index 15, the colour row's 16, plus the
-        // dimming row itself).
-        composeRule.onNodeWithTag("settings-list").performScrollToIndex(17)
+        openHandheldPage(GameSystem.GBA)
+        scrollHandheldPageTo("handheld-gba-optics-dimming-switch")
         composeRule.onNodeWithText("Dim in dark rooms").assertIsDisplayed()
-        assertFalse(AppSettingsStore(temp.root).opticsDimmingEnabled())
-        composeRule.onNodeWithTag("optics-dimming-switch").performClick()
-        assertTrue(AppSettingsStore(temp.root).opticsDimmingEnabled())
+        assertFalse(AppSettingsStore(temp.root).opticsDimmingEnabled(GameSystem.GBA))
+        composeRule.onNodeWithTag("handheld-gba-optics-dimming-switch").performClick()
+        assertTrue(AppSettingsStore(temp.root).opticsDimmingEnabled(GameSystem.GBA))
+        // Per-system: GB stays off.
+        assertFalse(AppSettingsStore(temp.root).opticsDimmingEnabled(GameSystem.GB))
     }
 
     @Test
@@ -378,9 +395,12 @@ class AppSettingsScreenTest {
                 AppSettingsScreen(store = s, onCoreOptions = {}, onBack = { })
             }
         }
-        // The row is index 19 here (the dimming row's 17,
-        // the Library header's 18, plus the row itself).
-        composeRule.onNodeWithTag("settings-list").performScrollToIndex(19)
+        // The row is index 15 here (header, Player,
+        // fast-forward, input display, haptics, haptics
+        // strength, RA title, RA, rewind, Dev stats,
+        // Handheld title, handheld rows, Display title,
+        // colour row, Library title, cover-art row).
+        composeRule.onNodeWithTag("settings-list").performScrollToIndex(15)
         composeRule.onNodeWithText("Download cover art over mobile data").assertIsDisplayed()
         assertFalse(AppSettingsStore(temp.root).coverArtMobileDataAllowed())
         composeRule.onNodeWithTag("cover-art-mobile-data-switch").performClick()
@@ -391,36 +411,41 @@ class AppSettingsScreenTest {
     fun edgeSmoothingOffByDefaultAndGridRowHidden() {
         // Phase 9 — off by default, and the combined-mode
         // row only exists while edge smoothing is on.
+        // Alpha.8 — on the Game Boy page now.
         val s = store()
         composeRule.setContent {
             PoingTheme {
                 AppSettingsScreen(store = s, onCoreOptions = {}, onBack = { })
             }
         }
-        // The edge row is index 14 here (the Dusk row's
-        // index 13, plus the edge row itself).
-        composeRule.onNodeWithTag("settings-list").performScrollToIndex(14)
+        openHandheldPage(GameSystem.GB)
+        scrollHandheldPageTo("handheld-gb-edge-smoothing-switch")
         composeRule.onNodeWithText("Edge smoothing").assertIsDisplayed()
-        assertFalse(AppSettingsStore(temp.root).edgeSmoothingEnabled())
+        assertFalse(AppSettingsStore(temp.root).edgeSmoothingEnabled(GameSystem.GB))
         composeRule.onAllNodesWithText("Edge smoothing + grid").assertCountEquals(0)
     }
 
     @Test
     fun togglingEdgeSmoothingOnShowsGridRowAndPersists() {
+        // Alpha.8 — on the Game Boy page now, per-system.
         val s = store()
         composeRule.setContent {
             PoingTheme {
                 AppSettingsScreen(store = s, onCoreOptions = {}, onBack = { })
             }
         }
-        composeRule.onNodeWithTag("settings-list").performScrollToIndex(14)
-        composeRule.onNodeWithTag("edge-smoothing-switch").performClick()
-        assertTrue(AppSettingsStore(temp.root).edgeSmoothingEnabled())
+        openHandheldPage(GameSystem.GB)
+        scrollHandheldPageTo("handheld-gb-edge-smoothing-switch")
+        composeRule.onNodeWithTag("handheld-gb-edge-smoothing-switch").performClick()
+        assertTrue(AppSettingsStore(temp.root).edgeSmoothingEnabled(GameSystem.GB))
+        // The other handhelds stay off: edge is per-system.
+        assertFalse(AppSettingsStore(temp.root).edgeSmoothingEnabled(GameSystem.GBC))
+        scrollHandheldPageTo("handheld-gb-edge-grid-switch")
         composeRule.onNodeWithText("Edge smoothing + grid").assertIsDisplayed()
-        assertFalse(AppSettingsStore(temp.root).edgeGridEnabled())
-        composeRule.onNodeWithTag("edge-grid-switch").performClick()
-        assertTrue(AppSettingsStore(temp.root).edgeGridEnabled())
-        assertEquals(EdgeMode.EDGE_GRID, AppSettingsStore(temp.root).edgeMode())
+        assertFalse(AppSettingsStore(temp.root).edgeGridEnabled(GameSystem.GB))
+        composeRule.onNodeWithTag("handheld-gb-edge-grid-switch").performClick()
+        assertTrue(AppSettingsStore(temp.root).edgeGridEnabled(GameSystem.GB))
+        assertEquals(EdgeMode.EDGE_GRID, AppSettingsStore(temp.root).edgeMode(GameSystem.GB))
     }
 
     @Test
@@ -582,38 +607,38 @@ class AppSettingsScreenTest {
     }
 
     @Test
-    fun defaultLayoutRowsHiddenWithoutALayoutStore() {
-        // Overlay defaults (Robert, 2026-11-14): the
-        // Controls section needs the layout store — without
-        // it (the old call sites) the rows are hidden, same
-        // pattern as the Jade palette picker.
+    fun handheldLayoutRowHiddenWithoutALayoutStore() {
+        // Alpha.8 — the Handheld section itself needs no
+        // layout store (its display rows are always there),
+        // but the default-layout row on each page does:
+        // without it the row is hidden, same pattern as
+        // the Jade palette picker.
         composeRule.setContent {
             PoingTheme {
                 AppSettingsScreen(store = store(), onCoreOptions = {}, onBack = {})
             }
         }
-        composeRule.onAllNodesWithText("GB default layout").assertCountEquals(0)
-        composeRule.onAllNodesWithText("GBC default layout").assertCountEquals(0)
-        composeRule.onAllNodesWithText("GBA default layout").assertCountEquals(0)
+        openHandheldPage(GameSystem.GB)
+        composeRule.onAllNodesWithText("Default layout").assertCountEquals(0)
     }
 
     @Test
     fun defaultLayoutRowOpensTheEditorAndDoneSavesTheHandheldDefault() {
-        // Overlay defaults (Robert, 2026-11-14): the GB row
-        // opens the same full-screen editor the player uses,
-        // and Done saves the draft as the GB default — the
-        // other systems stay on the factory default, and a
-        // fresh store instance (the restart round-trip) reads
-        // it back.
+        // Overlay defaults (Robert, 2026-11-14): the GB
+        // page's layout row opens the same full-screen
+        // editor the player uses, and Done saves the draft
+        // as the GB default — the other systems stay on the
+        // factory default, and a fresh store instance (the
+        // restart round-trip) reads it back.
         val layouts = layoutStore()
         composeRule.setContent {
             PoingTheme {
                 AppSettingsScreen(store = store(), layoutStore = layouts, onCoreOptions = {}, onBack = {})
             }
         }
-        composeRule.onNodeWithTag("settings-list")
-            .performScrollToNode(hasTestTag("default-layout-gb"))
-        composeRule.onNodeWithTag("default-layout-gb").performClick()
+        openHandheldPage(GameSystem.GB)
+        scrollHandheldPageTo("handheld-gb-default-layout")
+        composeRule.onNodeWithTag("handheld-gb-default-layout").performClick()
         composeRule.onNodeWithTag("editor-dpad").assertIsDisplayed()
         composeRule.onNodeWithTag("editor-dpad").performTouchInput {
             swipe(start = center, end = center + Offset(0f, -200f), durationMillis = 300)
@@ -624,15 +649,75 @@ class AppSettingsScreenTest {
         assertTrue("dragging up should save a smaller cy than the 0.5 default", gb.control(ControlId.DPAD).cy < 0.5f)
         assertEquals(ControlLayout.DEFAULT, reopened.loadDefault(GameSystem.GBC))
         assertEquals(ControlLayout.DEFAULT, reopened.loadDefault(GameSystem.GBA))
-        // The GB row now says it is customised, and only it:
-        // scroll the row back into view first, so the label
-        // is asserted on a composed row, not on an empty tree.
-        // Substring: the row is clickable, so its texts merge
-        // into one node ("GB default layout … Customised").
-        composeRule.onNodeWithTag("settings-list")
-            .performScrollToNode(hasTestTag("default-layout-gb"))
+        // Done returns to the GB page, whose layout row now
+        // says it is customised: scroll the row back into
+        // view first, so the label is asserted on a composed
+        // row, not on an empty tree. Substring: the row is
+        // clickable, so its texts merge into one node
+        // ("Default layout … Customised"). The page holds
+        // only this system's row, so no "Factory default"
+        // remains anywhere on it.
+        scrollHandheldPageTo("handheld-gb-default-layout")
         composeRule.onAllNodesWithText("Customised", substring = true).assertCountEquals(1)
-        composeRule.onAllNodesWithText("Factory default", substring = true).assertCountEquals(2)
+        composeRule.onAllNodesWithText("Factory default", substring = true).assertCountEquals(0)
+    }
+
+    @Test
+    fun handheldSectionShowsOneRowPerSystem() {
+        // Alpha.8 — the Handheld section: one row per
+        // system, each opening that handheld's page. The
+        // rows are clickable, so their texts merge into
+        // one node each — assert on the tags, not the
+        // titles (the titles are pinned by the page-open
+        // helper, which checks the page title).
+        composeRule.setContent {
+            PoingTheme {
+                AppSettingsScreen(store = store(), onCoreOptions = {}, onBack = {})
+            }
+        }
+        composeRule.onNodeWithTag("settings-list")
+            .performScrollToNode(hasTestTag("handheld-gb-row"))
+        composeRule.onNodeWithTag("handheld-gb-row").assertIsDisplayed()
+        composeRule.onNodeWithTag("settings-list")
+            .performScrollToNode(hasTestTag("handheld-gbc-row"))
+        composeRule.onNodeWithTag("handheld-gbc-row").assertIsDisplayed()
+        composeRule.onNodeWithTag("settings-list")
+            .performScrollToNode(hasTestTag("handheld-gba-row"))
+        composeRule.onNodeWithTag("handheld-gba-row").assertIsDisplayed()
+    }
+
+    @Test
+    fun handheldPageBackReturnsToTheMainList() {
+        // Alpha.8 — Back on a handheld page closes the
+        // page and shows the main list again.
+        composeRule.setContent {
+            PoingTheme {
+                AppSettingsScreen(store = store(), onCoreOptions = {}, onBack = {})
+            }
+        }
+        openHandheldPage(GameSystem.GBC)
+        composeRule.onNodeWithText("Back to Settings").performClick()
+        composeRule.onAllNodesWithTag("handheld-settings-page").assertCountEquals(0)
+        composeRule.onNodeWithTag("settings-list").assertIsDisplayed()
+    }
+
+    @Test
+    fun handheldPageShowsTheMigratedGlobalValue() {
+        // Alpha.8 — migration by read: the global edge on
+        // shows as on for a system never set on its own.
+        val s = store()
+        s.setEdgeSmoothingEnabled(true)
+        composeRule.setContent {
+            PoingTheme {
+                AppSettingsScreen(store = s, onCoreOptions = {}, onBack = { })
+            }
+        }
+        openHandheldPage(GameSystem.GBA)
+        scrollHandheldPageTo("handheld-gba-edge-smoothing-switch")
+        composeRule.onNodeWithTag("handheld-gba-edge-smoothing-switch").assertIsOn()
+        // And the worm light, never set anywhere, reads off.
+        scrollHandheldPageTo("handheld-gba-worm-light-switch")
+        composeRule.onNodeWithTag("handheld-gba-worm-light-switch").assertIsOff()
     }
 
     /**

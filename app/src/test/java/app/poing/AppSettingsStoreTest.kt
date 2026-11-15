@@ -215,6 +215,113 @@ class AppSettingsStoreTest {
         assertFalse(s.opticsDimmingEnabled())
     }
 
+    // Alpha.8 — per-system settings: each system reads
+    // and writes its own key, and a system never set
+    // falls back to the current global value (migration
+    // by read, not by copy — nothing changes on install).
+    @Test
+    fun perSystemEdgeSmoothingIsIndependent() {
+        val s = store()
+        s.setEdgeSmoothingEnabled(GameSystem.GB, true)
+        s.setEdgeSmoothingEnabled(GameSystem.GBC, false)
+        s.setEdgeSmoothingEnabled(GameSystem.GBA, true)
+        assertTrue(s.edgeSmoothingEnabled(GameSystem.GB))
+        assertFalse(s.edgeSmoothingEnabled(GameSystem.GBC))
+        assertTrue(s.edgeSmoothingEnabled(GameSystem.GBA))
+        // A fresh read of the same file agrees.
+        val again = AppSettingsStore(temp.root)
+        assertTrue(again.edgeSmoothingEnabled(GameSystem.GB))
+        assertFalse(again.edgeSmoothingEnabled(GameSystem.GBC))
+        assertTrue(again.edgeSmoothingEnabled(GameSystem.GBA))
+    }
+
+    @Test
+    fun perSystemEdgeSmoothingMigratesFromTheGlobalValue() {
+        val s = store()
+        // The global is on: every system reads on until
+        // it is set on its own.
+        s.setEdgeSmoothingEnabled(true)
+        assertTrue(s.edgeSmoothingEnabled(GameSystem.GB))
+        assertTrue(s.edgeSmoothingEnabled(GameSystem.GBC))
+        assertTrue(s.edgeSmoothingEnabled(GameSystem.GBA))
+        // Turning one system off leaves the others — and
+        // the global — alone.
+        s.setEdgeSmoothingEnabled(GameSystem.GBC, false)
+        assertTrue(s.edgeSmoothingEnabled(GameSystem.GB))
+        assertFalse(s.edgeSmoothingEnabled(GameSystem.GBC))
+        assertTrue(s.edgeSmoothingEnabled(GameSystem.GBA))
+        assertTrue(s.edgeSmoothingEnabled())
+        // The global off migrates as off for a system
+        // never set.
+        s.setEdgeSmoothingEnabled(false)
+        val fresh = AppSettingsStore(temp.root)
+        assertFalse(fresh.edgeSmoothingEnabled(GameSystem.GBA))
+    }
+
+    @Test
+    fun perSystemEdgeModeFollowsItsOwnToggles() {
+        val s = store()
+        assertEquals(EdgeMode.OFF, s.edgeMode(GameSystem.GB))
+        s.setEdgeSmoothingEnabled(GameSystem.GB, true)
+        assertEquals(EdgeMode.EDGE, s.edgeMode(GameSystem.GB))
+        assertEquals(EdgeMode.OFF, s.edgeMode(GameSystem.GBC))
+        s.setEdgeGridEnabled(GameSystem.GB, true)
+        assertEquals(EdgeMode.EDGE_GRID, s.edgeMode(GameSystem.GB))
+        // The grid alone, without smoothing, is nothing.
+        s.setEdgeSmoothingEnabled(GameSystem.GB, false)
+        assertEquals(EdgeMode.OFF, s.edgeMode(GameSystem.GB))
+        // The global mode is untouched by per-system writes.
+        assertEquals(EdgeMode.OFF, s.edgeMode())
+    }
+
+    @Test
+    fun perSystemEdgeGridMigratesFromTheGlobalValue() {
+        val s = store()
+        s.setEdgeGridEnabled(true)
+        assertTrue(s.edgeGridEnabled(GameSystem.GB))
+        s.setEdgeGridEnabled(GameSystem.GB, false)
+        assertFalse(s.edgeGridEnabled(GameSystem.GB))
+        assertTrue(s.edgeGridEnabled(GameSystem.GBC))
+        assertTrue(s.edgeGridEnabled())
+    }
+
+    @Test
+    fun perSystemWormLightIsIndependentAndMigrates() {
+        val s = store()
+        s.setWormLightEnabled(true)
+        assertTrue(s.wormLightEnabled(GameSystem.GBA))
+        s.setWormLightEnabled(GameSystem.GBA, false)
+        assertFalse(s.wormLightEnabled(GameSystem.GBA))
+        assertTrue(s.wormLightEnabled(GameSystem.GB))
+        assertTrue(s.wormLightEnabled())
+    }
+
+    @Test
+    fun perSystemOpticsDimmingIsIndependentAndMigrates() {
+        val s = store()
+        s.setOpticsDimmingEnabled(GameSystem.GB, true)
+        s.setOpticsDimmingEnabled(GameSystem.GBC, false)
+        assertTrue(s.opticsDimmingEnabled(GameSystem.GB))
+        assertFalse(s.opticsDimmingEnabled(GameSystem.GBC))
+        // GBA was never set: it falls back to the global,
+        // which is still off.
+        assertFalse(s.opticsDimmingEnabled(GameSystem.GBA))
+        assertFalse(s.opticsDimmingEnabled())
+    }
+
+    @Test
+    fun perSystemChainFollowsTheHandheldChain() {
+        val s = store()
+        assertTrue(s.chainEnabled(GameSystem.GB))
+        s.setChainEnabled(GameSystem.GB, false)
+        assertFalse(s.chainEnabled(GameSystem.GB))
+        assertFalse(s.jadeEnabled())
+        assertTrue(s.chainEnabled(GameSystem.GBC))
+        assertTrue(s.prismEnabled())
+        s.setChainEnabled(GameSystem.GBA, false)
+        assertFalse(s.duskEnabled())
+    }
+
     @Test
     fun coverArtMobileDataDefaultsOffAndRoundTrips() {
         // Cover art downloads on unmetered Wi-Fi only unless

@@ -27,6 +27,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -96,36 +97,19 @@ fun AppSettingsScreen(
     // when on, the top bar stays visible during gameplay;
     // when off, the bar hides while playing. Off by default.
     var devStats by remember { mutableStateOf(store.devStatsEnabled()) }
-    // Phase 8 — Jade, the Game Boy display chain (on by
-    // default: each chain is the default look for its
-    // system), and the palette it shows the game in.
-    var jade by remember { mutableStateOf(store.jadeEnabled()) }
+    // Alpha.8 — the per-handheld pages hold the chain,
+    // edge, worm-light and dimming toggles now, so the
+    // main page keeps no state for them. The palette
+    // itself still lives here: the GB page's palette row
+    // opens the picker dialog below.
     var palette by remember {
         mutableStateOf(optionsStore?.get("mgba_gb_colors") ?: CoreOptions.GB_PALETTES.first())
     }
     var pickingPalette by remember { mutableStateOf(false) }
-    // Phase 8 — Prism, the Game Boy Color display chain,
-    // same rule as Jade.
-    var prism by remember { mutableStateOf(store.prismEnabled()) }
-    // Phase 8 — Dusk, the Game Boy Advance display chain,
-    // same rule as Jade.
-    var dusk by remember { mutableStateOf(store.duskEnabled()) }
-    // Phase 9 — edge smoothing (off by default: an
-    // alternative to the chains, never stacked — on turns
-    // the chain off) and the combined mode (edge + light
-    // grid, one tap — shown only while edge smoothing is
-    // on).
-    var edgeSmoothing by remember { mutableStateOf(store.edgeSmoothingEnabled()) }
-    var edgeGrid by remember { mutableStateOf(store.edgeGridEnabled()) }
-    // Phase 8 — Screen Optics: the Virtual Worm Light (off
-    // by default — an easter egg) and the dark-room dimming
-    // toggle (off by default — dimming can hide the game).
-    var wormLight by remember { mutableStateOf(store.wormLightEnabled()) }
     // Worm Light realism (Robert, 2026-11-12): the colour of
     // the lamp's hardware — dark medium gray by default. The
     // light itself stays warm white and is never a setting.
     var wormLightColor by remember { mutableStateOf(store.wormLightColor()) }
-    var opticsDimming by remember { mutableStateOf(store.opticsDimmingEnabled()) }
     // Cover art (Robert, 2026-11-14): let covers fetch over
     // mobile data when the user turns it on. Off by default —
     // covers download on unmetered Wi-Fi only.
@@ -166,6 +150,11 @@ fun AppSettingsScreen(
     // editor only exists while a system is being edited.
     var editingDefaultSystem by remember { mutableStateOf<GameSystem?>(null) }
     var defaultsNonce by remember { mutableStateOf(0) }
+    // Alpha.8 — which handheld's page is open, null while
+    // the main list shows. The page is keyed on the
+    // defaultsNonce at the call site, so its layout row
+    // re-reads "Customised" after an edit closes.
+    var handheldPage by remember { mutableStateOf<GameSystem?>(null) }
     val editorHeld = remember { HeldInput() }
 
     Box(modifier = Modifier.fillMaxSize()) {
@@ -434,32 +423,38 @@ fun AppSettingsScreen(
                 )
             }
         }
-        // Overlay defaults (Robert, 2026-11-14): one adjustable
-        // default control layout per handheld. A game with no
-        // per-game layout of its own uses its handheld's
-        // default — so this is where the defaults live, and the
-        // rows open the same full-screen editor the player
-        // uses, against that system's default.
-        if (layoutStore != null) {
-            item {
-                Text(
-                    "Controls",
-                    style = displayTextStyle(DisplaySizeMedium),
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-                )
-            }
-            // The key carries the edit nonce: a plain state
-            // read inside the item below did NOT refresh the
-            // rows after an edit closed (the "Customised"
-            // label stayed "Factory default" in CI), so the
-            // rows are keyed on the nonce instead — after an
-            // edit the old rows leave and fresh rows compose,
-            // re-reading which handhelds are customised.
-            item(key = "default-layouts-$defaultsNonce") {
-                DefaultLayoutRows(
-                    layoutStore = layoutStore,
-                    onEdit = { editingDefaultSystem = it },
-                )
+        // Alpha.8 — one page per handheld: the settings
+        // that are per-system (display chain, edge
+        // smoothing, worm light, dimming, default layout)
+        // live on that handheld's page, not here. A row
+        // per system opens its page.
+        item {
+            Text(
+                "Handheld",
+                style = displayTextStyle(DisplaySizeMedium),
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+            )
+        }
+        item {
+            Column(modifier = Modifier.fillMaxWidth()) {
+                for (system in GameSystem.entries) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { handheldPage = system }
+                            .padding(horizontal = 16.dp, vertical = 12.dp)
+                            .testTag("handheld-${system.name.lowercase()}-row"),
+                    ) {
+                        Text(
+                            system.displayName(),
+                            style = MaterialTheme.typography.titleMedium,
+                        )
+                        Text(
+                            "Display chain, edge smoothing, Worm Light, dimming and the default layout for ${system.displayName()} games.",
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                    }
+                }
             }
         }
         item {
@@ -470,199 +465,14 @@ fun AppSettingsScreen(
             )
         }
         item {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 12.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        "Jade",
-                        style = MaterialTheme.typography.titleMedium,
-                    )
-                    Text(
-                        "The Game Boy display chain. On by default; off shows the game exactly as the core renders it.",
-                        style = MaterialTheme.typography.bodySmall,
-                    )
-                }
-                Switch(
-                    checked = jade,
-                    onCheckedChange = {
-                        store.setJadeEnabled(it)
-                        jade = it
-                    },
-                    modifier = Modifier.testTag("jade-chain-switch"),
-                )
-            }
-        }
-        if (jade && optionsStore != null) {
-            item {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable { pickingPalette = true }
-                        .padding(horizontal = 16.dp, vertical = 12.dp)
-                        .testTag("jade-palette-row"),
-                ) {
-                    Text(
-                        "Game Boy palette",
-                        style = MaterialTheme.typography.titleMedium,
-                    )
-                    Text(
-                        "The palette Jade shows the game in. The DMG green and the Super Game Boy palettes live here.",
-                        style = MaterialTheme.typography.bodySmall,
-                    )
-                    Spacer(Modifier.height(4.dp))
-                    Text(
-                        "Current: $palette",
-                        style = MaterialTheme.typography.bodyMedium,
-                    )
-                }
-            }
-        }
-        item {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 12.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        "Prism",
-                        style = MaterialTheme.typography.titleMedium,
-                    )
-                    Text(
-                        "The Game Boy Color display chain. On by default; off shows the game exactly as the core renders it.",
-                        style = MaterialTheme.typography.bodySmall,
-                    )
-                }
-                Switch(
-                    checked = prism,
-                    onCheckedChange = {
-                        store.setPrismEnabled(it)
-                        prism = it
-                    },
-                    modifier = Modifier.testTag("prism-chain-switch"),
-                )
-            }
-        }
-        item {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 12.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        "Dusk",
-                        style = MaterialTheme.typography.titleMedium,
-                    )
-                    Text(
-                        "The Game Boy Advance display chain. On by default; off shows the game exactly as the core renders it.",
-                        style = MaterialTheme.typography.bodySmall,
-                    )
-                }
-                Switch(
-                    checked = dusk,
-                    onCheckedChange = {
-                        store.setDuskEnabled(it)
-                        dusk = it
-                    },
-                    modifier = Modifier.testTag("dusk-chain-switch"),
-                )
-            }
-        }
-        item {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 12.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        "Edge smoothing",
-                        style = MaterialTheme.typography.titleMedium,
-                    )
-                    Text(
-                        "Smooths sprite edges the way a handheld would — dither-aware, so Pokémon water and Zelda shadows stay dithered, not blurred. Off by default; on turns the display chain off.",
-                        style = MaterialTheme.typography.bodySmall,
-                    )
-                }
-                Switch(
-                    checked = edgeSmoothing,
-                    onCheckedChange = {
-                        store.setEdgeSmoothingEnabled(it)
-                        edgeSmoothing = it
-                    },
-                    modifier = Modifier.testTag("edge-smoothing-switch"),
-                )
-            }
-        }
-        if (edgeSmoothing) {
-            item {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 12.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            "Edge smoothing + grid",
-                            style = MaterialTheme.typography.titleMedium,
-                        )
-                        Text(
-                            "Edge smoothing with a light LCD grid over it — the curated combined mode, one tap.",
-                            style = MaterialTheme.typography.bodySmall,
-                        )
-                    }
-                    Switch(
-                        checked = edgeGrid,
-                        onCheckedChange = {
-                            store.setEdgeGridEnabled(it)
-                            edgeGrid = it
-                        },
-                        modifier = Modifier.testTag("edge-grid-switch"),
-                    )
-                }
-            }
-        }
-        item {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 12.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        "Worm Light",
-                        style = MaterialTheme.typography.titleMedium,
-                    )
-                    Text(
-                        "A warm spotlight you can drag across the screen. An easter egg, off by default.",
-                        style = MaterialTheme.typography.bodySmall,
-                    )
-                }
-                Switch(
-                    checked = wormLight,
-                    onCheckedChange = {
-                        store.setWormLightEnabled(it)
-                        wormLight = it
-                    },
-                    modifier = Modifier.testTag("worm-light-switch"),
-                )
-            }
-        }
-        item {
             // Worm Light realism (Robert, 2026-11-12): the
             // hardware colour — the lamp's cord, head and plug.
             // A row of swatches beside the switch; the light
             // itself stays warm white and is never a choice.
+            // Alpha.8 — the only row left in Display: the
+            // colour is global (one light, one colour), while
+            // the Worm Light on/off lives on each handheld's
+            // page.
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -709,33 +519,6 @@ fun AppSettingsScreen(
                         }
                     }
                 }
-            }
-        }
-        item {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 12.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        "Dim in dark rooms",
-                        style = MaterialTheme.typography.titleMedium,
-                    )
-                    Text(
-                        "Let the ambient light dim the screen in a dark room. Off by default — dimming can hide the game.",
-                        style = MaterialTheme.typography.bodySmall,
-                    )
-                }
-                Switch(
-                    checked = opticsDimming,
-                    onCheckedChange = {
-                        store.setOpticsDimmingEnabled(it)
-                        opticsDimming = it
-                    },
-                    modifier = Modifier.testTag("optics-dimming-switch"),
-                )
             }
         }
         item {
@@ -1049,12 +832,7 @@ fun AppSettingsScreen(
                     hapticsStrength = store.hapticsStrength()
                     rewindControl = store.rewindControlVisible()
                     devStats = store.devStatsEnabled()
-                    jade = store.jadeEnabled()
-                    prism = store.prismEnabled()
-                    dusk = store.duskEnabled()
-                    wormLight = store.wormLightEnabled()
                     wormLightColor = store.wormLightColor()
-                    opticsDimming = store.opticsDimmingEnabled()
                     coverArtMobileData = store.coverArtMobileDataAllowed()
                     developerUnlocked = store.developerUnlocked()
                     reconGbc = store.reconGbcEnabled()
@@ -1088,6 +866,27 @@ fun AppSettingsScreen(
                     },
             )
             Spacer(Modifier.height(16.dp))
+        }
+    }
+
+    // Alpha.8 — the per-handheld page, drawn over the
+    // list while one is open. Keyed on the layout-edit
+    // nonce, so its layout row re-reads "Customised"
+    // after an edit closes (the DefaultLayoutRows
+    // lesson). The layout editor draws after the page,
+    // so closing the editor returns to the page.
+    val handheld = handheldPage
+    if (handheld != null) {
+        key(defaultsNonce) {
+            HandheldSettingsScreen(
+                system = handheld,
+                store = store,
+                optionsStore = optionsStore,
+                layoutStore = layoutStore,
+                onEditLayout = { editingDefaultSystem = it },
+                onPickPalette = { pickingPalette = true },
+                onBack = { handheldPage = null },
+            )
         }
     }
 
@@ -1166,44 +965,3 @@ fun AppSettingsScreen(
     }
     } // Box
 }
-
-/**
- * Overlay defaults (Robert, 2026-11-14): the per-handheld
- * default-layout rows. Kept out of AppSettingsScreen itself
- * so the settings method stays under the dex guard (HowlingDog
- * v1.3.0 lesson). The rows are keyed on the edit nonce at the
- * call site, so they re-read which handhelds are customised
- * after an edit closes.
- */
-@Composable
-private fun DefaultLayoutRows(
-    layoutStore: ControlLayoutStore,
-    onEdit: (GameSystem) -> Unit,
-) {
-    Column(modifier = Modifier.fillMaxWidth()) {
-        for (system in GameSystem.entries) {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clickable { onEdit(system) }
-                    .padding(horizontal = 16.dp, vertical = 12.dp)
-                    .testTag("default-layout-${system.name.lowercase()}"),
-            ) {
-                Text(
-                    "${system.label} default layout",
-                    style = MaterialTheme.typography.titleMedium,
-                )
-                Text(
-                    "The default button positions, sizes and opacity for ${system.label} games. A game with no layout of its own uses this — tap to edit it.",
-                    style = MaterialTheme.typography.bodySmall,
-                )
-                Spacer(Modifier.height(4.dp))
-                Text(
-                    if (layoutStore.hasDefault(system)) "Customised" else "Factory default",
-                    style = MaterialTheme.typography.bodyMedium,
-                )
-            }
-        }
-    }
-}
-
