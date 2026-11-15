@@ -146,15 +146,23 @@ fun GameScreen(
     var pauseMessage by remember { mutableStateOf<String?>(null) }
     val held = remember { HeldInput() }
 
-    // Phase 6 (item 4) — per-game saved control positions. The
-    // layout is loaded with the game and saved on Done in the
-    // editor (and on every drag end there); editing is entered
+    // Phase 6 (item 4) — per-game saved control positions,
+    // overlay defaults (Robert, 2026-11-14): the layout is
+    // resolved per game — the game's own override when it has
+    // one, otherwise its handheld's default (GB / GBC / GBA,
+    // adjustable in Settings), otherwise the factory default
+    // (see ControlLayoutStore.loadForGame). Editing is entered
     // from the pause menu while the game stays paused. The
     // stored ROM file is <sha256>.<ext>: its stem is the stable
     // per-game key.
     val saveBase = java.io.File(gamePath).nameWithoutExtension
     val layoutStore = remember { ControlLayoutStore(context.filesDir.resolve("control-layouts").apply { mkdirs() }) }
-    var layout by remember(gamePath) { mutableStateOf(layoutStore.load(saveBase)) }
+    var layout by remember(gamePath) { mutableStateOf(layoutStore.loadForGame(saveBase, system)) }
+    // The handheld default, snapshotted with the game like the
+    // other player settings: it is what the editor's Reset
+    // restores, and what Done falls back to when the draft
+    // lands exactly on it (see the editor's onDone below).
+    val handheldDefault = remember(gamePath) { layoutStore.loadDefault(system) }
     var editingLayout by remember { mutableStateOf(false) }
     // Overlay rework (Robert, 2026-11-13): the controls are
     // fractions of the full screen, so the overlay lives in the
@@ -1133,6 +1141,12 @@ fun GameScreen(
         // layout editor over the paused game. Done commits the
         // draft and saves it; Back (or a back swipe) discards
         // it. The game stays paused throughout editing.
+        // Overlay defaults (Robert, 2026-11-14): Reset in the
+        // editor restores the handheld default, and a Done
+        // that lands exactly on it is not an override at all —
+        // the game's file is cleared, so a later change to the
+        // handheld default still flows through to this game
+        // instead of a stale copy shadowing it.
         if (editingLayout) {
             LayoutEditor(
                 initial = layout,
@@ -1145,10 +1159,12 @@ fun GameScreen(
                 },
                 onDone = { draft ->
                     layout = draft
-                    layoutStore.save(saveBase, draft)
+                    if (draft == handheldDefault) layoutStore.clearOverride(saveBase)
+                    else layoutStore.save(saveBase, draft)
                     editingLayout = false
                 },
                 onBack = { editingLayout = false },
+                resetLayout = handheldDefault,
             )
         }
     }

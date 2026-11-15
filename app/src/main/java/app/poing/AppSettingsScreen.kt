@@ -57,6 +57,10 @@ fun AppSettingsScreen(
     // Phase 8 — the Jade palette picker writes the core's
     // palette option. Null (tests) hides the picker row.
     optionsStore: CoreOptionsStore? = null,
+    // Overlay defaults (Robert, 2026-11-14) — the per-handheld
+    // default control layouts. Null (tests) hides the
+    // Controls section, same pattern as optionsStore.
+    layoutStore: ControlLayoutStore? = null,
     onCoreOptions: () -> Unit,
     onRaLogin: () -> Unit = {},
     onBack: () -> Unit,
@@ -116,7 +120,18 @@ fun AppSettingsScreen(
     var reconGb by remember { mutableStateOf(store.reconGbEnabled()) }
     var reconGrid by remember { mutableStateOf(store.reconGridEnabled()) }
     var footerTaps by remember { mutableStateOf(0) }
+    // Overlay defaults (Robert, 2026-11-14): which handheld's
+    // default layout is being edited in the full-screen
+    // editor, null while the list shows. defaultsNonce is
+    // bumped when an edit closes, so the section re-reads
+    // which handhelds are customised. editorHeld is hoisted
+    // here — remember calls must stay unconditional, and the
+    // editor only exists while a system is being edited.
+    var editingDefaultSystem by remember { mutableStateOf<GameSystem?>(null) }
+    var defaultsNonce by remember { mutableStateOf(0) }
+    val editorHeld = remember { HeldInput() }
 
+    Box(modifier = Modifier.fillMaxSize()) {
     LazyColumn(
         modifier = Modifier
             .fillMaxSize()
@@ -336,6 +351,28 @@ fun AppSettingsScreen(
                         devStats = it
                     },
                     modifier = Modifier.testTag("dev-stats-switch"),
+                )
+            }
+        }
+        // Overlay defaults (Robert, 2026-11-14): one adjustable
+        // default control layout per handheld. A game with no
+        // per-game layout of its own uses its handheld's
+        // default — so this is where the defaults live, and the
+        // rows open the same full-screen editor the player
+        // uses, against that system's default.
+        if (layoutStore != null) {
+            item {
+                Text(
+                    "Controls",
+                    style = displayTextStyle(DisplaySizeMedium),
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                )
+            }
+            item {
+                DefaultLayoutRows(
+                    layoutStore = layoutStore,
+                    defaultsNonce = defaultsNonce,
+                    onEdit = { editingDefaultSystem = it },
                 )
             }
         }
@@ -831,6 +868,35 @@ fun AppSettingsScreen(
         }
     }
 
+    // Overlay defaults (Robert, 2026-11-14): the full-screen
+    // editor over Settings, against the handheld's default —
+    // the same editor the player uses, so a default is edited
+    // exactly the way a per-game layout is. Done commits it
+    // as that system's default; Back discards the draft. A
+    // Done that lands exactly on the factory default clears
+    // the customised default instead of saving a copy of it,
+    // so the factory default is what a fresh read finds.
+    val editingSystem = editingDefaultSystem
+    if (editingSystem != null && layoutStore != null) {
+        LayoutEditor(
+            initial = layoutStore.loadDefault(editingSystem),
+            isGba = editingSystem == GameSystem.GBA,
+            system = editingSystem,
+            held = editorHeld,
+            onInputChanged = {},
+            onControlDown = {},
+            onDone = { draft ->
+                if (draft == ControlLayout.DEFAULT) layoutStore.clearDefault(editingSystem)
+                else layoutStore.saveDefault(editingSystem, draft)
+                defaultsNonce++
+                editingDefaultSystem = null
+            },
+            onBack = { editingDefaultSystem = null },
+            // Resetting a handheld default restores the factory default.
+            resetLayout = ControlLayout.DEFAULT,
+        )
+    }
+
     // Phase 8 — the palette picker: the core's own 48
     // palettes, same dialog shape as Core Options. A pick
     // saves immediately and takes effect on the next game
@@ -875,4 +941,50 @@ fun AppSettingsScreen(
             },
         )
     }
+    } // Box
 }
+
+/**
+ * Overlay defaults (Robert, 2026-11-14): the per-handheld
+ * default-layout rows. Kept out of AppSettingsScreen itself
+ * so the settings method stays under the dex guard (HowlingDog
+ * v1.3.0 lesson). defaultsNonce is a parameter only: changing
+ * it recomposes this section, so the "Customised" labels
+ * re-read after an edit closes.
+ */
+@Composable
+private fun DefaultLayoutRows(
+    layoutStore: ControlLayoutStore,
+    defaultsNonce: Int,
+    onEdit: (GameSystem) -> Unit,
+) {
+    // defaultsNonce is a parameter only: changing it
+    // recomposes this section, so the "Customised" labels
+    // re-read after an edit closes.
+    Column(modifier = Modifier.fillMaxWidth()) {
+        for (system in GameSystem.entries) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { onEdit(system) }
+                    .padding(horizontal = 16.dp, vertical = 12.dp)
+                    .testTag("default-layout-${system.name.lowercase()}"),
+            ) {
+                Text(
+                    "${system.label} default layout",
+                    style = MaterialTheme.typography.titleMedium,
+                )
+                Text(
+                    "The default button positions, sizes and opacity for ${system.label} games. A game with no layout of its own uses this — tap to edit it.",
+                    style = MaterialTheme.typography.bodySmall,
+                )
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    if (layoutStore.hasDefault(system)) "Customised" else "Factory default",
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+            }
+        }
+    }
+}
+

@@ -1,5 +1,6 @@
 package app.poing
 
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.hasTestTag
@@ -12,6 +13,9 @@ import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performScrollToIndex
 import androidx.compose.ui.test.performScrollToNode
+import androidx.compose.ui.test.performTouchInput
+import androidx.compose.ui.test.swipe
+import java.io.File
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -46,6 +50,8 @@ class AppSettingsScreenTest {
     val temp = TemporaryFolder()
 
     private fun store() = AppSettingsStore(temp.root)
+
+    private fun layoutStore() = ControlLayoutStore(File(temp.root, "control-layouts"))
 
     @Test
     fun ffControlOffByDefaultAndSpeedHidden() {
@@ -511,5 +517,52 @@ class AppSettingsScreenTest {
             .performScrollToNode(hasTestTag("recon-grid-switch"))
         composeRule.onNodeWithTag("recon-grid-switch").performClick()
         assertFalse(AppSettingsStore(temp.root).reconGridEnabled())
+    }
+
+    @Test
+    fun defaultLayoutRowsHiddenWithoutALayoutStore() {
+        // Overlay defaults (Robert, 2026-11-14): the
+        // Controls section needs the layout store — without
+        // it (the old call sites) the rows are hidden, same
+        // pattern as the Jade palette picker.
+        composeRule.setContent {
+            PoingTheme {
+                AppSettingsScreen(store = store(), onCoreOptions = {}, onBack = {})
+            }
+        }
+        composeRule.onAllNodesWithText("GB default layout").assertCountEquals(0)
+        composeRule.onAllNodesWithText("GBC default layout").assertCountEquals(0)
+        composeRule.onAllNodesWithText("GBA default layout").assertCountEquals(0)
+    }
+
+    @Test
+    fun defaultLayoutRowOpensTheEditorAndDoneSavesTheHandheldDefault() {
+        // Overlay defaults (Robert, 2026-11-14): the GB row
+        // opens the same full-screen editor the player uses,
+        // and Done saves the draft as the GB default — the
+        // other systems stay on the factory default, and a
+        // fresh store instance (the restart round-trip) reads
+        // it back.
+        val layouts = layoutStore()
+        composeRule.setContent {
+            PoingTheme {
+                AppSettingsScreen(store = store(), layoutStore = layouts, onCoreOptions = {}, onBack = {})
+            }
+        }
+        composeRule.onNodeWithTag("settings-list")
+            .performScrollToNode(hasTestTag("default-layout-gb"))
+        composeRule.onNodeWithTag("default-layout-gb").performClick()
+        composeRule.onNodeWithTag("editor-dpad").assertIsDisplayed()
+        composeRule.onNodeWithTag("editor-dpad").performTouchInput {
+            swipe(start = center, end = center + Offset(0f, -200f), durationMillis = 300)
+        }
+        composeRule.onNodeWithTag("editor-done").performClick()
+        val reopened = ControlLayoutStore(File(temp.root, "control-layouts"))
+        val gb = reopened.loadDefault(GameSystem.GB)
+        assertTrue("dragging up should save a smaller cy than the 0.5 default", gb.control(ControlId.DPAD).cy < 0.5f)
+        assertEquals(ControlLayout.DEFAULT, reopened.loadDefault(GameSystem.GBC))
+        assertEquals(ControlLayout.DEFAULT, reopened.loadDefault(GameSystem.GBA))
+        // The GB row now says it is customised, and only it.
+        composeRule.onAllNodesWithText("Customised").assertCountEquals(1)
     }
 }

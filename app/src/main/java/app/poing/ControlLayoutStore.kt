@@ -32,6 +32,49 @@ import java.util.Properties
 class ControlLayoutStore(private val layoutsDir: File) {
     fun file(base: String): File = File(layoutsDir, "$base.properties")
 
+    fun exists(base: String): Boolean = file(base).exists()
+
+    /**
+     * Overlay defaults (Robert, 2026-11-14): one adjustable
+     * default layout per handheld — GB, GBC and GBA each get
+     * their own, stored as reserved-base files in this same
+     * directory. A per-game file can never collide with them:
+     * game bases are 64-hex-char SHA-256 stems.
+     */
+    fun defaultBase(system: GameSystem): String = when (system) {
+        GameSystem.GB -> "default-gb"
+        GameSystem.GBC -> "default-gbc"
+        GameSystem.GBA -> "default-gba"
+    }
+
+    /** A handheld's default, or the factory default when it was never customised. */
+    fun loadDefault(system: GameSystem): ControlLayout = load(defaultBase(system))
+
+    fun saveDefault(system: GameSystem, layout: ControlLayout) =
+        save(defaultBase(system), layout)
+
+    /** Forget a handheld's customised default: the factory default applies again. */
+    fun clearDefault(system: GameSystem) {
+        file(defaultBase(system)).delete()
+    }
+
+    fun hasDefault(system: GameSystem): Boolean = exists(defaultBase(system))
+
+    fun hasOverride(base: String): Boolean = exists(base)
+
+    /**
+     * The resolution order, pinned in ControlLayoutStoreTest:
+     * a game's own file wins; otherwise its handheld's
+     * default; otherwise ControlLayout.DEFAULT.
+     */
+    fun loadForGame(base: String, system: GameSystem): ControlLayout =
+        if (exists(base)) load(base) else loadDefault(system)
+
+    /** Forget a game's override: its handheld's default applies again. */
+    fun clearOverride(base: String) {
+        file(base).delete()
+    }
+
     fun load(base: String): ControlLayout {
         val f = file(base)
         if (!f.exists()) return ControlLayout.DEFAULT

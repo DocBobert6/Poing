@@ -62,6 +62,12 @@ fun LayoutEditor(
     onControlDown: () -> Unit,
     onDone: (ControlLayout) -> Unit,
     onBack: () -> Unit,
+    // Overlay defaults (Robert, 2026-11-14): what Reset
+    // restores. The player passes the game's handheld
+    // default, so Reset in the player restores that; the
+    // Settings default editor passes the factory default,
+    // so Reset there restores the factory layout.
+    resetLayout: ControlLayout = ControlLayout.DEFAULT,
 ) {
     var draft by remember { mutableStateOf(initial) }
     var selectedId by remember { mutableStateOf<ControlId?>(null) }
@@ -120,7 +126,7 @@ fun LayoutEditor(
                 EditorPill("Back", "editor-back") { onBack() }
                 EditorPill("Done", "editor-done") { onDone(draft) }
                 EditorPill("Reset", "editor-reset") {
-                    draft = ControlLayout.DEFAULT
+                    draft = resetLayout
                     selectedId = null
                 }
                 EditorTogglePill("Snap", snapOn, "editor-snap") { snapOn = it }

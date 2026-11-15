@@ -129,6 +129,12 @@ fun PoingHome() {
     val store = remember { LibraryStore(context.filesDir) }
     val optionsStore = remember { CoreOptionsStore(context.filesDir) }
     val settingsStore = remember { AppSettingsStore(context.filesDir) }
+    // Overlay defaults (Robert, 2026-11-14): the per-handheld
+    // default control layouts live in the same directory the
+    // player reads per-game layouts from.
+    val layoutStore = remember {
+        ControlLayoutStore(context.filesDir.resolve("control-layouts").apply { mkdirs() })
+    }
     LaunchedEffect(Unit) {
         delay(BOOT_SPLASH_MS)
         booted = true
@@ -210,6 +216,10 @@ fun PoingHome() {
             // option, so the screen needs the core options
             // store too.
             optionsStore = optionsStore,
+            // Overlay defaults (Robert, 2026-11-14) — the
+            // Controls section edits the per-handheld default
+            // layouts through this store.
+            layoutStore = layoutStore,
             onCoreOptions = { screen = Screen.CoreOptions },
             onRaLogin = { screen = Screen.RaLogin },
             onBack = { screen = Screen.Library },

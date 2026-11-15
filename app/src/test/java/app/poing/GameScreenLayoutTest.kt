@@ -18,6 +18,7 @@ import androidx.test.core.app.ApplicationProvider
 import java.io.File
 import java.util.Properties
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Rule
@@ -90,6 +91,47 @@ class GameScreenLayoutTest {
         return context.filesDir.resolve("control-layouts").resolve("$base.properties")
     }
 
+    private fun layoutStore(): ControlLayoutStore {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        return ControlLayoutStore(
+            context.filesDir.resolve("control-layouts").apply { mkdirs() },
+        )
+    }
+
+    private fun centreY(tag: String): Float =
+        composeRule.onNodeWithTag(tag).fetchSemanticsNode().boundsInRoot.center.y
+
+    private fun rootHeight(): Float =
+        composeRule.onRoot().fetchSemanticsNode().boundsInRoot.height
+
+    private fun openEditor() {
+        composeRule.onNodeWithText("Pause").performClick()
+        openEditorFromPauseMenu()
+    }
+
+    private fun openEditorFromPauseMenu() {
+        composeRule.onNodeWithText("Move controls").performScrollTo().performClick()
+        composeRule.onNodeWithTag("editor-dpad").assertIsDisplayed()
+    }
+
+    // Overlay defaults (Robert, 2026-11-14): a GB handheld
+    // default with the D-pad moved up (cy 0.3, factory 0.5)
+    // and a per-game override with it moved down (cy 0.7) —
+    // far enough apart that the editor's centre pins which
+    // one is in effect.
+    private val gbDefault = ControlLayout.DEFAULT.moved(
+        ControlId.DPAD,
+        ControlLayout.DEFAULT.control(ControlId.DPAD).cx,
+        0.3f,
+        grouped = false,
+    )
+    private val gameOverride = ControlLayout.DEFAULT.moved(
+        ControlId.DPAD,
+        ControlLayout.DEFAULT.control(ControlId.DPAD).cx,
+        0.7f,
+        grouped = false,
+    )
+
     @Test
     fun moveControlsDragSavesPerGameLayout() {
         val game = File(temp.root, "game.gb")
@@ -120,11 +162,60 @@ class GameScreenLayoutTest {
         }
         composeRule.onNodeWithTag("editor-reset").performClick()
         composeRule.onNodeWithTag("editor-done").performClick()
-        val props = Properties().apply {
-            layoutFile("game").inputStream().use { load(it) }
+        // Overlay defaults (Robert, 2026-11-14): a Done that
+        // lands exactly on the handheld default — here the
+        // factory default, since no handheld default was set
+        // — is not an override at all, so the game's file is
+        // cleared rather than written with a copy of the
+        // default. Re-opening the editor shows the factory
+        // default (D-pad cy 0.5) again.
+        assertFalse(layoutFile("game").exists())
+        openEditorFromPauseMenu()
+        assertEquals(0.5f * rootHeight(), centreY("editor-dpad"), 3f)
+    }
+
+    @Test
+    fun handheldDefaultAppliesToAGameWithNoOverride() {
+        layoutStore().saveDefault(GameSystem.GB, gbDefault)
+        val game = File(temp.root, "game.gb")
+        setContent(game.absolutePath, devStats = true)
+        openEditor()
+        // The D-pad sits at the handheld default (cy 0.3),
+        // not the factory default (cy 0.5).
+        assertTrue(centreY("editor-dpad") < rootHeight() * 0.4f)
+    }
+
+    @Test
+    fun perGameOverrideWinsOverTheHandheldDefault() {
+        layoutStore().saveDefault(GameSystem.GB, gbDefault)
+        layoutStore().save("game", gameOverride)
+        val game = File(temp.root, "game.gb")
+        setContent(game.absolutePath, devStats = true)
+        openEditor()
+        // The D-pad sits at the override (cy 0.7), not the
+        // handheld default (cy 0.3).
+        assertTrue(centreY("editor-dpad") > rootHeight() * 0.6f)
+    }
+
+    @Test
+    fun resetInThePlayerEditorRestoresTheHandheldDefault() {
+        layoutStore().saveDefault(GameSystem.GB, gbDefault)
+        layoutStore().save("game", gameOverride)
+        val game = File(temp.root, "game.gb")
+        setContent(game.absolutePath, devStats = true)
+        openEditor()
+        assertTrue(centreY("editor-dpad") > rootHeight() * 0.6f)
+        composeRule.onNodeWithTag("editor-dpad").performTouchInput {
+            swipe(start = center, end = center + Offset(0f, 100f), durationMillis = 300)
         }
-        assertEquals(0.5f, props.getProperty("dpad.cy")?.toFloatOrNull() ?: -1f, 0.001f)
-        assertEquals(144, props.getProperty("dpad.size")?.toIntOrNull())
+        composeRule.onNodeWithTag("editor-reset").performClick()
+        composeRule.onNodeWithTag("editor-done").performClick()
+        // Reset + Done clears the override: no per-game file
+        // is left, and the game is back on its handheld
+        // default (cy 0.3), not the factory default (0.5).
+        assertFalse(layoutFile("game").exists())
+        openEditorFromPauseMenu()
+        assertTrue(centreY("editor-dpad") < rootHeight() * 0.4f)
     }
 
     /**

@@ -40,7 +40,10 @@ class LayoutEditorTest {
 
     private var committed: ControlLayout? = null
 
-    private fun setContent(isGba: Boolean = false) {
+    private fun setContent(
+        isGba: Boolean = false,
+        resetLayout: ControlLayout = ControlLayout.DEFAULT,
+    ) {
         committed = null
         composeRule.setContent {
             PoingTheme {
@@ -53,6 +56,7 @@ class LayoutEditorTest {
                     onControlDown = {},
                     onDone = { committed = it },
                     onBack = {},
+                    resetLayout = resetLayout,
                 )
             }
         }
@@ -183,5 +187,37 @@ class LayoutEditorTest {
         assertTrue(centreX("editor-a") < aBefore - 10f)
         composeRule.onNodeWithTag("editor-reset").performClick()
         assertEquals("Reset should put A back at its default spot", aBefore, centreX("editor-a"), 2f)
+    }
+
+    @Test
+    fun resetRestoresTheGivenResetLayoutNotTheFactoryDefault() {
+        // Overlay defaults (Robert, 2026-11-14): the player
+        // passes the handheld default as the reset layout, so
+        // Reset restores that — A at cx 0.2, opacity 60% —
+        // not the factory default (A at 0.948, opacity 100%).
+        val custom = ControlLayout.DEFAULT
+            .moved(ControlId.A, 0.2f, 0.3f, grouped = false)
+            .withOpacity(60)
+        setContent(resetLayout = custom)
+        composeRule.onNodeWithTag("editor-a").performTouchInput {
+            val start = aDragStart(center, width)
+            swipe(start = start, end = start + Offset(-200f, 0f), durationMillis = 300)
+        }
+        composeRule.onNodeWithTag("editor-opacity-minus").performClick()
+        composeRule.onNodeWithText("Opacity 95%").assertIsDisplayed()
+        composeRule.onNodeWithTag("editor-reset").performClick()
+        composeRule.onNodeWithText("Opacity 60%").assertIsDisplayed()
+        // A back at the custom spot: cx 0.2 of the root width
+        // (both in pixels, so the density cancels).
+        val rootWidth = composeRule.onRoot().fetchSemanticsNode().boundsInRoot.width
+        assertEquals(
+            "Reset should put A back at the reset layout's spot",
+            0.2f * rootWidth,
+            centreX("editor-a"),
+            3f,
+        )
+        // And Done commits the reset layout itself.
+        composeRule.onNodeWithTag("editor-done").performClick()
+        assertEquals(custom, committed)
     }
 }

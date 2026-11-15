@@ -173,4 +173,84 @@ class ControlLayoutStoreTest {
             loaded.control(ControlId.DPAD),
         )
     }
+
+    // Overlay defaults (Robert, 2026-11-14): one adjustable
+    // default layout per handheld, with the resolution order
+    // per-game override -> handheld default -> factory
+    // default. The three customs below are distinct in
+    // position, size and opacity, so a leak between systems
+    // or games is visible.
+    private val gbCustom = ControlLayout.DEFAULT
+        .moved(ControlId.A, 0.2f, 0.3f, grouped = false)
+        .withOpacity(80)
+    private val gbcCustom = ControlLayout.DEFAULT
+        .resized(ControlId.DPAD, 120, grouped = false)
+        .withOpacity(70)
+    private val gbaCustom = ControlLayout.DEFAULT
+        .moved(ControlId.A, 0.2f, 0.3f, grouped = false)
+        .resized(ControlId.L, 120, grouped = false)
+        .withOpacity(60)
+
+    @Test
+    fun `handheld default applies to a game with no override`() {
+        assertEquals(ControlLayout.DEFAULT, store.loadForGame("game1", GameSystem.GB))
+        store.saveDefault(GameSystem.GB, gbCustom)
+        assertEquals(gbCustom, store.loadForGame("game1", GameSystem.GB))
+    }
+
+    @Test
+    fun `handheld defaults do not leak between systems`() {
+        store.saveDefault(GameSystem.GB, gbCustom)
+        assertEquals(ControlLayout.DEFAULT, store.loadDefault(GameSystem.GBC))
+        assertEquals(ControlLayout.DEFAULT, store.loadDefault(GameSystem.GBA))
+        assertEquals(ControlLayout.DEFAULT, store.loadForGame("game1", GameSystem.GBC))
+        assertEquals(ControlLayout.DEFAULT, store.loadForGame("game1", GameSystem.GBA))
+        assertEquals(gbCustom, store.loadForGame("game1", GameSystem.GB))
+    }
+
+    @Test
+    fun `per-game override wins over the handheld default`() {
+        store.saveDefault(GameSystem.GB, gbCustom)
+        store.save("game1", gbcCustom)
+        assertEquals(gbcCustom, store.loadForGame("game1", GameSystem.GB))
+    }
+
+    @Test
+    fun `overrides do not leak between games`() {
+        store.saveDefault(GameSystem.GB, gbCustom)
+        store.save("game1", gbaCustom)
+        assertEquals(gbaCustom, store.loadForGame("game1", GameSystem.GB))
+        assertEquals(gbCustom, store.loadForGame("game2", GameSystem.GB))
+    }
+
+    @Test
+    fun `clearing the override restores the handheld default`() {
+        store.saveDefault(GameSystem.GB, gbCustom)
+        store.save("game1", gbaCustom)
+        assertTrue(store.hasOverride("game1"))
+        store.clearOverride("game1")
+        assertFalse(store.hasOverride("game1"))
+        assertEquals(gbCustom, store.loadForGame("game1", GameSystem.GB))
+    }
+
+    @Test
+    fun `defaults survive a new store instance`() {
+        // A restart is a new store over the same directory:
+        // the saved default must still be there.
+        store.saveDefault(GameSystem.GBC, gbcCustom)
+        val reopened = ControlLayoutStore(dir)
+        assertEquals(gbcCustom, reopened.loadDefault(GameSystem.GBC))
+        assertEquals(gbcCustom, reopened.loadForGame("game1", GameSystem.GBC))
+        assertEquals(ControlLayout.DEFAULT, reopened.loadDefault(GameSystem.GB))
+    }
+
+    @Test
+    fun `clearing a handheld default restores the factory default`() {
+        store.saveDefault(GameSystem.GBA, gbaCustom)
+        assertTrue(store.hasDefault(GameSystem.GBA))
+        store.clearDefault(GameSystem.GBA)
+        assertFalse(store.hasDefault(GameSystem.GBA))
+        assertEquals(ControlLayout.DEFAULT, store.loadDefault(GameSystem.GBA))
+        assertEquals(ControlLayout.DEFAULT, store.loadForGame("game1", GameSystem.GBA))
+    }
 }
