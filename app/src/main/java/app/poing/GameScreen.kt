@@ -161,6 +161,13 @@ fun GameScreen(
     // paused game, like the cheats screen.
     var showAchievements by remember { mutableStateOf(false) }
     var showLeaderboards by remember { mutableStateOf(false) }
+    // Alpha.28 — the black-screen trace viewer: declared
+    // here with the other sub-screen flags, because the
+    // BackHandler below closes it — and a state declared
+    // after its first use does not compile (the feature
+    // commit declared it after the GL view, and CI failed
+    // on the BackHandler's unresolved reference).
+    var showDisplayTrace by remember { mutableStateOf(false) }
     // Phase 6 (item 11) — capture: whether a recording is
     // running (the source of truth for the REC indicator and the
     // pause menu's Record button) and its output (the
@@ -411,7 +418,6 @@ fun GameScreen(
     val displayTrace = remember(gamePath) {
         DisplayTrace().also { it.enabled = appSettings.displayTraceEnabled() }
     }
-    var showDisplayTrace by remember { mutableStateOf(false) }
     var firstFrameSeen by remember { mutableStateOf(false) }
 
     // Phase 8 — apply the chain whenever it or the palette
