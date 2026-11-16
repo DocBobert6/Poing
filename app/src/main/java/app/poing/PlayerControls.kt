@@ -358,11 +358,22 @@ fun DpadControl(
         // of its bar past the centre, with the bar's own
         // rounded corner at the outer end; two lit arms meet
         // in the same colour, so a diagonal shows no seam.
+        // The arms read [shownDirs], not [dirs] directly: while
+        // paused the highlight is 0 in composition, so it clears
+        // the moment the pause overlay appears — synchronously
+        // with [paused] — instead of waiting on the pointer-input
+        // coroutine restart below (whose timing is not synchronous
+        // with composition, and which Robolectric does not flush
+        // under waitForIdle while a pointer is still down: the
+        // pause test failed on exactly that). The loop's own
+        // `dirs = 0` on restart stays as the second layer, so the
+        // state is clean again on resume.
+        val shownDirs = if (paused) 0 else dirs
         val upBit = 1 shl InputMask.JOY_UP
         val downBit = 1 shl InputMask.JOY_DOWN
         val leftBit = 1 shl InputMask.JOY_LEFT
         val rightBit = 1 shl InputMask.JOY_RIGHT
-        if (dirs and upBit != 0) {
+        if (shownDirs and upBit != 0) {
             Box(
                 Modifier
                     .align(Alignment.TopCenter)
@@ -372,7 +383,7 @@ fun DpadControl(
                     .testTag("dpad-highlight-up"),
             )
         }
-        if (dirs and downBit != 0) {
+        if (shownDirs and downBit != 0) {
             Box(
                 Modifier
                     .align(Alignment.BottomCenter)
@@ -382,7 +393,7 @@ fun DpadControl(
                     .testTag("dpad-highlight-down"),
             )
         }
-        if (dirs and leftBit != 0) {
+        if (shownDirs and leftBit != 0) {
             Box(
                 Modifier
                     .align(Alignment.CenterStart)
@@ -392,7 +403,7 @@ fun DpadControl(
                     .testTag("dpad-highlight-left"),
             )
         }
-        if (dirs and rightBit != 0) {
+        if (shownDirs and rightBit != 0) {
             Box(
                 Modifier
                     .align(Alignment.CenterEnd)
