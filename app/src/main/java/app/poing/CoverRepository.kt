@@ -125,6 +125,17 @@ sealed interface IndexState {
     data class Failed(val reason: String) : IndexState
 }
 
+/**
+ * Titles for the status line: up to three, then "and N more"
+ * — a folder of new games must not turn the line into a
+ * paragraph. The diagnostic names the first few; the count
+ * says how many more are waiting.
+ */
+private fun nameList(titles: List<String>): String {
+    if (titles.size <= 3) return titles.joinToString(", ")
+    return titles.take(3).joinToString(", ") + " and ${titles.size - 3} more"
+}
+
 /** One line for the library: what the fetch is doing, or why it is not. Pure, so it is unit-testable. */
 fun coverArtStatusLine(
     covers: Map<String, CoverState>,
@@ -149,10 +160,18 @@ fun coverArtStatusLine(
     val fetching = indexes.values.any { it is IndexState.Loading } ||
         covers.values.any { it is CoverState.Loading }
     if (fetching) {
-        val stage = GameSystem.entries.firstNotNullOfOrNull { system ->
-            if (indexes[system] is IndexState.Loading) "${system.name.lowercase()} index" else null
-        } ?: games.firstNotNullOfOrNull { game ->
-            if (covers[game.id] is CoverState.Loading) "${game.system.name.lowercase()} art" else null
+        // Alpha.21 diagnostic: name the game(s) being fetched,
+        // in library order — "fetching gba art…" does not say
+        // WHICH game, and the fetch-on-open report needs the
+        // name. An index-only load has no game to name, so it
+        // keeps the system name.
+        val loadingGames = games.filter { covers[it.id] is CoverState.Loading }
+        val stage = if (loadingGames.isNotEmpty()) {
+            "art for ${nameList(loadingGames.map { it.title })}"
+        } else {
+            GameSystem.entries.firstNotNullOfOrNull { system ->
+                if (indexes[system] is IndexState.Loading) "${system.name.lowercase()} index" else null
+            }
         }
         val what = stage?.let { "fetching $it… " } ?: "fetching… "
         return "Cover art: $what$ready landed" +
@@ -177,7 +196,15 @@ fun coverArtStatusLine(
         }
     }.joinToString(" ")
     val err = firstFailure?.let { " · $it" } ?: ""
-    return "Cover art: $ready/${games.size} covers · $gatePart$indexPart$err"
+    // Alpha.21 diagnostic: name the games still Missing after
+    // a pass — a cancelled fetch returns its game to Missing,
+    // which is not a failure, so without this the idle line
+    // would say nothing about the game the next open will
+    // fetch again.
+    val missingGames = games.filter { covers[it.id] is CoverState.Missing }
+    val missingPart = if (missingGames.isEmpty()) "" else
+        " · still missing: ${nameList(missingGames.map { it.title })}"
+    return "Cover art: $ready/${games.size} covers · $gatePart$indexPart$err$missingPart"
 }
 
 /**

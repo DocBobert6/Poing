@@ -106,15 +106,19 @@ fun LibraryScreen(
         covers.values.any { it is CoverState.Loading }
     // The status bar auto-hides (alpha.9, part B): a few
     // seconds after the fetch finishes, so the library is
-    // clean — but it stays visible while a fetch runs or a
-    // failure needs attention, so Retry is always reachable.
-    // Restarting the effect (a new fetch, a new failure)
-    // cancels the pending hide.
+    // clean — but it stays visible while a fetch runs, a
+    // failure needs attention, or a game is still Missing
+    // after a pass (alpha.21 diagnostic: a cancelled fetch
+    // returns its game to Missing, which is not a failure,
+    // so the bar must stay up for the names to be readable).
+    // Restarting the effect (a new fetch, a new failure, a
+    // new Missing game) cancels the pending hide.
     val hasFailure = covers.values.any { it is CoverState.Failed } ||
         indexes.values.any { it is IndexState.Failed }
+    val hasMissing = covers.values.any { it is CoverState.Missing }
     var statusBarHidden by remember { mutableStateOf(false) }
-    LaunchedEffect(fetching, hasFailure) {
-        if (fetching || hasFailure) {
+    LaunchedEffect(fetching, hasFailure, hasMissing) {
+        if (fetching || hasFailure || hasMissing) {
             statusBarHidden = false
         } else {
             delay(4000)

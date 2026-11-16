@@ -20,6 +20,7 @@ import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Rule
@@ -488,5 +489,64 @@ class LibraryCoverFetchTest {
         } finally {
             repository.close()
         }
+    }
+
+    @Test
+    fun statusBarStaysVisibleWhileAGameIsStillMissingAfterThePass() {
+        // Alpha.21 diagnostic: a game that is STILL Missing
+        // after a pass ends — its art fetch was cancelled
+        // back to Missing when the gate closed, which is not
+        // a failure — keeps the bar visible, so the status
+        // line can name it after the pass instead of the 4s
+        // auto-hide taking the answer away.
+        seedGame()
+        setWifiOn()
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        // The art download never returns: the game is claimed
+        // (Loading) and stays there until the gate closes.
+        val httpGet: suspend (String, Int) -> HttpFetchResult = { url, _ ->
+            if (url.contains("git/trees")) treeHttpResult(url)
+            else hangForever()
+        }
+        val repository = CoverRepository(context.filesDir, httpGet)
+        try {
+            composeRule.setContent {
+                LibraryScreen(
+                    notice = null,
+                    onPlay = {},
+                    onLicences = {},
+                    onSettings = {},
+                    repository = repository,
+                )
+            }
+            composeRule.waitForText("TETRIS")
+            composeRule.waitUntil(timeoutMillis = 10_000) {
+                repository.covers.value.values.any { it is CoverState.Loading }
+            }
+            // Close the gate directly: the hung art job is
+            // cancelled and the game returns to Missing. The
+            // screen's watcher fires on no network event here,
+            // so the gate stays closed for the rest of the test.
+            runBlocking { repository.setGate(CoverArtGate.NO_NETWORK) }
+            composeRule.waitUntil(timeoutMillis = 10_000) {
+                repository.covers.value.values.any { it is CoverState.Missing }
+            }
+            // Past the 4s hide delay, the bar is still there
+            // and names the game. (The Compose test clock, as
+            // in the hide test above — the shadow-looper idle
+            // does not move a LaunchedEffect delay.)
+            composeRule.mainClock.advanceTimeBy(5000)
+            composeRule.waitForIdle()
+            composeRule.onNodeWithTag("cover-art-status").assertExists()
+            composeRule.onNodeWithText("still missing: TETRIS", substring = true).assertExists()
+        } finally {
+            repository.close()
+        }
+    }
+
+    /** A download that never returns: only cancellation ends it. */
+    private suspend fun hangForever(): HttpFetchResult {
+        delay(Long.MAX_VALUE)
+        error("unreachable")
     }
 }

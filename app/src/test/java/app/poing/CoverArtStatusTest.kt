@@ -49,8 +49,49 @@ class CoverArtStatusTest {
             GameSystem.GB to IndexState.Ready(2, fromCache = false),
         )
         val line = coverArtStatusLine(covers, indexes, CoverArtGate.OPEN, games)
-        assertTrue(line.contains("fetching gb art…"))
+        // Alpha.21 diagnostic: the fetching line names the
+        // game, not just its system — "fetching gb art…"
+        // does not say WHICH game the pass is fetching for.
+        assertTrue(line.contains("fetching art for DR MARIO…"))
         assertTrue(line.contains("0 landed"))
+    }
+
+    @Test
+    fun statusLineFetchingNamesSeveralLoadingGames() {
+        // Two pipelines at once (one per system): both games
+        // are named, in library order — the old line named
+        // only the first game's system ("fetching gb art…").
+        val games = listOf(
+            game("gb1", "TETRIS", GameSystem.GB),
+            game("gba1", "KIRBY", GameSystem.GBA),
+            game("gb2", "DR MARIO", GameSystem.GB),
+        )
+        val covers = mapOf<String, CoverState>(
+            "gb1" to CoverState.Loading,
+            "gba1" to CoverState.Loading,
+            "gb2" to CoverState.NoMatch("no art in index"),
+        )
+        val indexes = mapOf<GameSystem, IndexState>(
+            GameSystem.GB to IndexState.Ready(2, fromCache = true),
+            GameSystem.GBA to IndexState.Ready(1, fromCache = true),
+        )
+        val line = coverArtStatusLine(covers, indexes, CoverArtGate.OPEN, games)
+        assertTrue(line.contains("fetching art for TETRIS, KIRBY…"))
+    }
+
+    @Test
+    fun statusLineFetchingWithIndexOnlyKeepsSystemName() {
+        // An index-only load has no game to name: the line
+        // keeps the system name, as before.
+        val games = listOf(game("gb1", "TETRIS", GameSystem.GB))
+        val covers = mapOf<String, CoverState>(
+            "gb1" to CoverState.Missing,
+        )
+        val indexes = mapOf<GameSystem, IndexState>(
+            GameSystem.GB to IndexState.Loading,
+        )
+        val line = coverArtStatusLine(covers, indexes, CoverArtGate.OPEN, games)
+        assertTrue(line.contains("fetching gb index…"))
     }
 
     @Test
@@ -67,10 +108,48 @@ class CoverArtStatusTest {
             GameSystem.GB to IndexState.Ready(2, fromCache = true),
         )
         val line = coverArtStatusLine(covers, indexes, CoverArtGate.OPEN, games)
+        // Alpha.21 diagnostic: the idle line names the game
+        // still Missing after the pass — gb1 never reached a
+        // terminal state, so the next open will fetch it again.
         assertEquals(
-            "Cover art: 0/2 covers · Wi-Fi OK · gb index cached (2)",
+            "Cover art: 0/2 covers · Wi-Fi OK · gb index cached (2) · still missing: TETRIS",
             line,
         )
+    }
+
+    @Test
+    fun statusLineIdleNamesStillMissingGames() {
+        // No fetch running, no failure — but a game is still
+        // Missing after the pass, so the idle line names it:
+        // without this the line would say nothing about the
+        // game the next open will fetch again.
+        val games = listOf(
+            game("gb1", "TETRIS", GameSystem.GB),
+            game("gb2", "DR MARIO", GameSystem.GB),
+        )
+        val covers = mapOf<String, CoverState>(
+            "gb1" to CoverState.Missing,
+            "gb2" to CoverState.NoMatch("no art in index"),
+        )
+        val indexes = mapOf<GameSystem, IndexState>(
+            GameSystem.GB to IndexState.Ready(2, fromCache = true),
+        )
+        val line = coverArtStatusLine(covers, indexes, CoverArtGate.OPEN, games)
+        assertTrue(line.contains("still missing: TETRIS"))
+    }
+
+    @Test
+    fun statusLineMissingNamesAreCapped() {
+        // Five Missing games: the line names the first three
+        // and counts the rest — it must not become a paragraph.
+        val games = (1..5).map { game("gb$it", "GAME$it", GameSystem.GB) }
+        val covers = games.associate { it.id to CoverState.Missing }
+        val indexes = mapOf<GameSystem, IndexState>(
+            GameSystem.GB to IndexState.Ready(5, fromCache = true),
+        )
+        val line = coverArtStatusLine(covers, indexes, CoverArtGate.OPEN, games)
+        assertTrue(line.contains("still missing: GAME1, GAME2, GAME3 and 2 more"))
+        assertTrue(!line.contains("GAME4"))
     }
 
     @Test
