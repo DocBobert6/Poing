@@ -99,6 +99,7 @@ fun ControlButton(
         ControlId.DPAD -> DpadControl(
             held, paused, onInputChanged, onDirectionChange = onControlDown,
             crossColor = Color(theme.dpadCross), wellColor = Color(theme.dpadWell),
+            pressedColor = Color(theme.pressed),
             sizeDp = spec.sizeDp.dp,
         )
         ControlId.A -> HoldButton(

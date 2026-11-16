@@ -1,9 +1,13 @@
 package app.poing
 
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.fetchSemanticsNode
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.unit.dp
 import org.junit.Rule
 import org.junit.Test
@@ -89,5 +93,77 @@ class PlayerControlsTest {
         }
         composeRule.onNodeWithText("0.5x").assertIsDisplayed()
         composeRule.onNodeWithTag("toggle-action-0.5x").assertIsDisplayed()
+    }
+
+    // Alpha.10 — the held arm lights up: pressing up shows
+    // only the up arm, and lifting clears it. The arms are
+    // composed only while their direction is held, so their
+    // presence is the highlight.
+    @Test
+    fun dpadHighlightLightsHeldArmAndClearsOnRelease() {
+        composeRule.setContent {
+            PoingTheme {
+                DpadControl(HeldInput(), false, {})
+            }
+        }
+        composeRule.onNodeWithTag("dpad-highlight-up").assertDoesNotExist()
+        composeRule.onNodeWithTag("dpad").performTouchInput {
+            down(Offset(center.x, 8f))
+        }
+        composeRule.onNodeWithTag("dpad-highlight-up").assertExists()
+        composeRule.onNodeWithTag("dpad-highlight-down").assertDoesNotExist()
+        composeRule.onNodeWithTag("dpad-highlight-left").assertDoesNotExist()
+        composeRule.onNodeWithTag("dpad-highlight-right").assertDoesNotExist()
+        composeRule.onNodeWithTag("dpad").performTouchInput {
+            up()
+        }
+        composeRule.onNodeWithTag("dpad-highlight-up").assertDoesNotExist()
+    }
+
+    // Alpha.10 — a diagonal lights both arms: pressing the
+    // top-right corner shows up and right, and nothing else.
+    @Test
+    fun dpadHighlightLightsBothArmsOnDiagonal() {
+        composeRule.setContent {
+            PoingTheme {
+                DpadControl(HeldInput(), false, {})
+            }
+        }
+        val size = composeRule.onNodeWithTag("dpad").fetchSemanticsNode().size
+        composeRule.onNodeWithTag("dpad").performTouchInput {
+            down(Offset(size.width - 8f, 8f))
+        }
+        composeRule.onNodeWithTag("dpad-highlight-up").assertExists()
+        composeRule.onNodeWithTag("dpad-highlight-right").assertExists()
+        composeRule.onNodeWithTag("dpad-highlight-down").assertDoesNotExist()
+        composeRule.onNodeWithTag("dpad-highlight-left").assertDoesNotExist()
+        composeRule.onNodeWithTag("dpad").performTouchInput {
+            up()
+        }
+        composeRule.onNodeWithTag("dpad-highlight-up").assertDoesNotExist()
+        composeRule.onNodeWithTag("dpad-highlight-right").assertDoesNotExist()
+    }
+
+    // Alpha.10 — pausing clears the highlight exactly as it
+    // clears the input: the pointer-input loop restarts on
+    // the pause key, and the highlight state resets with it.
+    @Test
+    fun dpadHighlightClearsOnPause() {
+        val pausedState = mutableStateOf(false)
+        composeRule.setContent {
+            PoingTheme {
+                DpadControl(HeldInput(), pausedState.value, {})
+            }
+        }
+        composeRule.onNodeWithTag("dpad").performTouchInput {
+            down(Offset(center.x, 8f))
+        }
+        composeRule.onNodeWithTag("dpad-highlight-up").assertExists()
+        pausedState.value = true
+        composeRule.waitForIdle()
+        composeRule.onNodeWithTag("dpad-highlight-up").assertDoesNotExist()
+        composeRule.onNodeWithTag("dpad").performTouchInput {
+            up()
+        }
     }
 }

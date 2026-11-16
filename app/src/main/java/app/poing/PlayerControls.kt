@@ -262,6 +262,13 @@ fun ToggleActionButton(
  * Overlay rework (Robert, 2026-11-13): the pad's size is the
  * layout's size for it ([sizeDp], 144dp by default) — the cross
  * bars scale with it, a third as wide as the pad, spanning it.
+ *
+ * Alpha.10 — the held arm lights up: the cross is no longer
+ * static. The arm (or arms, for a diagonal) for the direction
+ * set the input already computes draws in the pressed colour
+ * while held, and clears on release/pause exactly as the input
+ * does — the highlight reads the same [dirs] state the gesture
+ * loop maintains, so it can never disagree with the game.
  */
 @Composable
 fun DpadControl(
@@ -277,9 +284,17 @@ fun DpadControl(
     // Defaults are the Phase 5 silver cross on a dark well.
     crossColor: Color = PoingSilver,
     wellColor: Color = Color(0xFF1A1A1A),
+    // Alpha.10 — the held arm's colour: the theme's pressed
+    // colour, the same one HoldButton uses, so a held arm
+    // reads as a pressed button on every system.
+    pressedColor: Color = PoingPurple,
     sizeDp: Dp = 144.dp,
 ) {
     var sizePx by remember { mutableStateOf(0f) }
+    // Alpha.10 — the direction set currently held, as Compose
+    // state so the highlight recomposes with it. Written by
+    // the gesture loop below, read by the arms after the cross.
+    var dirs by remember { mutableStateOf(0) }
     Box(
         modifier = Modifier
             .testTag("dpad")
@@ -290,8 +305,9 @@ fun DpadControl(
             // Keyed on [paused]: pausing restarts the loop and drops
             // its active-pointer map, so a direction held when the
             // pause overlay appears cannot stay stuck (the lift
-            // under the overlay never reaches the loop).
+            // under the overlay never reaches the loop). The visual state resets with the loop.
             .pointerInput(paused) {
+                dirs = 0
                 awaitEachGesture {
                     val active = mutableMapOf<PointerId, androidx.compose.ui.geometry.Offset>()
                     var lastDirs = 0
@@ -304,14 +320,15 @@ fun DpadControl(
                                 active.remove(change.id)
                             }
                         }
-                        val dirs = active.values.fold(0) { acc, pos ->
+                        val newDirs = active.values.fold(0) { acc, pos ->
                             acc or DpadInput.directionFromPress(pos.x, pos.y, sizePx)
                         }
-                        if (dirs != lastDirs && dirs != 0) {
+                        if (newDirs != lastDirs && newDirs != 0) {
                             onDirectionChange?.invoke()
                         }
-                        lastDirs = dirs
-                        held.setDirections(dirs)
+                        lastDirs = newDirs
+                        dirs = newDirs
+                        held.setDirections(newDirs)
                         onInputChanged()
                         if (active.isEmpty()) break
                     }
@@ -319,10 +336,8 @@ fun DpadControl(
             },
         contentAlignment = Alignment.Center,
     ) {
-        // The cross: two bars in the theme's cross colour. Static —
-        // the game itself shows the direction; the cross never needs
-        // a pressed state. Each bar is a third as wide as the pad
-        // and spans it.
+        // The cross: two bars in the theme's cross colour. Each
+        // bar is a third as wide as the pad and spans it.
         Box(
             Modifier
                 .size(width = sizeDp / 3, height = sizeDp)
@@ -335,5 +350,57 @@ fun DpadControl(
                 .clip(RoundedCornerShape(8.dp))
                 .background(crossColor),
         )
+        // Alpha.10 — the held arm (or arms): one half-bar per
+        // direction, in the pressed colour, composed only while
+        // its direction is held — so a test can prove the
+        // highlight by the arm's presence, and release clears
+        // it by construction. Each arm covers exactly the half
+        // of its bar past the centre, with the bar's own
+        // rounded corner at the outer end; two lit arms meet
+        // in the same colour, so a diagonal shows no seam.
+        val upBit = 1 shl InputMask.JOY_UP
+        val downBit = 1 shl InputMask.JOY_DOWN
+        val leftBit = 1 shl InputMask.JOY_LEFT
+        val rightBit = 1 shl InputMask.JOY_RIGHT
+        if (dirs and upBit != 0) {
+            Box(
+                Modifier
+                    .align(Alignment.TopCenter)
+                    .size(width = sizeDp / 3, height = sizeDp / 2)
+                    .clip(RoundedCornerShape(topStart = 8.dp, topEnd = 8.dp))
+                    .background(pressedColor)
+                    .testTag("dpad-highlight-up"),
+            )
+        }
+        if (dirs and downBit != 0) {
+            Box(
+                Modifier
+                    .align(Alignment.BottomCenter)
+                    .size(width = sizeDp / 3, height = sizeDp / 2)
+                    .clip(RoundedCornerShape(bottomStart = 8.dp, bottomEnd = 8.dp))
+                    .background(pressedColor)
+                    .testTag("dpad-highlight-down"),
+            )
+        }
+        if (dirs and leftBit != 0) {
+            Box(
+                Modifier
+                    .align(Alignment.CenterStart)
+                    .size(width = sizeDp / 2, height = sizeDp / 3)
+                    .clip(RoundedCornerShape(topStart = 8.dp, bottomStart = 8.dp))
+                    .background(pressedColor)
+                    .testTag("dpad-highlight-left"),
+            )
+        }
+        if (dirs and rightBit != 0) {
+            Box(
+                Modifier
+                    .align(Alignment.CenterEnd)
+                    .size(width = sizeDp / 2, height = sizeDp / 3)
+                    .clip(RoundedCornerShape(topEnd = 8.dp, bottomEnd = 8.dp))
+                    .background(pressedColor)
+                    .testTag("dpad-highlight-right"),
+            )
+        }
     }
 }
