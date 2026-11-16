@@ -1,21 +1,21 @@
-## Poing! v0.1.0-alpha.9 — Handheld-page fix + custom covers + cover-art cleanup
+## Poing! v0.1.0-alpha.10 — D-pad highlight, joystick, black-screen fix, moveable FF/RW, Worm Light
 
-The ninth signed alpha of Poing!, the standalone Game Boy / Game Boy Color / Game Boy Advance emulator for Android (mGBA core, one app, arm64-v8a only).
+The tenth signed alpha of Poing!, the standalone Game Boy / Game Boy Color / Game Boy Advance emulator for Android (mGBA core, one app, arm64-v8a only).
 
-**Install first — read this:** this alpha is signed with the same release key as alpha.1 through alpha.8, so it installs straight over alpha.8 — no uninstall needed, saves and settings carry over. It will **not** install over the debug builds (different key). Uninstall the debug build first. Uninstalling wipes local saves (battery saves + save states); RetroAchievements progress is server-side and safe.
+**Install first — read this:** this alpha is signed with the same release key as alpha.1 through alpha.9, so it installs straight over alpha.9 — no uninstall needed, saves and settings carry over. It will **not** install over the debug builds (different key). Uninstall the debug build first. Uninstalling wipes local saves (battery saves + save states); RetroAchievements progress is server-side and safe.
 
 ## Download
 
-The signed APK is attached to this release: `poing-v0.1.0-alpha.9.apk` (size + SHA-256 in the Build section below).
+The signed APK is attached to this release: `poing-v0.1.0-alpha.10.apk` (size + SHA-256 in the Build section below).
 
-## What changed in alpha.9
+## What changed in alpha.10
 
-- Fixed: the per-system Handheld pages no longer render over the main Settings list. Both layers were translucent, so every page row overlapped a main-list row and the screen was unreadable. Opening a Handheld page now shows only that page; Back returns to the main list in the same place.
-- Custom covers: every game row and grid cell has a Cover button. Pick any image from the photo picker and it becomes that game's cover — including games with no boxart to fetch (fan translations, hacks), which is the point of it. The image is downscaled to 512px and stored separately from fetched art, so a re-fetch can never replace it. Removing a custom cover falls back to the fetched cover, or the placeholder when the game has none.
-- The cover-art fetch trace is gone — the Trace button, its dialog, and the trace plumbing behind it, removed entirely. (With it gone there is no on-device diagnostic for covers any more.)
-- Covers now fetch only when new games or a new folder are added. Which games have already been attempted is remembered, so opening the app a second time with no new games makes no network fetch at all — and a game with no match is not re-attempted either. A failed fetch still retries on demand with Retry.
-- The library status bar hides itself a few seconds after the fetch finishes, so the library is clean. While a fetch runs, or while a failure needs attention, the bar stays visible so Retry is always reachable.
-- What you should see now: Handheld pages show only the page; a Cover button on every game, set a cover on a game with no boxart and remove it again to see the fallback; no Trace button; no fetch on app open; the status bar gone a few seconds after the fetch.
+- D-pad highlight: the cross was static — it never showed which direction is held. Now the held arm (or arms, for diagonals) lights up in the pressed colour while held, and clears on release and on pause, following exactly the direction set the input already computes.
+- Joystick option: the left-hand slot holds EITHER the D-pad OR a joystick, never both. Settings → Player → "Left control" picks the global default (D-pad by default); a game's layout editor can override it for that game alone. The joystick is HowlingDog's PlayStation-style stick — filled base disc, smaller nub riding at 0.45x the finger offset, fixed in place, snaps back to centre on release — with the same 0.22 dead zone and 0.35 diagonal detection as the D-pad, so it drives the same direction mask. It lives in the same spec slot, so a switching game keeps its tuned position, size, and opacity.
+- Black screen on launch, fixed: launching a game could leave the picture black with audio until a press. The session started before the GL view was attached, so the first frame's render request was dropped, and the dirty check then blocked every later frame. The render request now survives surface creation — when a frame is already pending as the surface is created, the view requests a render and replays the session's latest frame, so the picture appears with no input.
+- FF / 0.5x / RW are moveable now: the three buttons lived in a fixed row at the bottom-right corner. They are overlay controls like the rest — positions as full-screen fractions, resizable, opacity, editable in the full-screen layout editor, per-system default + per-game override. Existing installs keep the buttons exactly where they were (bottom-right). Behaviour is unchanged: FF hold-to-run at the chosen speed, 0.5x toggle, RW hold-to-step back through the last 30 seconds.
+- Worm Light: a coverage slider in Settings → Display (75–175%, 100% by default, the current look) makes the pool of light wider or narrower, and it persists across launches. In aim mode, the finger's distance from the lens is now the forward/back: dragging out along a bearing stretches the pool further along it, dragging back in pulls it back. And the aim angle no longer resets — set an angle, leave aim mode, move the head, re-enter, and the angle is exactly where it was left. The head position and aim angle themselves are still per-session (they reset on relaunch, deliberately).
+- What you should see now: a held D-pad arm lights up; a joystick choice in Settings and per game; the picture the moment a game launches, with no press; FF/RW moved to the centre in the editor, saved, and still there on relaunch; the Worm Light pool visibly bigger/smaller from the slider, and an aim angle that survives leaving and re-entering aim mode.
 
 ## What is in it
 
