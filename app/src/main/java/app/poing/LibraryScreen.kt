@@ -18,8 +18,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
@@ -47,6 +45,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -84,8 +83,8 @@ fun LibraryScreen(
     showExitHint: Boolean = false,
     // Cover-art rebuild (2026-11-15): the application-scoped
     // repository, created once in PoingHome and passed here. It
-    // is the single source of truth for cover state — the tiles,
-    // the status line and the trace all read its flows.
+    // is the single source of truth for cover state — the tiles
+    // and the status line read its flows.
     // Required (no default): a screen without a repository has
     // no covers, and a default here would hide that.
     repository: CoverRepository,
@@ -95,18 +94,33 @@ fun LibraryScreen(
     val bios = remember { BiosStore(context.filesDir) }
     // The repository's flows, collected as Compose state: a
     // landed cover redraws only its own tile, and the status
-    // line and trace follow the same map. `fetching` is the
-    // trace header's wording — any index or art still in
-    // flight.
+    // line follows the same map. `fetching` is true while any
+    // index or art is still in flight.
     val covers by repository.covers.collectAsState()
     val indexes by repository.indexes.collectAsState()
     val gate by repository.gate.collectAsState()
-    val trace by repository.trace.collectAsState()
     // Alpha.9 — the user's own covers: a tile shows the
     // custom image when one exists, fetched art otherwise.
     val customCovers by repository.customCovers.collectAsState()
     val fetching = indexes.values.any { it is IndexState.Loading } ||
         covers.values.any { it is CoverState.Loading }
+    // The status bar auto-hides (alpha.9, part B): a few
+    // seconds after the fetch finishes, so the library is
+    // clean — but it stays visible while a fetch runs or a
+    // failure needs attention, so Retry is always reachable.
+    // Restarting the effect (a new fetch, a new failure)
+    // cancels the pending hide.
+    val hasFailure = covers.values.any { it is CoverState.Failed } ||
+        indexes.values.any { it is IndexState.Failed }
+    var statusBarHidden by remember { mutableStateOf(false) }
+    LaunchedEffect(fetching, hasFailure) {
+        if (fetching || hasFailure) {
+            statusBarHidden = false
+        } else {
+            delay(4000)
+            statusBarHidden = true
+        }
+    }
     // Phase 6 (item 5) — playtime totals for the rows; the store
     // is re-read on refresh so a finished session's banked time
     // shows when the player quits back here.
@@ -125,9 +139,6 @@ fun LibraryScreen(
     var message by remember { mutableStateOf<String?>(null) }
     var pendingRemove by remember { mutableStateOf<LibraryGame?>(null) }
     var pendingBiosImport by remember { mutableStateOf<BiosKind?>(null) }
-    // The fetch trace dialog (2026-11-15, alpha.3): the
-    // on-device record of what the cover-art fetch did.
-    var showTrace by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
 
     // Playtimes, read once per refresh into state — the old rows
@@ -158,10 +169,7 @@ fun LibraryScreen(
     // must be declared before use.
     suspend fun publishGate() {
         val allowMobileData = AppSettingsStore(context.filesDir).coverArtMobileDataAllowed()
-        repository.setGate(
-            coverArtGateState(context, allowMobileData),
-            coverArtNetworkLabel(context, allowMobileData),
-        )
+        repository.setGate(coverArtGateState(context, allowMobileData))
     }
     LaunchedEffect(games) {
         repository.setGames(games)
@@ -519,7 +527,11 @@ fun LibraryScreen(
         // and as an overlay it stays visible while scrolling.
         // The grid's bottom content padding (above) lets the
         // last item scroll clear of it.
-        Column(
+        // The bar hides itself (see above): when hidden it
+        // is not composed at all, so nothing reserves its
+        // space — the grid's bottom padding stays, so the
+        // last item still scrolls clear of the nav bar.
+        if (!statusBarHidden) Column(
             modifier = Modifier.align(Alignment.BottomCenter),
         ) {
             HorizontalDivider()
@@ -539,22 +551,6 @@ fun LibraryScreen(
                         .testTag("cover-art-status"),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                // The fetch trace (2026-11-15, alpha.3): the
-                // on-device record of what the fetch did — the
-                // status line alone went quiet on device with no
-                // reason, so the trace keeps every pipeline event
-                // with a timestamp (see CoverTraceEvent).
-                // Same small clickable text as Retry, not a
-                // TextButton, for the same 48dp reason.
-                Text(
-                    "Trace",
-                    modifier = Modifier
-                        .testTag("cover-art-trace")
-                        .clickable { showTrace = true }
-                        .padding(horizontal = 8.dp, vertical = 4.dp),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.primary,
                 )
                 // A small clickable text, not a TextButton: the
                 // button's 48dp minimum height is what the bar
@@ -586,33 +582,6 @@ fun LibraryScreen(
                 color = Color.White,
             )
         }
-    }
-
-    // The fetch trace dialog (2026-11-15, alpha.3): the
-    // pipeline's events, newest first, with a header that says
-    // whether a fetch is running — or that no fetch has started
-    // at all, which is itself the diagnosis. The text reads
-    // the repository's trace state, so it updates live while a
-    // fetch runs; it survives the fetch ending, unlike the
-    // status line's latest-only view.
-    if (showTrace) {
-        AlertDialog(
-            onDismissRequest = { showTrace = false },
-            title = { Text("Cover art trace") },
-            text = {
-                Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
-                    Text(
-                        coverTraceLines(trace, fetching),
-                        modifier = Modifier.testTag("cover-art-trace-lines"),
-                        style = MaterialTheme.typography.bodySmall,
-                    )
-                }
-            },
-            confirmButton = {
-                TextButton(onClick = { showTrace = false }) { Text("Close") }
-            },
-            modifier = Modifier.testTag("cover-art-trace-dialog"),
-        )
     }
 
     pendingRemove?.let { game ->

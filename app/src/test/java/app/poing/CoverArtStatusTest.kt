@@ -8,8 +8,8 @@ import java.util.TimeZone
 
 /**
  * Cover-art rebuild (2026-11-15, alpha.6): the pure
- * functions the library reads — the derived status line,
- * the trace text, the rate-limit reason. Plain JVM: none of
+ * functions the library reads — the derived status line and
+ * the rate-limit reason. Plain JVM: none of
  * these touch BitmapFactory, so no test here builds a
  * [CoverState.Ready] — the Ready counts are pinned in
  * [CoverRepositoryTest], under Robolectric, where a bitmap
@@ -17,7 +17,7 @@ import java.util.TimeZone
  *
  * The status line is a pure function of the covers map the
  * tiles read, so its counts cannot disagree with them — the
- * 2026-11-15 failure was two truths (the trace said
+ * 2026-11-15 failure was two truths (the status said
  * "landed", the tiles showed placeholders). There is one
  * map now, and the line is derived from it.
  */
@@ -107,81 +107,6 @@ class CoverArtStatusTest {
             "Cover art: 0/2 covers · Wi-Fi OK · gba index failed (timed out) " +
                 "· index gba: timed out",
             line,
-        )
-    }
-
-    // -- trace text -----------------------------------------------------------
-
-    @Test
-    fun coverTraceLinesEmpty() {
-        assertEquals(
-            "No fetch pass has started since the library opened.",
-            coverTraceLines(emptyList(), fetching = false),
-        )
-    }
-
-    @Test
-    fun coverTraceLinesFetchingHeader() {
-        val trace = listOf(
-            CoverTraceEvent.PipelineStarted(1_000L, GameSystem.GB),
-        )
-        val text = coverTraceLines(trace, fetching = true)
-        assertTrue(text.startsWith("A fetch is running.\n"))
-        assertTrue(text.contains("pipeline gb started"))
-    }
-
-    @Test
-    fun coverTraceLinesLastHeader() {
-        val trace = listOf(
-            CoverTraceEvent.ArtReady(1_000L, game("gb1", "TETRIS", GameSystem.GB), 68L),
-        )
-        val text = coverTraceLines(trace, fetching = false)
-        assertTrue(text.startsWith("Last fetch:\n"))
-        assertTrue(text.contains("art ready: TETRIS"))
-    }
-
-    @Test
-    fun traceEventLines() {
-        val g = game("gb1", "TETRIS", GameSystem.GB)
-        assertEquals("pipeline gb started", CoverTraceEvent.PipelineStarted(0L, GameSystem.GB).line())
-        assertEquals(
-            "pipeline gba parked: gate closed",
-            CoverTraceEvent.PipelineParked(0L, GameSystem.GBA, "gate closed").line(),
-        )
-        assertEquals("index gb started", CoverTraceEvent.IndexStarted(0L, GameSystem.GB).line())
-        assertEquals(
-            "index gbc loaded (2 entries, cached)",
-            CoverTraceEvent.IndexLoaded(0L, GameSystem.GBC, 2, fromCache = true).line(),
-        )
-        assertEquals(
-            "index gba failed: timed out",
-            CoverTraceEvent.IndexFailed(0L, GameSystem.GBA, "timed out").line(),
-        )
-        assertEquals(
-            "art matched: TETRIS (Tetris (World).png)",
-            CoverTraceEvent.ArtMatched(0L, g, "Tetris (World).png").line(),
-        )
-        assertEquals("art started: TETRIS", CoverTraceEvent.ArtStarted(0L, g).line())
-        assertEquals(
-            "art downloaded: TETRIS (68 bytes)",
-            CoverTraceEvent.ArtDownloaded(0L, g, 68).line(),
-        )
-        assertEquals(
-            "art decoded: TETRIS (1×1)",
-            CoverTraceEvent.ArtDecoded(0L, g, 1, 1).line(),
-        )
-        assertEquals("art ready: TETRIS", CoverTraceEvent.ArtReady(0L, g, 68L).line())
-        assertEquals(
-            "art failed: TETRIS: HTTP 404",
-            CoverTraceEvent.ArtFailed(0L, g, "HTTP 404").line(),
-        )
-        assertEquals(
-            "art discarded: TETRIS: undecodable",
-            CoverTraceEvent.ArtDiscarded(0L, g, "undecodable").line(),
-        )
-        assertEquals(
-            "disk scan: 3 restored, 1 discarded",
-            CoverTraceEvent.DiskScan(0L, restored = 3, discarded = 1).line(),
         )
     }
 

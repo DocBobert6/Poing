@@ -18,23 +18,19 @@ import java.util.Locale
  * This file now holds only the pieces the rebuilt subsystem
  * still needs: the network result type ([HttpFetchResult]), the
  * gate ([CoverArtGate], [coverArtGateState],
- * [coverArtNetworkLabel], [isCoverArtNetworkAvailable]), the
- * trace-time format ([formatTraceTime], [MAX_TRACE_EVENTS]) and
- * the [ConnectivityWatcher]. The fetch itself lives in
- * [CoverRepository]: per-system pipelines, disk as a verified
- * authority, no pass, no cap. The source is still the
+ * [isCoverArtNetworkAvailable]), the time format
+ * ([formatTraceTime]) and the [ConnectivityWatcher]. The fetch
+ * itself lives in [CoverRepository]: per-system pipelines, disk
+ * as a verified authority, no pass, no cap. The source is still the
  * libretro-thumbnails collection ([Thumbnails]): one file per
  * game, cached on the device, never bundled in the repo or the
  * APK. By default the fetch runs on unmetered Wi-Fi only; the
  * "Download cover art over mobile data" setting (off by default)
  * lets it run on mobile data too.
  */
-/** "HH:mm:ss" for a trace timestamp. Pure, so the trace lines are unit-testable. */
+/** "HH:mm:ss" for a rate-limit reset time. Pure, so it is unit-testable. */
 fun formatTraceTime(atMs: Long): String =
     SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(java.util.Date(atMs))
-
-/** How many trace events the repository keeps — enough for a full library fetch. */
-const val MAX_TRACE_EVENTS: Int = 100
 
 /**
  * The outcome of one capped GET: the bytes on success, else the
@@ -98,38 +94,6 @@ fun coverArtGateState(context: Context, allowMobileData: Boolean): CoverArtGate 
         caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_METERED)
     ) return CoverArtGate.OPEN
     return if (allowMobileData) CoverArtGate.OPEN else CoverArtGate.METERED_NO_OPT_IN
-}
-
-/**
- * Plain wording for the active network, for the fetch trace:
- * the gate alone cannot tell Wi-Fi from mobile data when it
- * is open, and on device that distinction is the diagnosis
- * (a fetch that runs on 5G with the toggle on is not the same
- * as one on unmetered Wi-Fi). The pure form is unit-testable;
- * the Context form does the same ConnectivityManager query
- * as [coverArtGateState].
- */
-fun coverArtNetworkLabel(
-    transportWifi: Boolean,
-    notMetered: Boolean,
-    allowMobileData: Boolean,
-): String = when {
-    transportWifi && notMetered -> "Wi-Fi"
-    transportWifi -> "metered Wi-Fi"
-    allowMobileData -> "mobile data"
-    else -> "mobile data (not allowed)"
-}
-
-fun coverArtNetworkLabel(context: Context, allowMobileData: Boolean): String {
-    val manager = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
-        ?: return "no network"
-    val network = manager.activeNetwork ?: return "no network"
-    val caps = manager.getNetworkCapabilities(network) ?: return "no network"
-    return coverArtNetworkLabel(
-        caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI),
-        caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_METERED),
-        allowMobileData,
-    )
 }
 
 /**

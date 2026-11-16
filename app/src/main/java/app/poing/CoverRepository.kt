@@ -20,8 +20,11 @@ import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.yield
 import java.io.ByteArrayOutputStream
 import java.io.File
+import java.io.FileInputStream
+import java.io.FileOutputStream
 import java.net.HttpURLConnection
 import java.net.URL
+import java.util.Properties
 import java.util.concurrent.ConcurrentHashMap
 import kotlin.coroutines.resume
 
@@ -36,8 +39,8 @@ import kotlin.coroutines.resume
  *
  * The design answers the six bugs structurally (see
  * COVER_ART_REBUILD_PLAN.md):
- * 1. One source of truth — [covers], [indexes] and [trace] are
- *    the only state. Tiles, status line and trace all read the
+ * 1. One source of truth — [covers] and [indexes] are
+ *    the only state. Tiles and the status line read the
  *    same map, so if the status says a cover landed, the tile
  *    shows it — by construction.
  * 2. The disk is the authority — but verified. A file on disk IS
@@ -74,7 +77,7 @@ import kotlin.coroutines.resume
  *    they touch disk. Only decodable bytes are written. The
  *    write and the state publish happen in the same worker
  *    step, in order: bytes → decode → write file → publish
- *    Ready → trace event. There is no window in which the trace
+ *    Ready. There is no window in which the status
  *    says "landed" and the tile has nothing.
  * 6. Failures are state, not silence. Every game ends in a
  *    named state; every system ends in a named index state.
@@ -82,7 +85,7 @@ import kotlin.coroutines.resume
  *
  * Kept from the old subsystem, unchanged: [Thumbnails] (the
  * matcher — measured 50/50, live-verified), the mobile-data
- * gate + toggle, the Trace dialog, the index disk-cache format
+ * gate + toggle, the index disk-cache format
  * (`art-index-<system>.txt`, bare filenames) and the cover
  * layout (`covers/<id>.png`, id = the file's SHA-256), so
  * nothing already on Robert's device is orphaned.
@@ -120,142 +123,6 @@ sealed interface IndexState {
     data object Loading : IndexState
     data class Ready(val entries: Int, val fromCache: Boolean) : IndexState
     data class Failed(val reason: String) : IndexState
-}
-
-/**
- * One line in the cover-art trace: the on-device record of
- * what the fetch did. There is no pass any more, so there are
- * no pass events — the trace records pipeline lifecycle and
- * every stage of each game's journey, so the next failure
- * names itself instead of reading "landed but invisible".
- * The stages that would have caught the 2026-11-15 failure:
- * [ArtMatched] → [ArtStarted] → [ArtDownloaded] →
- * [ArtDecoded] → [ArtReady]. A download that never becomes a
- * tile stops at [ArtDiscarded] or [ArtFailed], with the reason.
- */
-sealed interface CoverTraceEvent {
-    val atMs: Long
-
-    /** Plain wording for the trace view, e.g. "art ready: TETRIS". */
-    fun line(): String
-
-    data class PipelineStarted(override val atMs: Long, val system: GameSystem) : CoverTraceEvent {
-        override fun line(): String = "pipeline ${system.name.lowercase()} started"
-    }
-
-    data class PipelineParked(
-        override val atMs: Long,
-        val system: GameSystem,
-        val reason: String,
-    ) : CoverTraceEvent {
-        override fun line(): String = "pipeline ${system.name.lowercase()} parked: $reason"
-    }
-
-    data class IndexStarted(override val atMs: Long, val system: GameSystem) : CoverTraceEvent {
-        override fun line(): String = "index ${system.name.lowercase()} started"
-    }
-
-    data class IndexLoaded(
-        override val atMs: Long,
-        val system: GameSystem,
-        val entries: Int,
-        val fromCache: Boolean,
-    ) : CoverTraceEvent {
-        override fun line(): String =
-            "index ${system.name.lowercase()} loaded " +
-                "($entries entries${if (fromCache) ", cached" else ""})"
-    }
-
-    data class IndexFailed(
-        override val atMs: Long,
-        val system: GameSystem,
-        val detail: String,
-    ) : CoverTraceEvent {
-        override fun line(): String = "index ${system.name.lowercase()} failed: $detail"
-    }
-
-    data class ArtMatched(
-        override val atMs: Long,
-        val game: LibraryGame,
-        val fileName: String,
-    ) : CoverTraceEvent {
-        override fun line(): String = "art matched: ${game.title} ($fileName)"
-    }
-
-    data class ArtStarted(override val atMs: Long, val game: LibraryGame) : CoverTraceEvent {
-        override fun line(): String = "art started: ${game.title}"
-    }
-
-    data class ArtDownloaded(
-        override val atMs: Long,
-        val game: LibraryGame,
-        val bytes: Int,
-    ) : CoverTraceEvent {
-        override fun line(): String = "art downloaded: ${game.title} ($bytes bytes)"
-    }
-
-    data class ArtDecoded(
-        override val atMs: Long,
-        val game: LibraryGame,
-        val width: Int,
-        val height: Int,
-    ) : CoverTraceEvent {
-        override fun line(): String = "art decoded: ${game.title} (${width}×$height)"
-    }
-
-    data class ArtReady(
-        override val atMs: Long,
-        val game: LibraryGame,
-        val fileSize: Long,
-    ) : CoverTraceEvent {
-        override fun line(): String = "art ready: ${game.title}"
-    }
-
-    data class ArtFailed(
-        override val atMs: Long,
-        val game: LibraryGame,
-        val detail: String,
-    ) : CoverTraceEvent {
-        override fun line(): String = "art failed: ${game.title}: $detail"
-    }
-
-    /** Bytes arrived but failed the in-memory decode: nothing was written, the game stays re-triable. */
-    data class ArtDiscarded(
-        override val atMs: Long,
-        val game: LibraryGame,
-        val reason: String,
-    ) : CoverTraceEvent {
-        override fun line(): String = "art discarded: ${game.title}: $reason"
-    }
-
-    /** The startup scan: N covers restored from disk, M corrupt files deleted + re-queued. */
-    data class DiskScan(
-        override val atMs: Long,
-        val restored: Int,
-        val discarded: Int,
-    ) : CoverTraceEvent {
-        override fun line(): String = "disk scan: $restored restored, $discarded discarded"
-    }
-}
-
-/**
- * The trace view's text: the events, newest first, under a
- * header that says whether a fetch is running — or, when the
- * trace is empty, that no fetch has started at all. Pure, so
- * it is unit-testable. The empty wording is kept from the old
- * trace ("No fetch pass has started since the library opened.")
- * — it is the text Robert already knows.
- */
-fun coverTraceLines(trace: List<CoverTraceEvent>, fetching: Boolean): String {
-    val header = if (trace.isEmpty()) {
-        "No fetch pass has started since the library opened."
-    } else if (fetching) {
-        "A fetch is running."
-    } else {
-        "Last fetch:"
-    }
-    val lines = trace.asReversed().map { "${formatTraceTime(it.atMs)} ${it.line()}" }
-    return (listOf(header) + lines).joinToString("\n")
 }
 
 /** One line for the library: what the fetch is doing, or why it is not. Pure, so it is unit-testable. */
@@ -352,7 +219,7 @@ fun isPngOrJpeg(bytes: ByteArray): Boolean {
  * The 403 reason when GitHub's rate limit is the cause.
  * Pure, so it is unit-testable: the client parses the
  * `X-RateLimit-Remaining` / `X-RateLimit-Reset` headers, and
- * this formats the reason the game state and the trace carry.
+ * this formats the reason the game state carries.
  * Null when the 403 is not a rate-limit exhaustion.
  */
 fun rateLimitDetail(statusCode: Int, remaining: String?, resetEpochSeconds: String?): String? {
@@ -448,7 +315,9 @@ class RealHttpClient {
  * @param root the app's filesDir: indexes live at
  * `art-index-<system>.txt`, covers at `covers/<id>.png` — the
  * same on-disk formats as the old pipeline, so nothing already
- * on the device is orphaned.
+ * on the device is orphaned. Attempted outcomes persist at
+ * `cover-attempts.properties` (alpha.9, part B), so a second
+ * app open with no new games makes no network fetch at all.
  * @param httpGet the network layer. The default is the real
  * client; tests inject a fake. A fake that blocks (a latch,
  * a sleep) no longer holds a pipeline: [boundedGet] races
@@ -474,17 +343,13 @@ class CoverRepository(
     private val decode: (ByteArray) -> Bitmap? = ::decodeCoverBytes,
     private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO),
 ) {
-    /** THE single source of truth. Tiles, status line, trace all read this. */
+    /** THE single source of truth. Tiles and the status line read this. */
     val covers: StateFlow<Map<String, CoverState>> get() = _covers.asStateFlow()
     private val _covers = MutableStateFlow<Map<String, CoverState>>(emptyMap())
 
     /** One index state per system. Independent per system. */
     val indexes: StateFlow<Map<GameSystem, IndexState>> get() = _indexes.asStateFlow()
     private val _indexes = MutableStateFlow<Map<GameSystem, IndexState>>(emptyMap())
-
-    /** The trace, newest last, capped at [MAX_TRACE_EVENTS]. */
-    val trace: StateFlow<List<CoverTraceEvent>> get() = _trace.asStateFlow()
-    private val _trace = MutableStateFlow<List<CoverTraceEvent>>(emptyList())
 
     /** The gate as last set by [setGate]; null until the screen first reads it. */
     val gate: StateFlow<CoverArtGate?> get() = _gate.asStateFlow()
@@ -528,6 +393,22 @@ class CoverRepository(
     // replaces this; a game removed from the library leaves the
     // map (its file stays on disk, as before).
     private val knownGames = ConcurrentHashMap<String, LibraryGame>()
+
+    // Attempted outcomes, persisted (alpha.9, part B): game id
+    // → "NoMatch", or "Failed:<reason>". A game whose attempt
+    // is recorded is never fetched again on app open — setGames
+    // restores its terminal state instead of Missing — until an
+    // explicit retry or index refresh clears the record. Ready
+    // is implied by the file on disk and needs no record. The
+    // file is `cover-attempts.properties` in the filesDir root.
+    // The map is guarded by [attemptsLock]: [publish] runs from
+    // three parallel pipeline coroutines and from the UI scope.
+    private val attemptsLock = Any()
+    private val attempts = mutableMapOf<String, String>()
+
+    init {
+        loadAttempts()
+    }
 
     // One job per system pipeline, while it has work. A job
     // ends when its queue drains; a new one starts on demand.
@@ -578,11 +459,13 @@ class CoverRepository(
     /**
      * The library's game list changed (import, remove, first
      * open). Games with a verified file on disk reach Ready at
-     * once, with no network; the rest become Missing and their
-     * system pipelines start, when the gate is open. States a
-     * game already holds (Loading, Ready, Failed, NoMatch) are
-     * never reset by a later setGames — only new games are
-     * classified, and removed games leave the map.
+     * once, with no network; games with a recorded attempt
+     * reach their terminal state at once, with no network
+     * either (alpha.9, part B); the rest become Missing and
+     * their system pipelines start, when the gate is open.
+     * States a game already holds (Loading, Ready, Failed,
+     * NoMatch) are never reset by a later setGames — only new
+     * games are classified, and removed games leave the map.
      */
     suspend fun setGames(games: List<LibraryGame>) {
         scanDone.join()
@@ -603,7 +486,20 @@ class CoverRepository(
             if (disk != null) {
                 publish(game.id, CoverState.Ready(disk, coverFile(game)))
             } else {
-                publish(game.id, CoverState.Missing)
+                // A previous attempt is restored, not
+                // re-fetched: the game reached a terminal state
+                // in an earlier session (or this one, before the
+                // library was re-entered). Only a game with no
+                // record is Missing — and only a Missing game
+                // ever starts a fetch.
+                val attempt = synchronized(attemptsLock) { attempts[game.id] }
+                when {
+                    attempt == "NoMatch" ->
+                        publish(game.id, CoverState.NoMatch("no art in index"))
+                    attempt != null && attempt.startsWith("Failed:") ->
+                        publish(game.id, CoverState.Failed(attempt.removePrefix("Failed:")))
+                    else -> publish(game.id, CoverState.Missing)
+                }
             }
         }
         if (_gate.value == CoverArtGate.OPEN) ensurePipelines()
@@ -614,18 +510,15 @@ class CoverRepository(
      * pipelines for systems with Missing games; closing parks
      * them — running jobs are cancelled, and a game that was
      * Loading returns to Missing, not Failed: a cancel is not
-     * a failure. The network label is for the trace only.
+     * a failure.
      */
-    suspend fun setGate(gate: CoverArtGate, networkLabel: String? = null) {
+    suspend fun setGate(gate: CoverArtGate) {
         val prev = _gate.value
         _gate.value = gate
         if (gate == CoverArtGate.OPEN && prev != CoverArtGate.OPEN) {
             scanDone.join()
             ensurePipelines()
         } else if (gate != CoverArtGate.OPEN && prev == CoverArtGate.OPEN) {
-            val running = synchronized(pipelineJobs) {
-                pipelineJobs.entries.filter { it.value.isActive }.map { it.key }
-            }
             val toJoin = pipelineJobs.values.toList()
             toJoin.forEach { it.cancel() }
             // Join the cancelled jobs: the unwind (a Loading
@@ -637,15 +530,6 @@ class CoverRepository(
             // in milliseconds (one state publish), so this does
             // not stall the caller.
             toJoin.forEach { it.join() }
-            for (system in running) {
-                recordTrace(
-                    CoverTraceEvent.PipelineParked(
-                        System.currentTimeMillis(),
-                        system,
-                        "gate closed",
-                    ),
-                )
-            }
         }
     }
 
@@ -763,16 +647,68 @@ class CoverRepository(
 
     // -- internals ---------------------------------------------------------
 
+    private fun attemptsFile(): File = File(root, "cover-attempts.properties")
+
+    /** Read the persisted attempts, if any. A corrupt or unreadable file is treated as no attempts. */
+    private fun loadAttempts() {
+        val file = attemptsFile()
+        if (!file.exists()) return
+        val props = Properties()
+        val loaded = runCatching {
+            FileInputStream(file).use { props.load(it) }
+        }.isSuccess
+        if (!loaded) return
+        synchronized(attemptsLock) {
+            for ((k, v) in props) attempts[k as String] = v as String
+        }
+    }
+
+    /** Write the attempts file. Call with [attemptsLock] held. A failed write is swallowed: the in-memory map still governs this session, and the next change retries the write. */
+    private fun saveAttemptsLocked() {
+        val props = Properties()
+        for ((k, v) in attempts) props[k] = v
+        val tmp = File(root, "cover-attempts.properties.tmp")
+        try {
+            FileOutputStream(tmp).use { props.store(it, null) }
+            if (!tmp.renameTo(attemptsFile())) {
+                tmp.delete()
+                FileOutputStream(attemptsFile()).use { props.store(it, null) }
+            }
+        } catch (_: Exception) {
+            runCatching { tmp.delete() }
+        }
+    }
+
     private fun publish(id: String, state: CoverState) {
         _covers.update { it + (id to state) }
+        // Persisted attempts (alpha.9, part B): a terminal
+        // outcome is recorded so the next app open restores it
+        // instead of re-fetching; Ready and Missing clear the
+        // record. Only rewrite the file when the map actually
+        // changes, so a restore re-publishing the same value
+        // costs no write.
+        val record = when (state) {
+            is CoverState.NoMatch -> "NoMatch"
+            is CoverState.Failed -> "Failed:${state.reason}"
+            else -> null
+        }
+        synchronized(attemptsLock) {
+            val changed = if (record != null) {
+                if (attempts[id] != record) {
+                    attempts[id] = record
+                    true
+                } else {
+                    false
+                }
+            } else {
+                attempts.remove(id) != null
+            }
+            if (changed) saveAttemptsLocked()
+        }
     }
 
     private fun publishIndex(system: GameSystem, state: IndexState) {
         _indexes.update { it + (system to state) }
-    }
-
-    private fun recordTrace(event: CoverTraceEvent) {
-        _trace.update { (it + event).takeLast(MAX_TRACE_EVENTS) }
     }
 
     private fun indexFile(system: GameSystem): File =
@@ -787,23 +723,15 @@ class CoverRepository(
      * gone, so the game is Missing again. This is the step
      * that makes the 2026-11-15 outcome impossible: a corrupt
      * file can never sit on disk looking like a cover, and no
-     * memo anywhere can block its re-download. Recorded in
-     * the trace only when something was restored or
-     * discarded, so an empty library leaves the trace empty.
+     * memo anywhere can block its re-download.
      */
     private fun scanDisk() {
         try {
-            val (restored, discarded) = scanCoverDir(coversDirFile, diskBitmaps)
-            if (restored > 0 || discarded > 0) {
-                recordTrace(
-                    CoverTraceEvent.DiskScan(System.currentTimeMillis(), restored, discarded),
-                )
-            }
+            scanCoverDir(coversDirFile, diskBitmaps)
             // Custom art (alpha.9): the same verify-before-
             // trust rule — a file that decodes IS a custom
             // cover, a file that does not is deleted and its
-            // game falls back to fetched art. No trace event:
-            // the scan's counts are the fetched covers'.
+            // game falls back to fetched art.
             scanCoverDir(customCoversDirFile, customBitmaps)
             if (customBitmaps.isNotEmpty()) {
                 _customCovers.value = customBitmaps.toMap()
@@ -845,7 +773,18 @@ class CoverRepository(
     }
 
     private fun ensurePipelines() {
-        val systems = _covers.value.keys.mapNotNull { knownGames[it]?.system }.toSet()
+        // A system with no Missing game starts no pipeline —
+        // so a second app open with no new games makes no
+        // network fetch at all, not even an index download: the
+        // index is not persisted across opens, so ensureIndex
+        // would otherwise re-download a never-loaded index on
+        // every open. A new Missing game is picked up because
+        // setGames calls this when the gate is open, and
+        // retryFailed publishes Missing before calling it.
+        val systems = _covers.value.entries
+            .filter { it.value is CoverState.Missing }
+            .mapNotNull { knownGames[it.key]?.system }
+            .toSet()
         for (system in systems) ensurePipeline(system)
     }
 
@@ -876,25 +815,17 @@ class CoverRepository(
      * it never retries on its own.
      */
     private suspend fun runPipeline(system: GameSystem) {
-        recordTrace(CoverTraceEvent.PipelineStarted(System.currentTimeMillis(), system))
         val index = ensureIndex(system)
         if (index == null) {
             // The index failed: every queued game of this
             // system fails with the index reason, so the tile
-            // state and the trace agree — and the job parks
+            // state and the index state agree — and the job parks
             // instead of spinning on a download that will not
             // succeed until an explicit retry.
             val reason = (_indexes.value[system] as? IndexState.Failed)?.reason ?: "index failed"
             for (game in queuedGames(system)) {
                 publish(game.id, CoverState.Failed("index ${system.name.lowercase()}: $reason"))
             }
-            recordTrace(
-                CoverTraceEvent.PipelineParked(
-                    System.currentTimeMillis(),
-                    system,
-                    "index ${system.name.lowercase()}: $reason",
-                ),
-            )
             return
         }
         while (true) {
@@ -912,13 +843,6 @@ class CoverRepository(
                 // kill the queue: the game fails with the reason
                 // and the next game is processed.
                 publish(game.id, CoverState.Failed(e.javaClass.simpleName))
-                recordTrace(
-                    CoverTraceEvent.ArtFailed(
-                        System.currentTimeMillis(),
-                        game,
-                        e.javaClass.simpleName,
-                    ),
-                )
             }
         }
     }
@@ -990,9 +914,6 @@ class CoverRepository(
             }
             is IndexLoadResult.Failed -> {
                 publishIndex(system, IndexState.Failed(result.detail))
-                recordTrace(
-                    CoverTraceEvent.IndexFailed(System.currentTimeMillis(), system, result.detail),
-                )
                 null
             }
         }
@@ -1019,21 +940,12 @@ class CoverRepository(
                 // budget timeout could not land mid-parse
                 // without this — the yield lets it.
                 yield()
-                recordTrace(
-                    CoverTraceEvent.IndexLoaded(
-                        System.currentTimeMillis(),
-                        system,
-                        loaded.size,
-                        fromCache = true,
-                    ),
-                )
                 return IndexLoadResult.Loaded(loaded, fromCache = true)
             }
             // An empty or unreadable cache falls through to a
             // fresh fetch — a non-empty-but-truncated list is
             // accepted as before (its entries still match).
         }
-        recordTrace(CoverTraceEvent.IndexStarted(System.currentTimeMillis(), system))
         // The two-step load (alpha.7): the whole-repo tree is
         // 7.19 MB for GBA and needs ~160 KB/s to finish in the
         // budget — Robert's speed to api.github.com is bounded
@@ -1073,22 +985,14 @@ class CoverRepository(
             if (!tmp.renameTo(file)) tmp.delete()
         }
         val loaded = Thumbnails.normalizeIndex(names)
-        recordTrace(
-            CoverTraceEvent.IndexLoaded(
-                System.currentTimeMillis(),
-                system,
-                loaded.size,
-                fromCache = false,
-            ),
-        )
         return IndexLoadResult.Loaded(loaded, fromCache = false)
     }
 
     /**
      * One game, start to finish, in one worker step: match →
      * download → decode in memory → write file → publish
-     * Ready → trace. The write and the publish are adjacent
-     * and in order, so there is no window in which the trace
+     * Ready. The write and the publish are adjacent
+     * and in order, so there is no window in which the status
      * says the cover landed and the tile has nothing — and a
      * decode failure writes nothing at all.
      */
@@ -1099,23 +1003,13 @@ class CoverRepository(
             publish(game.id, CoverState.NoMatch("no art in index"))
             return
         }
-        recordTrace(
-            CoverTraceEvent.ArtMatched(System.currentTimeMillis(), game, fileName),
-        )
-        recordTrace(CoverTraceEvent.ArtStarted(System.currentTimeMillis(), game))
         val result = boundedGet(Thumbnails.artUrl(game.system, fileName), MAX_ART_BYTES, artBudgetMs)
         val bytes = result.bytes
         if (bytes == null) {
             val detail = result.error ?: "no bytes"
             publish(game.id, CoverState.Failed(detail))
-            recordTrace(
-                CoverTraceEvent.ArtFailed(System.currentTimeMillis(), game, detail),
-            )
             return
         }
-        recordTrace(
-            CoverTraceEvent.ArtDownloaded(System.currentTimeMillis(), game, bytes.size),
-        )
         val bitmap = try {
             decode(bytes)
         } catch (_: Exception) {
@@ -1123,24 +1017,12 @@ class CoverRepository(
         }
         if (bitmap == null) {
             // Verify before you trust: nothing is written, the
-            // game stays re-triable, and the trace names the
-            // discard — the 2026-11-15 failure was a decode
-            // failure that left a file on disk and a memo that
-            // blocked every retry.
+            // game stays re-triable — the 2026-11-15 failure
+            // was a decode failure that left a file on disk
+            // and a memo that blocked every retry.
             publish(game.id, CoverState.Failed("undecodable"))
-            recordTrace(
-                CoverTraceEvent.ArtDiscarded(System.currentTimeMillis(), game, "undecodable"),
-            )
             return
         }
-        recordTrace(
-            CoverTraceEvent.ArtDecoded(
-                System.currentTimeMillis(),
-                game,
-                bitmap.width,
-                bitmap.height,
-            ),
-        )
         val file = coverFile(game)
         try {
             val tmp = File(coversDir(), "${game.id}.png.tmp")
@@ -1151,16 +1033,10 @@ class CoverRepository(
             }
         } catch (_: Exception) {
             publish(game.id, CoverState.Failed("write failed"))
-            recordTrace(
-                CoverTraceEvent.ArtFailed(System.currentTimeMillis(), game, "write failed"),
-            )
             return
         }
         diskBitmaps[game.id] = bitmap
         publish(game.id, CoverState.Ready(bitmap, file))
-        recordTrace(
-            CoverTraceEvent.ArtReady(System.currentTimeMillis(), game, file.length()),
-        )
     }
 
     /**

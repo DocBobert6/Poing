@@ -8,6 +8,8 @@ import android.os.Looper
 import android.util.Base64
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.test.assertCountEquals
+import androidx.compose.ui.test.assertDoesNotExist
+import androidx.compose.ui.test.assertExists
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
@@ -393,6 +395,88 @@ class LibraryCoverFetchTest {
                 .assertCountEquals(1)
             assertEquals(2, treeCalls.get())
             assertEquals(1, artCalls.get())
+        } finally {
+            repository.close()
+        }
+    }
+
+    @Test
+    fun statusBarHidesAfterAFetchFinishes() {
+        // Alpha.9, part B: the status bar auto-hides a few
+        // seconds after the fetch finishes, so the library is
+        // clean — it is not composed at all once hidden.
+        seedGame()
+        setWifiOn()
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val httpGet: suspend (String, Int) -> HttpFetchResult = { url, _ ->
+            if (url.contains("git/trees")) treeHttpResult(url)
+            else HttpFetchResult.success(TINY_PNG)
+        }
+        val repository = CoverRepository(context.filesDir, httpGet)
+        try {
+            composeRule.setContent {
+                LibraryScreen(
+                    notice = null,
+                    onPlay = {},
+                    onLicences = {},
+                    onSettings = {},
+                    repository = repository,
+                )
+            }
+            composeRule.waitForText("TETRIS")
+            composeRule.waitUntil(timeoutMillis = 10_000) {
+                try {
+                    composeRule.onAllNodesWithContentDescription("Cover art for TETRIS")
+                        .assertCountEquals(1)
+                    true
+                } catch (_: AssertionError) {
+                    false
+                }
+            }
+            // The fetch just finished: the bar is still there.
+            composeRule.onNodeWithTag("cover-art-status").assertExists()
+            // Past the 4s hide delay, the bar is gone.
+            Shadows.shadowOf(Looper.getMainLooper()).idle(5000, TimeUnit.MILLISECONDS)
+            composeRule.waitForIdle()
+            composeRule.onNodeWithTag("cover-art-status").assertDoesNotExist()
+        } finally {
+            repository.close()
+        }
+    }
+
+    @Test
+    fun statusBarStaysVisibleWhileAFetchHasFailed() {
+        // Alpha.9, part B: on a failed fetch the bar stays
+        // visible, so Retry is always reachable — the hide
+        // never fires while a failure needs attention.
+        seedGame()
+        setWifiOn()
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val httpGet: suspend (String, Int) -> HttpFetchResult = { url, _ ->
+            if (url.contains("git/trees")) treeHttpResult(url)
+            else HttpFetchResult.httpFailure(404)
+        }
+        val repository = CoverRepository(context.filesDir, httpGet)
+        try {
+            composeRule.setContent {
+                LibraryScreen(
+                    notice = null,
+                    onPlay = {},
+                    onLicences = {},
+                    onSettings = {},
+                    repository = repository,
+                )
+            }
+            composeRule.waitForText("TETRIS")
+            composeRule.waitUntil(timeoutMillis = 10_000) {
+                repository.covers.value.values.any { it is CoverState.Failed }
+            }
+            // Past the 4s hide delay, the bar — and Retry —
+            // are still there.
+            Shadows.shadowOf(Looper.getMainLooper()).idle(5000, TimeUnit.MILLISECONDS)
+            composeRule.waitForIdle()
+            composeRule.onNodeWithTag("cover-art-status").assertExists()
+            composeRule.onNodeWithTag("cover-art-retry").assertExists()
         } finally {
             repository.close()
         }

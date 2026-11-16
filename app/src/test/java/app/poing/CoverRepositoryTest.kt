@@ -133,7 +133,7 @@ class CoverRepositoryTest {
         val r = repo(httpGet)
         val start = System.currentTimeMillis()
         r.setGames(listOf(game("gba1", "TETRIS", "tetris.gba", GameSystem.GBA)))
-        r.setGate(CoverArtGate.OPEN, "Wi-Fi")
+        r.setGate(CoverArtGate.OPEN)
         assertTrue(r.awaitIdle())
         val elapsed = System.currentTimeMillis() - start
         assertTrue("hung index must fail on the budget, took ${elapsed}ms", elapsed < 10_000)
@@ -142,10 +142,6 @@ class CoverRepositoryTest {
             CoverState.Failed("index gba: timed out"),
             r.covers.value["gba1"],
         )
-        val failed = r.trace.value.filterIsInstance<CoverTraceEvent.IndexFailed>()
-        assertEquals(1, failed.size)
-        assertEquals(GameSystem.GBA, failed.single().system)
-        assertEquals("timed out", failed.single().detail)
         r.close()
     }
 
@@ -166,7 +162,7 @@ class CoverRepositoryTest {
         )
         val start = System.currentTimeMillis()
         r.setGames(games)
-        r.setGate(CoverArtGate.OPEN, "Wi-Fi")
+        r.setGate(CoverArtGate.OPEN)
         assertTrue(r.awaitIdle())
         val elapsed = System.currentTimeMillis() - start
         assertTrue("pipelines must finish on the budget, took ${elapsed}ms", elapsed < 10_000)
@@ -186,7 +182,7 @@ class CoverRepositoryTest {
         val r = repo(httpGet)
         val start = System.currentTimeMillis()
         r.setGames(listOf(game("gba1", "TETRIS", "tetris.gba", GameSystem.GBA)))
-        r.setGate(CoverArtGate.OPEN, "Wi-Fi")
+        r.setGate(CoverArtGate.OPEN)
         assertTrue(r.awaitIdle())
         val elapsed = System.currentTimeMillis() - start
         assertTrue("connect hang must fail on the budget, took ${elapsed}ms", elapsed < 10_000)
@@ -220,7 +216,7 @@ class CoverRepositoryTest {
         try {
             val start = System.currentTimeMillis()
             r.setGames(listOf(g))
-            r.setGate(CoverArtGate.OPEN, "Wi-Fi")
+            r.setGate(CoverArtGate.OPEN)
             assertTrue(
                 "a blocking network call must not hold the pipeline",
                 r.awaitIdle(timeoutMs = 5_000),
@@ -229,11 +225,6 @@ class CoverRepositoryTest {
             assertTrue("index must fail on the budget, took ${elapsed}ms", elapsed < 10_000)
             assertEquals(IndexState.Failed("timed out"), r.indexes.value[GameSystem.GBA])
             assertEquals(CoverState.Failed("index gba: timed out"), r.covers.value["gba1"])
-            assertTrue(
-                r.trace.value.any {
-                    it is CoverTraceEvent.IndexFailed && it.detail == "timed out"
-                },
-            )
         } finally {
             // Let the abandoned call unwind.
             stuck.countDown()
@@ -267,7 +258,7 @@ class CoverRepositoryTest {
         try {
             val start = System.currentTimeMillis()
             r.setGames(listOf(g))
-            r.setGate(CoverArtGate.OPEN, "Wi-Fi")
+            r.setGate(CoverArtGate.OPEN)
             assertTrue(
                 "a blocking subtree call must not hold the pipeline",
                 r.awaitIdle(timeoutMs = 5_000),
@@ -276,11 +267,6 @@ class CoverRepositoryTest {
             assertTrue("subtree stall must fail on the budget, took ${elapsed}ms", elapsed < 10_000)
             assertEquals(IndexState.Failed("timed out"), r.indexes.value[GameSystem.GBA])
             assertEquals(CoverState.Failed("index gba: timed out"), r.covers.value["gba1"])
-            assertTrue(
-                r.trace.value.any {
-                    it is CoverTraceEvent.IndexFailed && it.detail == "timed out"
-                },
-            )
         } finally {
             stuck.countDown()
             r.close()
@@ -325,7 +311,7 @@ class CoverRepositoryTest {
         val r = repo(httpGet, indexBudgetMs = 600)
         val g = game("gba1", "GAME NUMBER 0000", "game-number-0000.gba", GameSystem.GBA)
         r.setGames(listOf(g))
-        r.setGate(CoverArtGate.OPEN, "Wi-Fi")
+        r.setGate(CoverArtGate.OPEN)
         assertTrue(r.awaitIdle())
         assertEquals(IndexState.Ready(330, fromCache = false), r.indexes.value[GameSystem.GBA])
         assertTrue(r.covers.value["gba1"] is CoverState.Ready)
@@ -356,7 +342,7 @@ class CoverRepositoryTest {
         val r = repo(httpGet, indexBudgetMs = 600)
         val g = game("gba1", "GAME NUMBER 0000", "game-number-0000.gba", GameSystem.GBA)
         r.setGames(listOf(g))
-        r.setGate(CoverArtGate.OPEN, "Wi-Fi")
+        r.setGate(CoverArtGate.OPEN)
         assertTrue(r.awaitIdle())
         assertEquals(IndexState.Failed("timed out"), r.indexes.value[GameSystem.GBA])
         assertEquals(CoverState.Failed("index gba: timed out"), r.covers.value["gba1"])
@@ -375,7 +361,7 @@ class CoverRepositoryTest {
         val r = repo(httpGet)
         val start = System.currentTimeMillis()
         r.setGames(listOf(game("gba1", "TETRIS", "tetris.gba", GameSystem.GBA)))
-        r.setGate(CoverArtGate.OPEN, "Wi-Fi")
+        r.setGate(CoverArtGate.OPEN)
         assertTrue(r.awaitIdle())
         val elapsed = System.currentTimeMillis() - start
         assertTrue("slow download must fail on the budget, took ${elapsed}ms", elapsed < 10_000)
@@ -416,7 +402,7 @@ class CoverRepositoryTest {
         )
         val start = System.currentTimeMillis()
         r.setGames(games)
-        r.setGate(CoverArtGate.OPEN, "Wi-Fi")
+        r.setGate(CoverArtGate.OPEN)
         assertTrue(r.awaitIdle())
         val elapsed = System.currentTimeMillis() - start
         assertTrue("stalled load must fail on the budget, took ${elapsed}ms", elapsed < 10_000)
@@ -460,7 +446,7 @@ class CoverRepositoryTest {
         val start = System.currentTimeMillis()
         try {
             gbaStuck.setGames(games)
-            gbaStuck.setGate(CoverArtGate.OPEN, "Wi-Fi")
+            gbaStuck.setGate(CoverArtGate.OPEN)
             // Poll for the ready covers: the GBA pipeline is
             // still hung, so awaitIdle would wait out its 30s.
             val deadline = System.currentTimeMillis() + 5_000
@@ -505,7 +491,7 @@ class CoverRepositoryTest {
         val start = System.currentTimeMillis()
         try {
             r.setGames(listOf(g))
-            r.setGate(CoverArtGate.OPEN, "Wi-Fi")
+            r.setGate(CoverArtGate.OPEN)
             // Wait until the index download is in flight.
             val deadline = System.currentTimeMillis() + 5_000
             while (System.currentTimeMillis() < deadline) {
@@ -519,7 +505,6 @@ class CoverRepositoryTest {
             assertTrue("gate close must abort the hung fetch, took ${elapsed}ms", elapsed < 10_000)
             assertEquals(IndexState.NotLoaded, r.indexes.value[GameSystem.GB])
             assertEquals(CoverState.Missing, r.covers.value["gb1"])
-            assertTrue(r.trace.value.any { it is CoverTraceEvent.PipelineParked })
         } finally {
             r.close()
         }
@@ -546,7 +531,7 @@ class CoverRepositoryTest {
         val r = repo(httpGet)
         val g = game("gb1", "TETRIS", "tetris.gb", GameSystem.GB)
         r.setGames(listOf(g))
-        r.setGate(CoverArtGate.OPEN, "Wi-Fi")
+        r.setGate(CoverArtGate.OPEN)
         assertTrue(r.awaitIdle())
         assertTrue(r.covers.value["gb1"] is CoverState.Ready)
         assertEquals(2, treeCalls.get())
@@ -582,7 +567,7 @@ class CoverRepositoryTest {
         val r = repo(httpGet)
         val g = game("gb1", "TETRIS", "tetris.gb", GameSystem.GB)
         r.setGames(listOf(g))
-        r.setGate(CoverArtGate.OPEN, "Wi-Fi")
+        r.setGate(CoverArtGate.OPEN)
         assertTrue(r.awaitIdle())
         assertTrue(r.covers.value["gb1"] is CoverState.Ready)
         val treeUrls = urls.filter { it.contains("/git/trees/") }
@@ -614,7 +599,7 @@ class CoverRepositoryTest {
                 game("gb2", "DR MARIO", "drmario.gb", GameSystem.GB),
             ),
         )
-        r.setGate(CoverArtGate.OPEN, "Wi-Fi")
+        r.setGate(CoverArtGate.OPEN)
         assertTrue(r.awaitIdle())
         assertEquals(2, treeCalls.get())
         // A third game of the same system reuses the memory cache too.
@@ -646,7 +631,7 @@ class CoverRepositoryTest {
         val r = repo(httpGet)
         val unknown = game("gb9", "ZZZ UNKNOWN", "zzz.gb", GameSystem.GB)
         r.setGames(listOf(unknown))
-        r.setGate(CoverArtGate.OPEN, "Wi-Fi")
+        r.setGate(CoverArtGate.OPEN)
         assertTrue(r.awaitIdle())
         assertEquals(CoverState.NoMatch("no art in index"), r.covers.value["gb9"])
         assertEquals(0, artCalls.get())
@@ -673,7 +658,7 @@ class CoverRepositoryTest {
         val first = repo(httpGet)
         val g = game("gb1", "TETRIS", "tetris.gb", GameSystem.GB)
         first.setGames(listOf(g))
-        first.setGate(CoverArtGate.OPEN, "Wi-Fi")
+        first.setGate(CoverArtGate.OPEN)
         assertTrue(first.awaitIdle())
         assertTrue(first.covers.value["gb1"] is CoverState.Ready)
         first.close()
@@ -684,7 +669,7 @@ class CoverRepositoryTest {
             { _, _ -> HttpFetchResult.httpFailure(403) }
         val second = repo(dead)
         second.setGames(listOf(g))
-        second.setGate(CoverArtGate.OPEN, "Wi-Fi")
+        second.setGate(CoverArtGate.OPEN)
         assertTrue(second.awaitIdle())
         assertEquals(IndexState.Ready(2, fromCache = true), second.indexes.value[GameSystem.GB])
         // The index loaded from cache; only the art download failed.
@@ -705,7 +690,7 @@ class CoverRepositoryTest {
                 game("gba1", "TETRIS", "tetris.gba", GameSystem.GBA),
             ),
         )
-        r.setGate(CoverArtGate.OPEN, "Wi-Fi")
+        r.setGate(CoverArtGate.OPEN)
         assertTrue(r.awaitIdle())
         assertTrue(temp.root.resolve("art-index-gb.txt").isFile)
         assertTrue(temp.root.resolve("art-index-gba.txt").isFile)
@@ -724,7 +709,7 @@ class CoverRepositoryTest {
         }
         val r = repo(httpGet)
         r.setGames(listOf(game("gb9", "A GAME THAT DOES NOT EXIST", "nope.gb", GameSystem.GB)))
-        r.setGate(CoverArtGate.OPEN, "Wi-Fi")
+        r.setGate(CoverArtGate.OPEN)
         assertTrue(r.awaitIdle())
         assertEquals(CoverState.NoMatch("no art in index"), r.covers.value["gb9"])
         assertEquals(0, artCalls.get())
@@ -738,7 +723,7 @@ class CoverRepositoryTest {
         val r = repo(dead)
         val g = game("gb1", "TETRIS", "tetris.gb", GameSystem.GB)
         r.setGames(listOf(g))
-        r.setGate(CoverArtGate.OPEN, "Wi-Fi")
+        r.setGate(CoverArtGate.OPEN)
         assertTrue(r.awaitIdle())
         assertEquals(IndexState.Failed("HTTP 403"), r.indexes.value[GameSystem.GB])
         assertEquals(CoverState.Failed("index gb: HTTP 403"), r.covers.value["gb1"])
@@ -758,7 +743,7 @@ class CoverRepositoryTest {
         }
         val r = repo(httpGet)
         r.setGames(listOf(game("gb1", "TETRIS", "tetris.gb", GameSystem.GB)))
-        r.setGate(CoverArtGate.OPEN, "Wi-Fi")
+        r.setGate(CoverArtGate.OPEN)
         assertTrue(r.awaitIdle())
         assertEquals(IndexState.Failed("empty index"), r.indexes.value[GameSystem.GB])
         assertEquals(
@@ -794,7 +779,7 @@ class CoverRepositoryTest {
             game("gb3", "TETRIS", "tetris2.gb", GameSystem.GB),
         )
         r.setGames(games)
-        r.setGate(CoverArtGate.OPEN, "Wi-Fi")
+        r.setGate(CoverArtGate.OPEN)
         assertTrue(r.awaitIdle())
         assertEquals(1, treeCalls.get())
         for (g in games) {
@@ -813,12 +798,10 @@ class CoverRepositoryTest {
             { _, _ -> HttpFetchResult.httpFailure(403) }
         val r = repo(httpGet)
         r.setGames(listOf(game("gb1", "TETRIS", "tetris.gb", GameSystem.GB)))
-        r.setGate(CoverArtGate.OPEN, "Wi-Fi")
+        r.setGate(CoverArtGate.OPEN)
         assertTrue(r.awaitIdle())
-        val failed = r.trace.value.filterIsInstance<CoverTraceEvent.IndexFailed>()
-        assertEquals(1, failed.size)
-        assertEquals(GameSystem.GB, failed.single().system)
-        assertTrue(failed.single().detail.contains("403"))
+        val failed = r.indexes.value[GameSystem.GB]
+        assertTrue("index failure must name the 403", failed is IndexState.Failed && failed.reason.contains("403"))
         r.close()
     }
 
@@ -830,11 +813,10 @@ class CoverRepositoryTest {
         }
         val r = repo(httpGet)
         r.setGames(listOf(game("gb1", "TETRIS", "tetris.gb", GameSystem.GB)))
-        r.setGate(CoverArtGate.OPEN, "Wi-Fi")
+        r.setGate(CoverArtGate.OPEN)
         assertTrue(r.awaitIdle())
-        val failed = r.trace.value.filterIsInstance<CoverTraceEvent.ArtFailed>()
-        assertEquals(1, failed.size)
-        assertTrue(failed.single().detail.contains("404"))
+        val failed = r.covers.value["gb1"]
+        assertTrue("art failure must name the 404", failed is CoverState.Failed && failed.reason.contains("404"))
         r.close()
     }
 
@@ -847,22 +829,17 @@ class CoverRepositoryTest {
         val r = repo(httpGet)
         val g = game("gb1", "TETRIS", "tetris.gb", GameSystem.GB)
         r.setGames(listOf(g))
-        r.setGate(CoverArtGate.OPEN, "Wi-Fi")
+        r.setGate(CoverArtGate.OPEN)
         assertTrue(r.awaitIdle())
-        val loaded = r.trace.value.filterIsInstance<CoverTraceEvent.IndexLoaded>()
-        assertEquals(1, loaded.size)
-        assertEquals(2, loaded.single().entries)
-        assertFalse(loaded.single().fromCache)
+        assertEquals(IndexState.Ready(2, fromCache = false), r.indexes.value[GameSystem.GB])
         r.close()
         // The disk cache reports fromCache on a new repository.
         assertTrue(r.coverFile(g).delete())
         val second = repo({ _, _ -> HttpFetchResult.httpFailure(403) })
         second.setGames(listOf(g))
-        second.setGate(CoverArtGate.OPEN, "Wi-Fi")
+        second.setGate(CoverArtGate.OPEN)
         assertTrue(second.awaitIdle())
-        val cached = second.trace.value.filterIsInstance<CoverTraceEvent.IndexLoaded>()
-        assertEquals(1, cached.size)
-        assertTrue(cached.single().fromCache)
+        assertEquals(IndexState.Ready(2, fromCache = true), second.indexes.value[GameSystem.GB])
         second.close()
     }
 
@@ -883,16 +860,11 @@ class CoverRepositoryTest {
         val r = repo(httpGet)
         val start = System.currentTimeMillis()
         r.setGames(listOf(game("gb1", "TETRIS", "tetris.gb", GameSystem.GB)))
-        r.setGate(CoverArtGate.OPEN, "Wi-Fi")
+        r.setGate(CoverArtGate.OPEN)
         assertTrue(r.awaitIdle())
         val elapsed = System.currentTimeMillis() - start
         assertTrue("hung art download must fail on the budget, took ${elapsed}ms", elapsed < 10_000)
         assertEquals(CoverState.Failed("timed out"), r.covers.value["gb1"])
-        assertTrue(
-            r.trace.value.any {
-                it is CoverTraceEvent.ArtFailed && it.detail == "timed out"
-            },
-        )
         r.close()
     }
 
@@ -900,7 +872,7 @@ class CoverRepositoryTest {
     fun truncatedArtDoesNotBrickTheGame() = runBlocking {
         // §1.3(a), the 2026-11-15 mechanism: a decode failure
         // left a file on disk and a memo blocked every retry,
-        // while the trace kept saying "art landed". The
+        // while the status said the cover had landed. The
         // rebuild must make that outcome impossible: bytes are
         // verified in memory before they touch disk, a failed
         // decode writes nothing, and the game re-downloads on
@@ -922,12 +894,11 @@ class CoverRepositoryTest {
         val r = repo(httpGet, decode = decode)
         val g = game("gb1", "TETRIS", "tetris.gb", GameSystem.GB)
         r.setGames(listOf(g))
-        r.setGate(CoverArtGate.OPEN, "Wi-Fi")
+        r.setGate(CoverArtGate.OPEN)
         assertTrue(r.awaitIdle())
         // Nothing was written, and the game failed loudly.
         assertFalse("a failed decode must write no file", r.coverFile(g).exists())
         assertEquals(CoverState.Failed("undecodable"), r.covers.value["gb1"])
-        assertTrue(r.trace.value.any { it is CoverTraceEvent.ArtDiscarded })
         // The good bytes arrive: the game re-downloads — no
         // memo blocks it — and reaches Ready.
         good.set(1)
@@ -956,14 +927,10 @@ class CoverRepositoryTest {
         val r = repo(httpGet)
         val g = game("gb1", "TETRIS", "tetris.gb", GameSystem.GB)
         r.setGames(listOf(g))
-        r.setGate(CoverArtGate.OPEN, "Wi-Fi")
+        r.setGate(CoverArtGate.OPEN)
         assertTrue(r.awaitIdle())
         assertTrue(r.covers.value["gb1"] is CoverState.Ready)
         assertEquals(TINY_PNG.toList(), r.coverFile(g).readBytes().toList())
-        val scan = r.trace.value.filterIsInstance<CoverTraceEvent.DiskScan>()
-        assertEquals(1, scan.size)
-        assertEquals(0, scan.single().restored)
-        assertEquals(1, scan.single().discarded)
         r.close()
     }
 
@@ -1000,7 +967,7 @@ class CoverRepositoryTest {
             game("gb2", "DR MARIO", "drmario.gb", GameSystem.GB),
         )
         r.setGames(games)
-        r.setGate(CoverArtGate.OPEN, "Wi-Fi")
+        r.setGate(CoverArtGate.OPEN)
         assertTrue(r.awaitIdle())
         assertTrue(r.covers.value["gb1"] is CoverState.Ready)
         assertTrue(r.covers.value["gb2"] is CoverState.Ready)
@@ -1010,10 +977,6 @@ class CoverRepositoryTest {
         assertEquals(2, treeCalls.get())
         assertEquals(1, artCalls.get())
         assertEquals(TINY_PNG.toList(), r.coverFile(games[1]).readBytes().toList())
-        val scan = r.trace.value.filterIsInstance<CoverTraceEvent.DiskScan>()
-        assertEquals(1, scan.size)
-        assertEquals(1, scan.single().restored)
-        assertEquals(1, scan.single().discarded)
         r.close()
     }
 
@@ -1037,7 +1000,7 @@ class CoverRepositoryTest {
         )
         try {
             r.setGames(games)
-            r.setGate(CoverArtGate.OPEN, "Wi-Fi")
+            r.setGate(CoverArtGate.OPEN)
             // GB/GBC land long before the GBA budget fires.
             val deadline = System.currentTimeMillis() + 5_000
             while (System.currentTimeMillis() < deadline) {
@@ -1087,7 +1050,7 @@ class CoverRepositoryTest {
             game("gb9", "ZZZ UNKNOWN", "zzz.gb", GameSystem.GB),
         )
         r.setGames(games)
-        r.setGate(CoverArtGate.OPEN, "Wi-Fi")
+        r.setGate(CoverArtGate.OPEN)
         assertTrue(r.awaitIdle())
         val ready = r.covers.value.values.filterIsInstance<CoverState.Ready>()
         assertEquals(1, ready.size)
@@ -1122,7 +1085,7 @@ class CoverRepositoryTest {
             game("gbc1", "DR MARIO", "drmario.gbc", GameSystem.GBC),
         )
         r.setGames(games)
-        r.setGate(CoverArtGate.OPEN, "Wi-Fi")
+        r.setGate(CoverArtGate.OPEN)
         assertTrue(r.awaitIdle())
         assertTrue(r.covers.value["gb1"] is CoverState.Ready)
         assertEquals(1, tetrisCalls.get())
@@ -1161,7 +1124,7 @@ class CoverRepositoryTest {
         // Open: the pipeline starts; close mid-download and
         // the in-flight download is cancelled — the game
         // returns to Missing, not Failed.
-        r.setGate(CoverArtGate.OPEN, "Wi-Fi")
+        r.setGate(CoverArtGate.OPEN)
         val deadline = System.currentTimeMillis() + 5_000
         while (System.currentTimeMillis() < deadline) {
             if (r.covers.value["gb1"] is CoverState.Loading) break
@@ -1172,7 +1135,7 @@ class CoverRepositoryTest {
         assertTrue(r.awaitIdle())
         assertEquals(CoverState.Missing, r.covers.value["gb1"])
         // Open again: the download completes.
-        r.setGate(CoverArtGate.OPEN, "Wi-Fi")
+        r.setGate(CoverArtGate.OPEN)
         assertTrue(r.awaitIdle())
         assertTrue(r.covers.value["gb1"] is CoverState.Ready)
         r.close()
@@ -1194,7 +1157,7 @@ class CoverRepositoryTest {
         }
         val r = repo(httpGet)
         r.setGames(listOf(game("gb1", "TETRIS", "tetris.gb", GameSystem.GB)))
-        r.setGate(CoverArtGate.OPEN, "Wi-Fi")
+        r.setGate(CoverArtGate.OPEN)
         assertTrue(r.awaitIdle())
         assertEquals(IndexState.Failed("index truncated"), r.indexes.value[GameSystem.GB])
         assertFalse("a truncated index must write no cache", temp.root.resolve("art-index-gb.txt").isFile)
@@ -1205,7 +1168,7 @@ class CoverRepositoryTest {
     fun rateLimit403IsNamed() = runBlocking {
         // The fake returns the reason the real client builds
         // from the rate-limit headers; the repository must
-        // carry it verbatim into the game state and the trace.
+        // carry it verbatim into the game state.
         // (The header parsing itself is pinned in
         // CoverArtStatusTest.rateLimitDetail.)
         val httpGet: suspend (String, Int) -> HttpFetchResult = { _, _ ->
@@ -1213,16 +1176,11 @@ class CoverRepositoryTest {
         }
         val r = repo(httpGet)
         r.setGames(listOf(game("gb1", "TETRIS", "tetris.gb", GameSystem.GB)))
-        r.setGate(CoverArtGate.OPEN, "Wi-Fi")
+        r.setGate(CoverArtGate.OPEN)
         assertTrue(r.awaitIdle())
         assertEquals(
             CoverState.Failed("index gb: HTTP 403 — rate limit, resets 15:32"),
             r.covers.value["gb1"],
-        )
-        assertTrue(
-            r.trace.value.any {
-                it is CoverTraceEvent.IndexFailed && it.detail.contains("rate limit")
-            },
         )
         r.close()
     }
@@ -1243,7 +1201,7 @@ class CoverRepositoryTest {
         val r = repo(httpGet)
         val g = game("gb1", "TETRIS", "tetris.gb", GameSystem.GB)
         r.setGames(listOf(g))
-        r.setGate(CoverArtGate.OPEN, "Wi-Fi")
+        r.setGate(CoverArtGate.OPEN)
         assertTrue(r.awaitIdle())
         val state = r.covers.value["gb1"]
         assertTrue(state is CoverState.Ready)
@@ -1252,47 +1210,12 @@ class CoverRepositoryTest {
                 "the tiles read that map, so until it is there the tile keeps its placeholder",
             (state as CoverState.Ready).bitmap,
         )
-        assertTrue(r.trace.value.any { it is CoverTraceEvent.ArtReady })
-        r.close()
-    }
-
-    // -- trace ---------------------------------------------------------------
-
-    @Test
-    fun traceRecordsLifecycleInOrder() = runBlocking {
-        val httpGet: suspend (String, Int) -> HttpFetchResult = { url, _ ->
-            when {
-                url.contains("git/trees") -> treeHttpResult(url)
-                else -> HttpFetchResult.success(TINY_PNG)
-            }
-        }
-        val r = repo(httpGet)
-        r.setGames(listOf(game("gb1", "TETRIS", "tetris.gb", GameSystem.GB)))
-        r.setGate(CoverArtGate.OPEN, "Wi-Fi")
-        assertTrue(r.awaitIdle())
-        val trace = r.trace.value
-        val kinds = trace.map { it::class.simpleName }
-        assertEquals(
-            listOf(
-                "PipelineStarted", "IndexStarted", "IndexLoaded",
-                "ArtMatched", "ArtStarted", "ArtDownloaded", "ArtDecoded", "ArtReady",
-            ),
-            kinds,
-        )
-        val text = coverTraceLines(trace, fetching = false)
-        assertTrue(text.contains("pipeline gb started"))
-        assertTrue(text.contains("index gb started"))
-        assertTrue(text.contains("index gb loaded (2 entries)"))
-        assertTrue(text.contains("art matched: TETRIS (Tetris (World).png)"))
-        assertTrue(text.contains("art downloaded: TETRIS"))
-        assertTrue(text.contains("art decoded: TETRIS (1×1)"))
-        assertTrue(text.contains("art ready: TETRIS"))
         r.close()
     }
 
     @Test
     fun throwingHttpGetFailsLoudlyInsteadOfKillingThePipeline() = runBlocking {
-        // The old trace test's throwing fetcher: the pass still
+        // The old test's throwing fetcher: the pass still
         // ended with the error named. The rebuild has no pass —
         // a throwing HTTP layer fails the index with the reason,
         // and the other system's pipeline still completes.
@@ -1314,38 +1237,174 @@ class CoverRepositoryTest {
             game("gbc1", "DR MARIO", "drmario.gbc", GameSystem.GBC),
         )
         r.setGames(games)
-        r.setGate(CoverArtGate.OPEN, "Wi-Fi")
+        r.setGate(CoverArtGate.OPEN)
         assertTrue(r.awaitIdle())
         assertEquals(IndexState.Failed("RuntimeException"), r.indexes.value[GameSystem.GB])
-        assertTrue(
-            r.trace.value.any {
-                it is CoverTraceEvent.IndexFailed && it.detail == "RuntimeException"
-            },
-        )
         // The GBC pipeline was not killed by the GB throw.
         assertTrue(r.covers.value["gbc1"] is CoverState.Ready)
         r.close()
     }
 
+    // -- fetch only on new games (alpha.9, part B) ---------------------------
+
     @Test
-    fun traceIsCappedAtOneHundred() = runBlocking {
+    fun secondOpenWithNoNewGamesMakesNoNetworkCalls() = runBlocking {
+        // Covers fetch ONLY when new games (or a new folder)
+        // are added. A second open with the same library makes
+        // no network call at all: the Ready game restores from
+        // disk, the NoMatch and Failed games restore from the
+        // persisted attempts.
+        val calls = AtomicInteger(0)
         val httpGet: suspend (String, Int) -> HttpFetchResult = { url, _ ->
+            calls.incrementAndGet()
             when {
                 url.contains("git/trees") -> treeHttpResult(url)
+                url.contains("Dr. Mario") -> HttpFetchResult.httpFailure(404)
                 else -> HttpFetchResult.success(TINY_PNG)
             }
         }
-        val r = repo(httpGet)
-        // 20 games × 5 art events + the pipeline/index trio =
-        // 103 events; the trace keeps the newest 100.
-        val games = (0 until 20).map { i ->
-            game("gb$i", if (i % 2 == 0) "TETRIS" else "DR MARIO", "game$i.gb", GameSystem.GB)
+        val games = listOf(
+            game("gb1", "TETRIS", "tetris.gb", GameSystem.GB),
+            game("gb2", "DR MARIO", "drmario.gb", GameSystem.GB),
+            game("gb3", "METROID", "metroid.gb", GameSystem.GB),
+        )
+        val first = repo(httpGet)
+        first.setGames(games)
+        first.setGate(CoverArtGate.OPEN)
+        assertTrue(first.awaitIdle())
+        assertTrue(first.covers.value["gb1"] is CoverState.Ready)
+        assertEquals(CoverState.Failed("HTTP 404"), first.covers.value["gb2"])
+        assertEquals(CoverState.NoMatch("no art in index"), first.covers.value["gb3"])
+        assertTrue("first open must fetch", calls.get() > 0)
+        first.close()
+        // A second repository on the same root is a second app
+        // open: same filesDir, fresh in-memory state.
+        calls.set(0)
+        val second = repo(httpGet)
+        second.setGames(games)
+        second.setGate(CoverArtGate.OPEN)
+        assertTrue(second.awaitIdle())
+        assertTrue(second.covers.value["gb1"] is CoverState.Ready)
+        assertEquals(CoverState.Failed("HTTP 404"), second.covers.value["gb2"])
+        assertEquals(CoverState.NoMatch("no art in index"), second.covers.value["gb3"])
+        assertEquals("second open with no new games must fetch nothing", 0, calls.get())
+        second.close()
+    }
+
+    @Test
+    fun noMatchIsNotReattemptedOnSecondOpen() = runBlocking {
+        val calls = AtomicInteger(0)
+        val httpGet: suspend (String, Int) -> HttpFetchResult = { url, _ ->
+            calls.incrementAndGet()
+            if (url.contains("git/trees")) treeHttpResult(url)
+            else HttpFetchResult.success(TINY_PNG)
         }
-        r.setGames(games)
-        r.setGate(CoverArtGate.OPEN, "Wi-Fi")
+        val g = game("gb1", "METROID", "metroid.gb", GameSystem.GB)
+        val first = repo(httpGet)
+        first.setGames(listOf(g))
+        first.setGate(CoverArtGate.OPEN)
+        assertTrue(first.awaitIdle())
+        assertEquals(CoverState.NoMatch("no art in index"), first.covers.value["gb1"])
+        assertTrue("first open must download the index", calls.get() > 0)
+        first.close()
+        calls.set(0)
+        val second = repo(httpGet)
+        second.setGames(listOf(g))
+        second.setGate(CoverArtGate.OPEN)
+        assertTrue(second.awaitIdle())
+        assertEquals(CoverState.NoMatch("no art in index"), second.covers.value["gb1"])
+        assertEquals(0, calls.get())
+        second.close()
+    }
+
+    @Test
+    fun failedIsNotReattemptedUntilRetry() = runBlocking {
+        val artCalls = AtomicInteger(0)
+        val httpGet: suspend (String, Int) -> HttpFetchResult = { url, _ ->
+            when {
+                url.contains("git/trees") -> treeHttpResult(url)
+                else -> {
+                    artCalls.incrementAndGet()
+                    HttpFetchResult.httpFailure(404)
+                }
+            }
+        }
+        val g = game("gb1", "TETRIS", "tetris.gb", GameSystem.GB)
+        val first = repo(httpGet)
+        first.setGames(listOf(g))
+        first.setGate(CoverArtGate.OPEN)
+        assertTrue(first.awaitIdle())
+        assertEquals(CoverState.Failed("HTTP 404"), first.covers.value["gb1"])
+        assertEquals(1, artCalls.get())
+        first.close()
+        artCalls.set(0)
+        val second = repo(httpGet)
+        second.setGames(listOf(g))
+        second.setGate(CoverArtGate.OPEN)
+        assertTrue(second.awaitIdle())
+        assertEquals(CoverState.Failed("HTTP 404"), second.covers.value["gb1"])
+        assertEquals("a recorded failure must not re-fetch on open", 0, artCalls.get())
+        // An explicit retry re-attempts it — and clears the
+        // record, so a further failure is recorded again.
+        second.retryFailed()
+        assertTrue(second.awaitIdle())
+        assertEquals(1, artCalls.get())
+        assertEquals(CoverState.Failed("HTTP 404"), second.covers.value["gb1"])
+        second.close()
+    }
+
+    @Test
+    fun newGameAddedWhileOfflineFetchesWhenWifiAppears() = runBlocking {
+        val calls = AtomicInteger(0)
+        val httpGet: suspend (String, Int) -> HttpFetchResult = { url, _ ->
+            calls.incrementAndGet()
+            if (url.contains("git/trees")) treeHttpResult(url)
+            else HttpFetchResult.success(TINY_PNG)
+        }
+        val r = repo(httpGet)
+        val g1 = game("gb1", "TETRIS", "tetris.gb", GameSystem.GB)
+        r.setGames(listOf(g1))
+        r.setGate(CoverArtGate.NO_NETWORK)
         assertTrue(r.awaitIdle())
-        assertEquals(MAX_TRACE_EVENTS, r.trace.value.size)
-        assertEquals(100, MAX_TRACE_EVENTS)
+        assertEquals(CoverState.Missing, r.covers.value["gb1"])
+        assertEquals(0, calls.get())
+        // A new game arrives while offline: still Missing,
+        // still no fetch.
+        val g2 = game("gb2", "DR MARIO", "drmario.gb", GameSystem.GB)
+        r.setGames(listOf(g1, g2))
+        assertTrue(r.awaitIdle())
+        assertEquals(CoverState.Missing, r.covers.value["gb2"])
+        assertEquals(0, calls.get())
+        // Wi-Fi appears: both fetch.
+        r.setGate(CoverArtGate.OPEN)
+        assertTrue(r.awaitIdle())
+        assertTrue(r.covers.value["gb1"] is CoverState.Ready)
+        assertTrue(r.covers.value["gb2"] is CoverState.Ready)
+        assertTrue(calls.get() > 0)
+        r.close()
+    }
+
+    @Test
+    fun systemWithNoMissingGamesDownloadsNoIndexOnGateOpen() = runBlocking {
+        // The index is not persisted across opens as a loaded
+        // state: without the skip, opening the gate would
+        // re-download a never-loaded index even when no game
+        // needs it — a game with a cover file on disk is Ready
+        // with no fetch, and nothing else is Missing.
+        val calls = AtomicInteger(0)
+        val httpGet: suspend (String, Int) -> HttpFetchResult = { url, _ ->
+            calls.incrementAndGet()
+            if (url.contains("git/trees")) treeHttpResult(url)
+            else HttpFetchResult.success(TINY_PNG)
+        }
+        val coversDir = File(temp.root, "covers").apply { mkdirs() }
+        File(coversDir, "gb1.png").writeBytes(TINY_PNG)
+        val r = repo(httpGet)
+        r.setGames(listOf(game("gb1", "TETRIS", "tetris.gb", GameSystem.GB)))
+        r.setGate(CoverArtGate.OPEN)
+        assertTrue(r.awaitIdle())
+        assertTrue(r.covers.value["gb1"] is CoverState.Ready)
+        assertEquals(0, calls.get())
         r.close()
     }
 }
