@@ -101,6 +101,9 @@ fun LibraryScreen(
     val indexes by repository.indexes.collectAsState()
     val gate by repository.gate.collectAsState()
     val trace by repository.trace.collectAsState()
+    // Alpha.9 — the user's own covers: a tile shows the
+    // custom image when one exists, fetched art otherwise.
+    val customCovers by repository.customCovers.collectAsState()
     val fetching = indexes.values.any { it is IndexState.Loading } ||
         covers.values.any { it is CoverState.Loading }
     // Phase 6 (item 5) — playtime totals for the rows; the store
@@ -256,6 +259,39 @@ fun LibraryScreen(
             }
             message = if (ok) "${kind.label} BIOS installed." else "Could not read that file."
             refresh()
+        }
+    }
+
+    // The game the custom-cover dialog is open for (alpha.9),
+    // and the game whose cover the picker is choosing for. The
+    // picker is async, so the dialog must be dismissed before
+    // it opens and the target kept separately.
+    var coverDialogGame by remember { mutableStateOf<LibraryGame?>(null) }
+    var pendingCoverGame by remember { mutableStateOf<LibraryGame?>(null) }
+    val pickCover = rememberLauncherForActivityResult(
+        ActivityResultContracts.PickVisualMedia(),
+    ) { uri: Uri? ->
+        val game = pendingCoverGame ?: return@rememberLauncherForActivityResult
+        pendingCoverGame = null
+        if (uri == null) return@rememberLauncherForActivityResult
+        scope.launch {
+            val bytes = withContext(Dispatchers.IO) {
+                runCatching {
+                    context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
+                }.getOrNull()
+            }
+            if (bytes == null) {
+                message = "Could not read the image."
+                return@launch
+            }
+            val ok = withContext(Dispatchers.IO) {
+                repository.setCustomCover(game, bytes)
+            }
+            message = if (ok) {
+                "Cover set for ${game.title}."
+            } else {
+                "That image could not be used as a cover."
+            }
         }
     }
 
@@ -425,24 +461,29 @@ fun LibraryScreen(
                     // The tile reads its decoded bitmap from the
                     // repository's covers map, so a landed cover
                     // redraws only this row — no global key.
+                    // Custom art (alpha.9) wins over fetched art.
                     GameRow(
                         game = game,
-                        coverBitmap = (covers[game.id] as? CoverState.Ready)?.bitmap,
+                        coverBitmap = customCovers[game.id]
+                            ?: (covers[game.id] as? CoverState.Ready)?.bitmap,
                         onPlay = { onPlay(game) },
                         onRemove = { pendingRemove = game },
                         playtimeSeconds = playtimes[game.id] ?: 0L,
                         onSaveManager = { onSaveManager(game) },
+                        onCover = { coverDialogGame = game },
                     )
                 }
             } else {
                 items(shown, key = { it.id }) { game ->
                     GameGridCell(
                         game = game,
-                        coverBitmap = (covers[game.id] as? CoverState.Ready)?.bitmap,
+                        coverBitmap = customCovers[game.id]
+                            ?: (covers[game.id] as? CoverState.Ready)?.bitmap,
                         onPlay = { onPlay(game) },
                         onRemove = { pendingRemove = game },
                         playtimeSeconds = playtimes[game.id] ?: 0L,
                         onSaveManager = { onSaveManager(game) },
+                        onCover = { coverDialogGame = game },
                     )
                 }
             }
@@ -604,6 +645,55 @@ fun LibraryScreen(
                     Text("Cancel")
                 }
             },
+        )
+    }
+
+    // The custom-cover dialog (alpha.9): set the game's cover
+    // from the system photo picker, or remove the custom cover
+    // and fall back to fetched art (or the placeholder when the
+    // game has none). Removing never touches fetched art.
+    coverDialogGame?.let { game ->
+        AlertDialog(
+            onDismissRequest = { coverDialogGame = null },
+            title = { Text("Cover for ${game.title}") },
+            text = {
+                Text(
+                    if (repository.hasCustomCover(game)) {
+                        "This game has a custom cover. Set a new one, or remove it to go back to the fetched cover."
+                    } else {
+                        "Pick an image to use as this game's cover. It works for games with no boxart to fetch, too."
+                    },
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    pendingCoverGame = game
+                    coverDialogGame = null
+                    pickCover.launch(
+                        ActivityResultContracts.PickVisualMedia
+                            .ImageOnly,
+                    )
+                }) {
+                    Text("Set cover")
+                }
+            },
+            dismissButton = {
+                Row {
+                    if (repository.hasCustomCover(game)) {
+                        TextButton(onClick = {
+                            repository.removeCustomCover(game)
+                            message = "Custom cover removed for ${game.title}."
+                            coverDialogGame = null
+                        }) {
+                            Text("Remove custom cover")
+                        }
+                    }
+                    TextButton(onClick = { coverDialogGame = null }) {
+                        Text("Cancel")
+                    }
+                }
+            },
+            modifier = Modifier.testTag("cover-dialog"),
         )
     }
 }

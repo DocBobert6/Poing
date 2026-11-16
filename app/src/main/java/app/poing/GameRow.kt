@@ -108,6 +108,8 @@ fun GameRow(
     playtimeSeconds: Long = 0,
     // Phase 6 (item 5) — open the Save Manager for this game.
     onSaveManager: () -> Unit = {},
+    // Alpha.9 — open the custom-cover dialog for this game.
+    onCover: () -> Unit = {},
 ) {
     Row(
         modifier = Modifier
@@ -136,6 +138,12 @@ fun GameRow(
                 )
             }
         }
+        TextButton(
+            onClick = onCover,
+            modifier = Modifier.testTag("game-cover"),
+        ) {
+            Text("Cover")
+        }
         TextButton(onClick = onSaveManager) {
             Text("Saves")
         }
@@ -159,6 +167,8 @@ fun GameGridCell(
     onRemove: () -> Unit,
     playtimeSeconds: Long = 0,
     onSaveManager: () -> Unit = {},
+    // Alpha.9 — open the custom-cover dialog for this game.
+    onCover: () -> Unit = {},
 ) {
     Column(
         modifier = Modifier
@@ -195,6 +205,12 @@ fun GameGridCell(
         Row(
             horizontalArrangement = Arrangement.Center,
         ) {
+            TextButton(
+                onClick = onCover,
+                modifier = Modifier.testTag("game-cover"),
+            ) {
+                Text("Cover")
+            }
             TextButton(onClick = onSaveManager) {
                 Text("Saves")
             }

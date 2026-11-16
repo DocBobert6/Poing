@@ -18,6 +18,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.yield
+import java.io.ByteArrayOutputStream
 import java.io.File
 import java.net.HttpURLConnection
 import java.net.URL
@@ -489,7 +490,29 @@ class CoverRepository(
     val gate: StateFlow<CoverArtGate?> get() = _gate.asStateFlow()
     private val _gate = MutableStateFlow<CoverArtGate?>(null)
 
+    /**
+     * Custom art (alpha.9): the user's own image per game,
+     * game id → bitmap. Tiles prefer this over fetched art.
+     * It lives in its own directory (`custom-covers/`, see
+     * below), so a re-fetch can never clobber it — the
+     * fetched pipeline neither reads nor writes there.
+     */
+    val customCovers: StateFlow<Map<String, Bitmap>> get() = _customCovers.asStateFlow()
+    private val _customCovers = MutableStateFlow<Map<String, Bitmap>>(emptyMap())
+
+    // Decoded custom bitmaps, keyed by game id: the
+    // in-memory authority for the session, filled by the
+    // startup scan (from disk) and by [setCustomCover].
+    // The published flow is derived from this map, so a
+    // game that leaves the library and returns re-publishes
+    // without touching disk.
+    private val customBitmaps = ConcurrentHashMap<String, Bitmap>()
+
     private val coversDirFile: File by lazy { File(root, "covers").apply { mkdirs() } }
+
+    private val customCoversDirFile: File by lazy {
+        File(root, "custom-covers").apply { mkdirs() }
+    }
 
     // The parsed index, cached in memory for the repository's
     // lifetime. Failures are not cached, so a transient failure
@@ -567,6 +590,13 @@ class CoverRepository(
         knownGames.clear()
         knownGames.putAll(byId)
         _covers.update { cur -> cur.filterKeys { it in byId } }
+        // Custom art (alpha.9): the published map follows
+        // the library — a game that returns re-publishes its
+        // cover from the in-memory map, a game that left
+        // drops from the flow. The file stays on disk either
+        // way, so a removed game that is re-imported gets
+        // its cover back for free.
+        _customCovers.value = customBitmaps.filterKeys { it in byId.keys }
         for (game in games) {
             if (_covers.value[game.id] != null) continue
             val disk = diskBitmaps[game.id]
@@ -667,6 +697,65 @@ class CoverRepository(
         if (_gate.value == CoverArtGate.OPEN) ensurePipeline(system)
     }
 
+    /**
+     * Set the user's own cover for a game (alpha.9): the
+     * picked image is decoded in memory — downsampled to
+     * 512px on a side, the same gate as fetched art — and
+     * stored as a PNG in `custom-covers/`, never in
+     * `covers/`, so a re-fetch can never replace it. False
+     * when the bytes are not a decodable image or the write
+     * fails; nothing is written then, and the previous
+     * custom cover (if any) stays.
+     */
+    suspend fun setCustomCover(game: LibraryGame, bytes: ByteArray): Boolean {
+        val bitmap = try {
+            decode(bytes)
+        } catch (_: Exception) {
+            null
+        } ?: return false
+        val pngBytes = try {
+            ByteArrayOutputStream().also { out ->
+                if (!bitmap.compress(Bitmap.CompressFormat.PNG, 100, out)) return false
+            }.toByteArray()
+        } catch (_: Exception) {
+            return false
+        }
+        if (pngBytes.isEmpty()) return false
+        return try {
+            val file = customCoverFile(game)
+            val tmp = File(customCoversDir(), "${game.id}.png.tmp")
+            tmp.writeBytes(pngBytes)
+            if (!tmp.renameTo(file)) {
+                tmp.delete()
+                file.writeBytes(pngBytes)
+            }
+            customBitmaps[game.id] = bitmap
+            _customCovers.update { it + (game.id to bitmap) }
+            true
+        } catch (_: Exception) {
+            false
+        }
+    }
+
+    /**
+     * Remove the user's cover for a game: the file goes and
+     * the tile falls back to fetched art — or the placeholder
+     * when the game has none. The fetched file is untouched.
+     */
+    fun removeCustomCover(game: LibraryGame) {
+        runCatching { customCoverFile(game).delete() }
+        customBitmaps.remove(game.id)
+        _customCovers.update { it - game.id }
+    }
+
+    /** True when the user has set their own cover for this game. */
+    fun hasCustomCover(game: LibraryGame): Boolean = _customCovers.value.containsKey(game.id)
+
+    /** The user's cover file for a game, whether it exists or not. */
+    fun customCoverFile(game: LibraryGame): File = File(customCoversDir(), "${game.id}.png")
+
+    fun customCoversDir(): File = customCoversDirFile
+
     /** The cover file for a game, whether it exists or not. */
     fun coverFile(game: LibraryGame): File = File(coversDir(), "${game.id}.png")
 
@@ -704,32 +793,55 @@ class CoverRepository(
      */
     private fun scanDisk() {
         try {
-            val files = coversDirFile.listFiles()
-                ?.filter { it.isFile && it.name.endsWith(".png", ignoreCase = true) }
-                ?: emptyList()
-            var restored = 0
-            var discarded = 0
-            for (file in files) {
-                val id = file.nameWithoutExtension
-                val bytes = runCatching { file.readBytes() }.getOrNull()
-                val bitmap = bytes?.let { runCatching { decode(it) }.getOrNull() }
-                if (bitmap != null) {
-                    diskBitmaps[id] = bitmap
-                    restored++
-                } else {
-                    runCatching { file.delete() }
-                    discarded++
-                }
-            }
+            val (restored, discarded) = scanCoverDir(coversDirFile, diskBitmaps)
             if (restored > 0 || discarded > 0) {
                 recordTrace(
                     CoverTraceEvent.DiskScan(System.currentTimeMillis(), restored, discarded),
                 )
             }
+            // Custom art (alpha.9): the same verify-before-
+            // trust rule — a file that decodes IS a custom
+            // cover, a file that does not is deleted and its
+            // game falls back to fetched art. No trace event:
+            // the scan's counts are the fetched covers'.
+            scanCoverDir(customCoversDirFile, customBitmaps)
+            if (customBitmaps.isNotEmpty()) {
+                _customCovers.value = customBitmaps.toMap()
+            }
         } catch (_: Exception) {
             // A failed scan must not take the repository down:
             // the games simply fetch from the network instead.
         }
+    }
+
+    /**
+     * Verify every file in one cover directory: a file that
+     * decodes is kept (its bitmap waits in [into] for the
+     * first setGames); a file that does not is deleted.
+     * Returns (restored, discarded).
+     */
+    private fun scanCoverDir(
+        dir: File,
+        into: MutableMap<String, Bitmap>,
+    ): Pair<Int, Int> {
+        val files = dir.listFiles()
+            ?.filter { it.isFile && it.name.endsWith(".png", ignoreCase = true) }
+            ?: emptyList()
+        var restored = 0
+        var discarded = 0
+        for (file in files) {
+            val id = file.nameWithoutExtension
+            val bytes = runCatching { file.readBytes() }.getOrNull()
+            val bitmap = bytes?.let { runCatching { decode(it) }.getOrNull() }
+            if (bitmap != null) {
+                into[id] = bitmap
+                restored++
+            } else {
+                runCatching { file.delete() }
+                discarded++
+            }
+        }
+        return restored to discarded
     }
 
     private fun ensurePipelines() {
