@@ -146,4 +146,82 @@ class GameRowTest {
         composeRule.onNodeWithText("TETRIS", useUnmergedTree = true).performClick()
         assertTrue(played)
     }
+
+    /**
+     * Alpha.22 — the library row shows the game's achievement
+     * progress ("Achievements 3/12") once its set has loaded,
+     * and nothing when it has never loaded — never a
+     * misleading 0/N.
+     */
+    private fun progress() = RaHubGame(
+        id = "abc123",
+        title = "TETRIS",
+        total = 12,
+        unlocked = 3,
+        pointsEarned = 30,
+        pointsTotal = 120,
+        lastPlayed = 0L,
+    )
+
+    @Test
+    fun rowShowsRaProgressWhenSetLoaded() {
+        composeRule.setContent {
+            PoingTheme {
+                GameRow(
+                    game = game(),
+                    coverBitmap = null,
+                    onPlay = {},
+                    onRemove = {},
+                    raProgress = progress(),
+                )
+            }
+        }
+        composeRule.onNodeWithText("Achievements 3/12").assertIsDisplayed()
+    }
+
+    @Test
+    fun rowShowsNoRaProgressWhenNeverLoaded() {
+        composeRule.setContent {
+            PoingTheme {
+                GameRow(
+                    game = game(),
+                    coverBitmap = null,
+                    onPlay = {},
+                    onRemove = {},
+                )
+            }
+        }
+        composeRule.onAllNodesWithText("Achievements", substring = true).assertCountEquals(0)
+    }
+
+    @Test
+    fun gridCellShowsRaProgressWhenSetLoaded() {
+        composeRule.setContent {
+            PoingTheme {
+                GameGridCell(
+                    game = game(),
+                    coverBitmap = null,
+                    onPlay = {},
+                    onRemove = {},
+                    raProgress = progress(),
+                )
+            }
+        }
+        composeRule.onNodeWithText("Achievements 3/12").assertIsDisplayed()
+    }
+
+    @Test
+    fun gridCellShowsNoRaProgressWhenNeverLoaded() {
+        composeRule.setContent {
+            PoingTheme {
+                GameGridCell(
+                    game = game(),
+                    coverBitmap = null,
+                    onPlay = {},
+                    onRemove = {},
+                )
+            }
+        }
+        composeRule.onAllNodesWithText("Achievements", substring = true).assertCountEquals(0)
+    }
 }

@@ -106,6 +106,11 @@ fun GameRow(
     // Phase 6 (item 5) — seconds played, shown as "Played 2h 5m"
     // when the game has been played at all.
     playtimeSeconds: Long = 0,
+    // Alpha.22 — the game's cached achievement set from the hub
+    // store (unlocked/total), shown as "Achievements 3/12" once
+    // the set has loaded at least once. Null (never loaded, or
+    // no set) shows nothing — never a misleading 0/N.
+    raProgress: RaHubGame? = null,
     // Phase 6 (item 5) — open the Save Manager for this game.
     onSaveManager: () -> Unit = {},
     // Alpha.9 — open the custom-cover dialog for this game.
@@ -133,6 +138,13 @@ fun GameRow(
                 // save-state times (DSEG7 has no letters for "h"/"m").
                 Text(
                     "Played ${formatPlaytime(playtimeSeconds)}",
+                    style = segmentTextStyle14(),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            if (raProgress != null && raProgress.total > 0) {
+                Text(
+                    "Achievements ${raProgress.unlocked}/${raProgress.total}",
                     style = segmentTextStyle14(),
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -166,6 +178,8 @@ fun GameGridCell(
     onPlay: () -> Unit,
     onRemove: () -> Unit,
     playtimeSeconds: Long = 0,
+    // Alpha.22 — the game's cached achievement set, as in the row.
+    raProgress: RaHubGame? = null,
     onSaveManager: () -> Unit = {},
     // Alpha.9 — open the custom-cover dialog for this game.
     onCover: () -> Unit = {},
@@ -198,6 +212,13 @@ fun GameGridCell(
         if (playtimeSeconds > 0) {
             Text(
                 "Played ${formatPlaytime(playtimeSeconds)}",
+                style = segmentTextStyle14(),
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        if (raProgress != null && raProgress.total > 0) {
+            Text(
+                "Achievements ${raProgress.unlocked}/${raProgress.total}",
                 style = segmentTextStyle14(),
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )

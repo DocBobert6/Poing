@@ -1,6 +1,8 @@
 package app.poing
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.padding
@@ -12,8 +14,10 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.delay
 
 /**
@@ -29,8 +33,63 @@ import kotlinx.coroutines.delay
  * attempt value for the board being played ("Attempt: …"),
  * shown under the top bar while an attempt runs and hidden while
  * paused. All three are reads of RaClient's state — no polling,
- * the native layer pushes the events.
+ * the native layer pushes the events. Alpha.22 adds the game
+ * indicator (RaGameIndicator): the persistent RA state chip
+ * under the top bar — loaded count, unrecognised ROM, or a
+ * failed load with a Retry.
  */
+/**
+ * Alpha.22 — the in-game RetroAchievements indicator: one small
+ * gold chip under the top bar (next to the tracker line) that
+ * shows the loaded game's RA state while playing, in the same
+ * gold-on-dark chip style as the unlock popup. It is state, not
+ * an event, so it never auto-clears — and it is hidden while
+ * paused, like the popup and the tracker (the Pause menu's
+ * Achievements entry carries the state then), and hidden
+ * entirely when logged out (logged out, achievements are simply
+ * inactive — no errors, no nagging).
+ *
+ * Loaded shows the count ("RA 3/12", the same unlocked/total
+ * the hub snapshots) — or "RA: no achievements" when the set
+ * loaded but is genuinely empty. Unrecognised and Failed are
+ * different chips, never the same line: an unrecognised ROM
+ * has no set to retry for, while a failed load offers a manual
+ * Retry on the chip itself (no auto-retry).
+ */
+@Composable
+fun RaGameIndicator(paused: Boolean) {
+    if (paused || !RaClient.loggedIn) return
+    val state = RaClient.gameLoadState
+    if (state == RaGameLoadState.Idle) return
+    val failed = state == RaGameLoadState.Failed
+    val text = when (state) {
+        RaGameLoadState.Loading -> "RA: loading…"
+        RaGameLoadState.Loaded -> {
+            val total = RaClient.achievements.size
+            if (total == 0) "RA: no achievements"
+            else "RA ${RaClient.achievements.count { it.isUnlocked }}/$total"
+        }
+        RaGameLoadState.Unrecognised -> "RA: unrecognised ROM"
+        RaGameLoadState.Failed -> "RA: load failed — Retry"
+        RaGameLoadState.Idle -> return
+    }
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier
+            .testTag("ra-indicator")
+            .then(if (failed) Modifier.clickable { RaClient.retryLoadGame() } else Modifier)
+            .background(Color(0xFF1A1A1A), RoundedCornerShape(4.dp))
+            .padding(horizontal = 12.dp, vertical = 6.dp),
+    ) {
+        Text(
+            text = text,
+            color = Color(0xFFC9A227),
+            fontWeight = FontWeight.Bold,
+            fontSize = 13.sp,
+        )
+    }
+}
+
 @Composable
 fun RaUnlockPopup(paused: Boolean) {
     val unlock = RaClient.lastUnlock
@@ -48,7 +107,9 @@ fun RaUnlockPopup(paused: Boolean) {
         // The badge comes from the refreshed list (onUnlocked
         // refreshes it before the popup shows), so the chip
         // carries the achievement's own image, not just its
-        // name.
+        // name. Alpha.22 — the chip is richer: the description
+        // joins the title and the points (the hub already shows
+        // all three; the popup showed only two).
         val badgeUrl = RaClient.achievements.find { it.id == unlock.id }?.badgeUrl
         Row(
             verticalAlignment = Alignment.CenterVertically,
@@ -64,11 +125,20 @@ fun RaUnlockPopup(paused: Boolean) {
                 contentDescription = "Badge for ${unlock.title}",
             )
             Spacer(Modifier.width(8.dp))
-            Text(
-                text = "Achievement Unlocked: ${unlock.title} (+${unlock.points} pts)",
-                color = Color(0xFFC9A227),
-                fontWeight = FontWeight.Bold,
-            )
+            Column {
+                Text(
+                    text = "Achievement Unlocked: ${unlock.title} (+${unlock.points} pts)",
+                    color = Color(0xFFC9A227),
+                    fontWeight = FontWeight.Bold,
+                )
+                if (unlock.description.isNotEmpty()) {
+                    Text(
+                        text = unlock.description,
+                        color = Color(0xFFC9C9CE),
+                        fontSize = 13.sp,
+                    )
+                }
+            }
         }
     }
 }

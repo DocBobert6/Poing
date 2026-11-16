@@ -54,6 +54,24 @@ data class RaUnlock(
     val points: Int,
 )
 
+/**
+ * Alpha.22 — the state of one game's achievement-set load, so
+ * the player can tell the three outcomes apart instead of
+ * seeing the same "no achievements" line for all of them:
+ * [Idle] (no load attempted yet), [Loading] (in flight, or
+ * waiting on a login still in flight), [Loaded] (the set is
+ * in), [Unrecognised] (the server has no set for this ROM's
+ * hash), [Failed] (the load itself failed — network, server,
+ * timeout — and a retry may work).
+ */
+enum class RaGameLoadState {
+    Idle,
+    Loading,
+    Loaded,
+    Unrecognised,
+    Failed,
+}
+
 object RaClient {
     private const val TAG = "Poing"
 
@@ -86,6 +104,35 @@ object RaClient {
     /** The achievements list for the loaded game (empty when none). */
     var achievements by mutableStateOf<List<RaAchievement>>(emptyList())
         private set
+
+    /**
+     * Alpha.22 — the state of the current game's set load (see
+     * [RaGameLoadState]). Read by the in-game indicator and the
+     * achievements screen; the load callback is the only writer
+     * besides [loadGame] and the quit/logout resets.
+     */
+    var gameLoadState by mutableStateOf(RaGameLoadState.Idle)
+        private set
+
+    /**
+     * Alpha.22 — the raw error the load callback carried when
+     * [gameLoadState] is [RaGameLoadState.Failed] (null
+     * otherwise). Shown nowhere verbatim — the screens use the
+     * state, not the string — but kept so a later diagnostic
+     * can name the cause.
+     */
+    var gameLoadError by mutableStateOf<String?>(null)
+        private set
+
+    /**
+     * Alpha.22 — the error rcheevos reports when the server has
+     * no set for the ROM's hash: rc_client_load_error with
+     * RC_NO_GAME_LOADED and this message (vendored rcheevos
+     * 12.5.0, deps/rcheevos/src/rc_client.c:2613 and 2625).
+     * Any other load error means the load itself failed, not
+     * that the ROM is unrecognised.
+     */
+    const val UNKNOWN_GAME_ERROR = "Unknown game"
 
     /** The latest unlock, shown as the popup until cleared. */
     var lastUnlock by mutableStateOf<RaUnlock?>(null)
@@ -162,6 +209,16 @@ object RaClient {
      * The hub cache is keyed on it.
      */
     private var currentGameBase: String? = null
+
+    /**
+     * Alpha.22 — the full path of the game whose set is loaded
+     * (or being loaded), so a failed load can be retried without
+     * the player relaunching the game. Set in [loadGame] next to
+     * [currentGameBase]; cleared when the game quits or the user
+     * logs out, but NOT when the load fails — the retry needs
+     * it. (The load failure clears [currentGameBase], not this.)
+     */
+    private var currentGamePath: String? = null
 
     /**
      * The game whose achievements are waiting on a login still
@@ -263,6 +320,9 @@ object RaClient {
         pendingProgress = null
         pendingProgressReset = false
         currentGameBase = null
+        currentGamePath = null
+        gameLoadState = RaGameLoadState.Idle
+        gameLoadError = null
         session?.clear()
         loggedIn = false
         loginPending = false
@@ -288,6 +348,16 @@ object RaClient {
         // game is known the moment it starts, even when the
         // login is still in flight (the load waits on it).
         currentGameBase = java.io.File(gamePath).nameWithoutExtension
+        currentGamePath = gamePath
+        // Alpha.22 — the load state is set before the
+        // initialised check too, so a retry is observable as a
+        // re-attempt (Loading) even where the native layer is
+        // absent. In production the state is invisible while RA
+        // is uninitialised: the indicator is gated on logged-in
+        // (which needs a successful init), and the achievements
+        // screen shows the login prompt first.
+        gameLoadState = RaGameLoadState.Loading
+        gameLoadError = null
         if (!initialised) return
         if (!loggedIn) {
             // The login is still in flight (a stored-token
@@ -318,11 +388,28 @@ object RaClient {
         pendingProgress = null
         pendingProgressReset = false
         currentGameBase = null
+        currentGamePath = null
+        gameLoadState = RaGameLoadState.Idle
+        gameLoadError = null
         gameTitle = null
         gameLoaded = false
         achievements = emptyList()
         lastUnlock = null
         clearLeaderboardState()
+    }
+
+    /**
+     * Alpha.22 — re-attempt the current game's set load after a
+     * failure. A manual retry only: nothing auto-retries (a
+     * failed load must not loop against the server). A no-op
+     * with no game, or when the load did not fail — retrying an
+     * unrecognised ROM would only repeat the same answer, and
+     * retrying a loaded set is meaningless.
+     */
+    fun retryLoadGame() {
+        val path = currentGamePath ?: return
+        if (gameLoadState != RaGameLoadState.Failed) return
+        loadGame(path)
     }
 
     /** Clear the per-game leaderboard and rich presence state (logout and game quit). */
@@ -621,6 +708,8 @@ object RaClient {
     fun onLoadGameResult(success: Boolean, error: String?) {
         gameLoaded = success
         if (success) {
+            gameLoadState = RaGameLoadState.Loaded
+            gameLoadError = null
             gameTitle = Bridge.nativeRaGameTitle()
             refreshAchievements()
             refreshLeaderboards()
@@ -637,6 +726,23 @@ object RaClient {
             if (bytes != null) deserializeProgress(bytes)
             else if (reset) resetProgress()
         } else {
+            // Alpha.22 — the failure is classified, not just
+            // dropped: rcheevos reports "Unknown game" when the
+            // server has no set for the ROM's hash (see
+            // UNKNOWN_GAME_ERROR), and anything else — a
+            // transport failure, a server error, no response —
+            // means the load itself failed and a retry may work.
+            // The old code dropped the error entirely, so both
+            // cases surfaced as the same "no achievements"
+            // line. The retry path ([currentGamePath]) survives
+            // the failure; the hub key does not.
+            if (error == UNKNOWN_GAME_ERROR) {
+                gameLoadState = RaGameLoadState.Unrecognised
+                gameLoadError = null
+            } else {
+                gameLoadState = RaGameLoadState.Failed
+                gameLoadError = error
+            }
             currentGameBase = null
             gameTitle = null
             achievements = emptyList()

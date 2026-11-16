@@ -150,9 +150,21 @@ fun LibraryScreen(
     // whole playtime.properties per row.
     var playtimes by remember { mutableStateOf(playtime.all()) }
 
+    // Alpha.22 — per-game achievement progress for the rows,
+    // from the hub store's cached sets (the same snapshots the
+    // Achievement Center shows, keyed by the game id — the ROM
+    // SHA-256 the library names the file by). Read once per
+    // refresh, like the playtimes, so a finished session's
+    // unlocks show when the player quits back here. A game with
+    // no cached set simply has no entry — the row shows nothing,
+    // never a misleading 0/N.
+    val hubStore = remember { RaHubStore(context.filesDir) }
+    var hubGames by remember { mutableStateOf(hubStore.load().games.associateBy { it.id }) }
+
     fun refresh() {
         games = store.list()
         playtimes = playtime.all()
+        hubGames = hubStore.load().games.associateBy { it.id }
         biosInstalled = BiosKind.entries.associateWith { bios.isInstalled(it) }
     }
 
@@ -482,6 +494,7 @@ fun LibraryScreen(
                         onPlay = { onPlay(game) },
                         onRemove = { pendingRemove = game },
                         playtimeSeconds = playtimes[game.id] ?: 0L,
+                        raProgress = hubGames[game.id],
                         onSaveManager = { onSaveManager(game) },
                         onCover = { coverDialogGame = game },
                     )
@@ -495,6 +508,7 @@ fun LibraryScreen(
                         onPlay = { onPlay(game) },
                         onRemove = { pendingRemove = game },
                         playtimeSeconds = playtimes[game.id] ?: 0L,
+                        raProgress = hubGames[game.id],
                         onSaveManager = { onSaveManager(game) },
                         onCover = { coverDialogGame = game },
                     )

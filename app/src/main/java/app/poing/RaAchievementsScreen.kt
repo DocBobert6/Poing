@@ -112,11 +112,53 @@ fun RaAchievementsScreen(
             }
             !gameLoaded -> {
                 item {
-                    Text(
-                        text = "RetroAchievements has no achievements for this game.",
-                        fontSize = 14.sp,
-                        color = Color(0xFFC9C9CE),
-                    )
+                    // Alpha.22 — the three ways a game can have
+                    // no loaded set are three different messages,
+                    // never the same line: an unrecognised ROM
+                    // (the server has no set for its hash) is
+                    // not a failed load (which offers a Retry)
+                    // and neither is a load still in flight.
+                    // The genuinely empty set — loaded, but no
+                    // achievements — is the branch below, not
+                    // this one.
+                    when (RaClient.gameLoadState) {
+                        RaGameLoadState.Unrecognised -> {
+                            Text(
+                                text = "RetroAchievements doesn't recognise this ROM, so it has no achievement set.",
+                                fontSize = 14.sp,
+                                color = Color(0xFFC9C9CE),
+                            )
+                        }
+                        RaGameLoadState.Failed -> {
+                            Column {
+                                Text(
+                                    text = "RetroAchievements couldn't load this game's achievements.",
+                                    fontSize = 14.sp,
+                                    color = Color(0xFFC9C9CE),
+                                )
+                                TextButton(
+                                    onClick = { RaClient.retryLoadGame() },
+                                    modifier = Modifier.testTag("ra-retry-load"),
+                                ) {
+                                    Text("Retry")
+                                }
+                            }
+                        }
+                        RaGameLoadState.Loading -> {
+                            Text(
+                                text = "Loading achievements…",
+                                fontSize = 14.sp,
+                                color = Color(0xFFC9C9CE),
+                            )
+                        }
+                        else -> {
+                            Text(
+                                text = "RetroAchievements hasn't loaded this game yet.",
+                                fontSize = 14.sp,
+                                color = Color(0xFFC9C9CE),
+                            )
+                        }
+                    }
                 }
             }
             achievements.isEmpty() -> {

@@ -869,6 +869,12 @@ fun GameScreen(
             // attempt tracker, under the top bar while an attempt
             // runs. Hidden while paused.
             RaTrackerLine(paused = paused)
+            // Alpha.22 — the RA indicator, next to the tracker:
+            // the loaded game's achievement state while playing
+            // (loaded count, unrecognised ROM, or a failed load
+            // with a Retry). Same gold chip family as the unlock
+            // popup; hidden while paused, like the tracker.
+            RaGameIndicator(paused = paused)
             // Player area (Robert, 2026-11-12: the game basically
             // the phone's height in landscape, controls overlaid):
             // one Box below the top bar. The game view fills it at
