@@ -1,20 +1,21 @@
-## Poing! v0.1.0-alpha.14 — Joystick dead zone
+## Poing! v0.1.0-alpha.15 — Haptics retune
 
-The fourteenth signed alpha of Poing!, the standalone Game Boy / Game Boy Color / Game Boy Advance emulator for Android (mGBA core, one app, arm64-v8a only).
+The fifteenth signed alpha of Poing!, the standalone Game Boy / Game Boy Color / Game Boy Advance emulator for Android (mGBA core, one app, arm64-v8a only).
 
-**Install first — read this:** this alpha is signed with the same release key as alpha.1 through alpha.13, so it installs straight over alpha.13 — no uninstall needed, saves and settings carry over. It will **not** install over the debug builds (different key). Uninstall the debug build first. Uninstalling wipes local saves (battery saves + save states); RetroAchievements progress is server-side and safe.
+**Install first — read this:** this alpha is signed with the same release key as alpha.1 through alpha.14, so it installs straight over alpha.14 — no uninstall needed, saves and settings carry over. It will **not** install over the debug builds (different key). Uninstall the debug build first. Uninstalling wipes local saves (battery saves + save states); RetroAchievements progress is server-side and safe.
 
 ## Download
 
-The signed APK is attached to this release: `poing-v0.1.0-alpha.14.apk` (size + SHA-256 in the Build section below).
+The signed APK is attached to this release: `poing-v0.1.0-alpha.15.apk` (size + SHA-256 in the Build section below).
 
-## What changed in alpha.14
+## What changed in alpha.15
 
-- Joystick dead zone, adjustable at last: the stick's dead zone was a fixed 22% of full travel — about 16dp from centre on a 144dp stick — and the nub moves from the moment you touch it, so in racing games the zone felt non-existent. There is now a "Joystick dead zone" slider in Settings → Player, beside "Left control": 0 to 50 percent in steps of 5, 22 by default (the old feel, unchanged on install). 0 is raw — no dead zone at all, like the real D-pad. A bigger zone means a wider neutral area in the middle of the stick, which is what steering in a racing game wants.
-- Per-game override: a game can set its own dead zone in the layout editor — a stepper in 5% steps plus a Global pill, shown only while the stick is the control in the slot. Per-game wins over the global slider; Global follows the slider again. Reset in the editor is layout-only and never touches the dead-zone choice.
-- Nothing else about the stick changed: below the zone nothing, above it the exact same diagonal rule, the same direction mask, the same nub tracking and snap-back. The dead zone is a pure gate — no rescaling. The D-pad keeps its own fixed dead zone, untouched.
-- What you should try: set the slider to 30 for a racing game and see how the steering feels; then set a per-game override on that game and confirm it sticks after a relaunch. Above the zone, the stick should behave exactly as it did before.
-- One fix on the way: the first build went red on a single editor test (the compose rule rejects a second setContent in one test) — split the test, no production code changed.
+- Haptics retune, from the alpha.13 device verdict: the envelope click is good on Start/Select and worse than the old click on A/B. So A/B are back on the alpha.12 click (the scaled click primitive, no envelope) and Start/Select keep the envelope, unchanged.
+- The D-pad and the stick try the envelope on a direction change — a rocker rolling onto a new dome, not a button press — tuned softer than Start/Select's (the resonant sharpness pulled down a quarter) and landing slightly stronger than the old tick. Where the device has no envelopes the roll falls back to the tick, whose scale rose 0.5 to 0.6 — clearly present, still obviously below A/B's full click, because the rocker really is softer than a face button.
+- L/R take the envelope too — only the click part. The thud stays exactly as it is (a low thud at 0.3x, 20ms after the click starts), fired once the ~15ms envelope click has finished, so it still lands as one thunk. Without the thud primitive it is just the envelope click; without primitives at all it is the plain click.
+- Nothing else changed: the release tick, the strength slider, and all the haptics wiring are untouched.
+- What you should try: A/B should feel like alpha.12 again; Start/Select still the envelope; D-pad and stick rolls slightly stronger — and the verdict that matters is whether the envelope suits the rocker. L/R should click then thunk, as before.
+- One fix on the way: the fold-in run went red on a single compile error (a new enum declared inside the companion object is not reachable as `Haptics.ShoulderClickRoute` — the same trap as the alpha.11 TickEffectKind red run). Moved to class level, no behaviour change.
 
 ## What is in it
 
