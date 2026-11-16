@@ -164,11 +164,15 @@ class AppSettingsScreenTest {
             }
         }
         // The trace row sits in Display, below the Worm Light
-        // rows: scroll it into view before asserting or
-        // clicking, or the click can miss a node below the
-        // fold (same as the haptics row).
-        composeRule.onNodeWithTag("display-trace-switch").performScrollTo()
-        composeRule.onNodeWithText("Display trace").assertIsDisplayed()
+        // rows: scroll the list to it (the worm-light coverage
+        // pattern), or the switch sits below the fold. The
+        // title text is not asserted: scrolling the switch
+        // into view can leave the row's title clipped above
+        // the viewport while the switch shows, and the switch
+        // being off pins the default in the UI anyway.
+        composeRule.onNodeWithTag("settings-list")
+            .performScrollToNode(hasTestTag("display-trace-switch"))
+        composeRule.onNodeWithTag("display-trace-switch").assertIsOff()
         assertFalse(AppSettingsStore(temp.root).displayTraceEnabled())
         composeRule.onNodeWithTag("display-trace-switch").performClick()
         assertTrue(AppSettingsStore(temp.root).displayTraceEnabled())

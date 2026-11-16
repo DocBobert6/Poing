@@ -54,6 +54,9 @@ class DisplayTraceViewTest {
             }
         }
         composeRule.onNodeWithTag("display-trace-empty").assertIsDisplayed()
-        composeRule.onNodeWithText("Display trace", substring = true).assertIsDisplayed()
+        // Exact match, not substring: the empty text itself
+        // contains "Display trace", so a substring query
+        // matches two nodes and fails.
+        composeRule.onNodeWithText("Display trace").assertIsDisplayed()
     }
 }
