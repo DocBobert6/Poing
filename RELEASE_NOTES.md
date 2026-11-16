@@ -1,20 +1,20 @@
-## Poing! v0.1.0-alpha.23 — RetroAchievements rarity + history
+## Poing! v0.1.0-alpha.24 — RA chip follows the top bar
 
-The twenty-third signed alpha of Poing!, the standalone Game Boy / Game Boy Color / Game Boy Advance emulator for Android (mGBA core, one app, arm64-v8a only).
+The twenty-fourth signed alpha of Poing!, the standalone Game Boy / Game Boy Color / Game Boy Advance emulator for Android (mGBA core, one app, arm64-v8a only).
 
-**Install first — read this:** this alpha is signed with the same release key as alpha.1 through alpha.22, so it installs straight over alpha.22 — no uninstall needed, saves and settings carry over. It will **not** install over the debug builds (different key). Uninstall the debug build first. Uninstalling wipes local saves (battery saves + save states); RetroAchievements progress is server-side and safe.
+**Install first — read this:** this alpha is signed with the same release key as alpha.1 through alpha.23, so it installs straight over alpha.23 — no uninstall needed, saves and settings carry over. It will **not** install over the debug builds (different key). Uninstall the debug build first. Uninstalling wipes local saves (battery saves + save states); RetroAchievements progress is server-side and safe.
 
 ## Download
 
-The signed APK is attached to this release: `poing-v0.1.0-alpha.23.apk` (size + SHA-256 in the Build section below).
+The signed APK is attached to this release: `poing-v0.1.0-alpha.24.apk` (size + SHA-256 in the Build section below).
 
-## What changed in alpha.23
+## What changed in alpha.24
 
-- RetroAchievements now shows how rare each achievement is. Pause → Achievements carries a rarity tier beside every achievement once it loads — "Rare · 12%", "Common · 50%", "Legendary · 0.4%" — from the RetroAchievements web API (how many players earned it, out of how many played). The tiers are labels in the existing gold text, not a new colour system.
-- The Achievement Center now shows your full unlock history, newest first with dates, under "Unlock history" — the whole account's unlocks, not just the ones earned in Poing. The local "Recent unlocks" above it stays as it is.
-- Both need your RetroAchievements web API key, which is new and optional: Settings → RetroAchievements → "Web API key (optional)". It comes from your account settings on retroachievements.org, is stored on this device only like the login token, is never shown in full after you enter it (just the first and last few characters), and can be removed at any time. Without a key, the hub keeps showing exactly what it already showed — no error, no nag. This build does not need your key: add your own on the device.
-- Nothing else changed: the RA login, the in-game indicator, the unlock toast, badges, rich presence, cover fetching (including the alpha.21 diagnostic), haptics, steering and Worm Light are untouched.
-- What you should see: after adding your key, open a game and Pause → Achievements shows a rarity beside each achievement; open the Achievement Center from the library and your unlock history is listed newest first.
+- The in-game RetroAchievements chip ("RA 3/12") no longer stays on the whole session. It now follows the top bar: it shows while the bar is up, hides a few seconds into gameplay with it, and comes back with the bar when you summon it with a back swipe. It was built persistent in alpha.22 and sat outside the bar's hide gate — that was the bug.
+- The game gets its height back too. The chip sat in the column above the game area, so while it was up it pushed the game down and made it smaller. Now that it hides with the bar, the game re-measures taller, like it already did for the bar itself.
+- One accepted consequence: while the bar is hidden, the chip's Retry (on a failed set load) is unreachable in-game — but Pause → Achievements already carries a retry, so that path stays open.
+- Nothing else changed: the unlock toast (4 seconds), the tracker line, the chip's own states, rarity tiers, unlock history, cover fetching (including the alpha.21 diagnostic), haptics, steering and Worm Light are untouched.
+- What you should see: start a game and a few seconds in the "RA 3/12" chip is gone and the game is full height again; back-swipe and the chip returns with the top bar.
 
 ## What is in it
 
