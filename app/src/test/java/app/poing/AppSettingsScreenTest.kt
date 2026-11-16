@@ -20,6 +20,7 @@ import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performScrollToIndex
 import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.test.performSemanticsAction
+import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.swipe
 import java.io.File
@@ -1049,5 +1050,61 @@ class AppSettingsScreenTest {
             .performScrollToNode(hasTestTag("left-control-stick"))
         composeRule.onNodeWithTag("left-control-stick").performClick()
         assertEquals(LeftControl.STICK, AppSettingsStore(temp.root).leftControl())
+    }
+
+    // Alpha.23 — the optional web API key row: save stores the
+    // key and shows only its masked form; Remove drops it.
+
+    private fun settingsWithSessionStore() {
+        composeRule.setContent {
+            PoingTheme {
+                AppSettingsScreen(
+                    store = store(),
+                    sessionStore = RaSessionStore(temp.root),
+                    onCoreOptions = {},
+                    onBack = {},
+                )
+            }
+        }
+        composeRule.onNodeWithTag("settings-list")
+            .performScrollToNode(hasTestTag("ra-api-key-field"))
+    }
+
+    @Test
+    fun apiKeyRowSavesAndShowsOnlyTheMaskedKey() {
+        settingsWithSessionStore()
+        composeRule.onNodeWithTag("ra-api-key-field").performTextInput("abcd1234wxyz5678")
+        composeRule.onNodeWithTag("settings-list")
+            .performScrollToNode(hasTestTag("ra-api-key-save"))
+        composeRule.onNodeWithTag("ra-api-key-save").performClick()
+        assertEquals("abcd1234wxyz5678", RaSessionStore(temp.root).apiKey())
+        composeRule.onNodeWithText("API key saved: abcd…5678").assertIsDisplayed()
+        // The full key never appears on screen.
+        composeRule.onAllNodesWithText("abcd1234wxyz5678").assertCountEquals(0)
+        // The field is gone once the key is saved.
+        composeRule.onAllNodesWithTag("ra-api-key-field").assertCountEquals(0)
+    }
+
+    @Test
+    fun apiKeyRemoveDropsTheKey() {
+        RaSessionStore(temp.root).setApiKey("abcd1234wxyz5678")
+        settingsWithSessionStore()
+        composeRule.onNodeWithTag("settings-list")
+            .performScrollToNode(hasTestTag("ra-api-key-remove"))
+        composeRule.onNodeWithText("API key saved: abcd…5678").assertIsDisplayed()
+        composeRule.onNodeWithTag("ra-api-key-remove").performClick()
+        assertEquals("", RaSessionStore(temp.root).apiKey())
+        composeRule.onNodeWithTag("ra-api-key-field").assertExists()
+    }
+
+    @Test
+    fun apiKeyRowHiddenWithoutASessionStore() {
+        composeRule.setContent {
+            PoingTheme {
+                AppSettingsScreen(store = store(), onCoreOptions = {}, onBack = {})
+            }
+        }
+        composeRule.onAllNodesWithTag("ra-api-key-field").assertCountEquals(0)
+        composeRule.onAllNodesWithText("Web API key (optional)").assertCountEquals(0)
     }
 }

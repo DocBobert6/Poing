@@ -113,6 +113,9 @@ object Bridge {
     external fun nativeRaUnloadGame()
     external fun nativeRaIsGameLoaded(): Boolean
     external fun nativeRaGameTitle(): String?
+
+    /** Alpha.23 — the loaded game's numeric RA id (0 when none), for the web API. */
+    external fun nativeRaGameId(): Int
     external fun nativeRaDoFrame()
     external fun nativeRaReset()
     external fun nativeRaSerializeProgress(): ByteArray?

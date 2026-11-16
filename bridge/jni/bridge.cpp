@@ -1469,6 +1469,13 @@ Java_app_poing_Bridge_nativeRaGameTitle(JNIEnv *env, jobject /* thiz */) {
     return title ? env->NewStringUTF(title) : NULL;
 }
 
+/* Alpha.23 — the loaded game's numeric RA id (0 when none),
+ * for the web API. */
+JNIEXPORT jint JNICALL
+Java_app_poing_Bridge_nativeRaGameId(JNIEnv *env, jobject /* thiz */) {
+    return (jint)ra_game_id();
+}
+
 JNIEXPORT void JNICALL
 Java_app_poing_Bridge_nativeRaDoFrame(JNIEnv * /* env */, jobject /* thiz */) {
     ra_do_frame();

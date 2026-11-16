@@ -590,6 +590,19 @@ const char* ra_game_title(void) {
     return game ? game->title : NULL;
 }
 
+/* Alpha.23 — the loaded game's numeric RetroAchievements id
+ * (rc_client_game_t.id), for the web API: rarity and history
+ * are web-API calls, and the web API takes a game id, not a
+ * hash. 0 when no game is loaded — the same shape as
+ * ra_game_title returning NULL. */
+uint32_t ra_game_id(void) {
+    const rc_client_game_t* game;
+    if (!g_client)
+        return 0;
+    game = rc_client_get_game_info(g_client);
+    return game ? game->id : 0;
+}
+
 /* ------------------------------------------------------------------ */
 /* Frame / reset / progress                                           */
 /* ------------------------------------------------------------------ */

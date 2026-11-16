@@ -24,6 +24,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -60,8 +61,29 @@ fun RaHubScreen(
     badgeStore: RaBadgeStore,
     onBack: () -> Unit,
 ) {
+    // Alpha.23 — the network gate for the web-API history
+    // fetch, read once (the same gate the badges use).
+    val context = LocalContext.current
+    val networkAvailable = remember {
+        isCoverArtNetworkAvailable(
+            context,
+            AppSettingsStore(context.filesDir).coverArtMobileDataAllowed(),
+        )
+    }
     LaunchedEffect(Unit) {
         RaClient.refreshUserScore()
+        // Alpha.23 — the full unlock history, from the web API:
+        // a stored key + the network gate. Fetched once (Idle)
+        // or after a failure (Failed); a Loaded state is kept,
+        // never clobbered by an Unavailable verdict on re-entry.
+        // Without a key the fetch no-ops and the section below
+        // simply does not appear — the hub keeps showing exactly
+        // what it already showed.
+        if (RaClient.historyState == RaWebApiState.Idle ||
+            RaClient.historyState == RaWebApiState.Failed
+        ) {
+            RaClient.refreshUnlockHistory(networkAvailable)
+        }
     }
     val data = remember { hubStore.load() }
     val loggedIn = username.isNotEmpty()
@@ -141,6 +163,53 @@ fun RaHubScreen(
                             )
                             Text(
                                 text = "${unlock.gameTitle} — ${unlock.points} pts — ${formatUnlockTime(unlock.unlockedAt)}",
+                                fontSize = 13.sp,
+                                color = Color(0xFF9E9EA5),
+                            )
+                        }
+                    }
+                }
+            }
+            // Alpha.23 — the full unlock history, from the web
+            // API: the account's unlocks, newest first, with
+            // dates. It appears only when the fetch has landed;
+            // without a stored API key the fetch never runs and
+            // this section is absent — the hub keeps showing
+            // exactly what it already showed. The local "Recent
+            // unlocks" above stay as they are: the unlocks
+            // earned in Poing, with their local timestamps.
+            if (RaClient.historyState == RaWebApiState.Loaded &&
+                RaClient.unlockHistory.isNotEmpty()
+            ) {
+                item {
+                    Text(
+                        text = "Unlock history",
+                        style = displayTextStyle(DisplaySizeSmall),
+                        color = Color(0xFFC9C9CE),
+                    )
+                }
+                items(RaClient.unlockHistory, key = { "${it.achievementId}:${it.unlockedAt}" }) { entry ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("ra-hub-history"),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        RaBadgeImage(
+                            store = badgeStore,
+                            url = entry.badgeUrl,
+                            size = 40.dp,
+                            contentDescription = "Badge for ${entry.title}",
+                        )
+                        Spacer(Modifier.width(12.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = entry.title,
+                                fontSize = 15.sp,
+                                color = Color(0xFFC9A227),
+                            )
+                            Text(
+                                text = "${entry.gameTitle} — ${entry.points} pts — ${formatUnlockTime(entry.unlockedAt)}",
                                 fontSize = 13.sp,
                                 color = Color(0xFF9E9EA5),
                             )

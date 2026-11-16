@@ -185,6 +185,8 @@ int ra_load_game(uint32_t console_id, const char* file_path, ra_result_fn result
 void ra_unload_game(void);
 int ra_is_game_loaded(void);
 const char* ra_game_title(void);
+/* Alpha.23 — the loaded game's numeric RA id (0 when none). */
+uint32_t ra_game_id(void);
 
 /* Per-frame evaluation — call once per displayed frame, only
  * while a game is loaded. The Kotlin loop calls it once after

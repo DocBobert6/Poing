@@ -268,6 +268,9 @@ fun PoingHome() {
             layoutStore = layoutStore,
             onCoreOptions = { screen = Screen.CoreOptions },
             onRaLogin = { screen = Screen.RaLogin },
+            // Alpha.23 — the session store for the web API key
+            // row (the same store the login screen uses).
+            sessionStore = remember { RaSessionStore(context.filesDir) },
             onBack = { screen = Screen.Library },
         )
         is Screen.RaLogin -> RaLoginScreen(

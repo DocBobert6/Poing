@@ -1,6 +1,7 @@
 package app.poing
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Rule
@@ -56,5 +57,50 @@ class RaSessionStoreTest {
         assertEquals("", s.token())
         assertNull(s.storedLogin())
         assertTrue(RaSessionStore(temp.root).storedLogin() == null)
+    }
+
+    // Alpha.23 — the web API key.
+
+    @Test
+    fun apiKeyRoundTrip() {
+        val s = store()
+        assertEquals("", s.apiKey())
+        s.setApiKey("abcd1234wxyz5678")
+        assertEquals("abcd1234wxyz5678", s.apiKey())
+        // A fresh store over the same dir reads it back.
+        assertEquals("abcd1234wxyz5678", RaSessionStore(temp.root).apiKey())
+    }
+
+    @Test
+    fun clearApiKeyRemovesOnlyTheKey() {
+        val s = store()
+        s.setUsername("DocBobert")
+        s.setToken("abc123token")
+        s.setApiKey("abcd1234wxyz5678")
+        s.clearApiKey()
+        assertEquals("", s.apiKey())
+        // The login is untouched.
+        assertEquals("DocBobert" to "abc123token", s.storedLogin())
+    }
+
+    @Test
+    fun clearWipesTheKeyWithTheLogin() {
+        val s = store()
+        s.setUsername("DocBobert")
+        s.setToken("abc123token")
+        s.setApiKey("abcd1234wxyz5678")
+        s.clear()
+        assertEquals("", s.apiKey())
+    }
+
+    @Test
+    fun maskShowsOnlyTheEnds() {
+        assertEquals("abcd…5678", maskApiKey("abcd1234wxyz5678"))
+        // A short key shows bullets only — never the key itself.
+        assertEquals("•••", maskApiKey("abc"))
+        assertEquals("", maskApiKey(""))
+        // The masked form never contains the full key.
+        val key = "abcd1234wxyz5678"
+        assertFalse(maskApiKey(key).contains(key))
     }
 }

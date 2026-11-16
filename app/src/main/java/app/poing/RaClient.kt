@@ -97,6 +97,15 @@ object RaClient {
     var gameTitle by mutableStateOf<String?>(null)
         private set
 
+    /**
+     * Alpha.23 — the loaded game's numeric RetroAchievements id
+     * (0 when none), from the native layer (see
+     * [Bridge.nativeRaGameId]). The web API takes a game id,
+     * not a hash, so rarity fetches read it from here.
+     */
+    var gameId by mutableStateOf(0)
+        private set
+
     /** True once the loaded game's achievements are available. */
     var gameLoaded by mutableStateOf(false)
         private set
@@ -149,6 +158,33 @@ object RaClient {
      */
     var userScoreSoftcore by mutableStateOf<Int?>(null)
         private set
+
+    // Alpha.23 — rarity tiers and the full unlock history, from
+    // the RA web API (see RaWebApi). Both are in-memory only and
+    // only exist while a web API key is stored: without a key the
+    // views simply do not appear. Rarity is per loaded game;
+    // history is account-level and survives a game quit (it is
+    // cleared on logout, with the key's account).
+    /** Per-achievement rarity for the loaded game, keyed by achievement id (empty when none). */
+    var rarityByAchievement by mutableStateOf<Map<Int, RaRarity>>(emptyMap())
+        private set
+
+    var rarityState by mutableStateOf(RaWebApiState.Idle)
+        private set
+
+    /** The account's unlock history, newest first (empty when none). */
+    var unlockHistory by mutableStateOf<List<RaHistoryEntry>>(emptyList())
+        private set
+
+    var historyState by mutableStateOf(RaWebApiState.Idle)
+        private set
+
+    /**
+     * The web-API HTTP layer (see [RaWebApiFetcher]). The
+     * production default is a plain GET; tests replace it with
+     * a fake so no network is needed.
+     */
+    var webApiFetcher: RaWebApiFetcher = RaWebApiFetcher { url -> defaultRaWebApiHttpGet(url) }
 
     // Leaderboards and rich presence.
     /** The leaderboards for the loaded game (empty when the game has none). */
@@ -329,9 +365,17 @@ object RaClient {
         username = ""
         userScoreSoftcore = null
         gameTitle = null
+        gameId = 0
         gameLoaded = false
         achievements = emptyList()
         lastUnlock = null
+        // Alpha.23 — the history belongs to this account, so it
+        // goes with the logout (the key is wiped by the session
+        // store's clear above).
+        rarityByAchievement = emptyMap()
+        rarityState = RaWebApiState.Idle
+        unlockHistory = emptyList()
+        historyState = RaWebApiState.Idle
         clearLeaderboardState()
         status = "Not logged in."
     }
@@ -392,14 +436,19 @@ object RaClient {
         gameLoadState = RaGameLoadState.Idle
         gameLoadError = null
         gameTitle = null
+        gameId = 0
         gameLoaded = false
         achievements = emptyList()
         lastUnlock = null
+        // Alpha.23 — rarity is per loaded game, so it goes with
+        // the game. The account history stays for the session.
+        rarityByAchievement = emptyMap()
+        rarityState = RaWebApiState.Idle
         clearLeaderboardState()
     }
 
     /**
-     * Alpha.22 — re-attempt the current game's set load after a
+     * Alpha.23 — re-attempt the current game's set load after a
      * failure. A manual retry only: nothing auto-retries (a
      * failed load must not loop against the server). A no-op
      * with no game, or when the load did not fail — retrying an
@@ -457,6 +506,16 @@ object RaClient {
         if (!initialised || !gameLoaded) return
         val json = Bridge.nativeRaGetAchievements() ?: return
         achievements = RaAchievements.parse(String(json, Charsets.UTF_8))
+    }
+
+    /**
+     * Alpha.23 — test seam: drive the achievements list without
+     * the native layer (the Robolectric tests have no .so to
+     * load, so refreshAchievements is a no-op there).
+     * Production never calls this.
+     */
+    internal fun setAchievementsForTest(list: List<RaAchievement>) {
+        achievements = list
     }
 
     /** Clear the unlock popup (after its 4-second showing). */
@@ -724,6 +783,8 @@ object RaClient {
             // only ever arrives after init, and the tests drive
             // this callback without the native libraries.
             gameTitle = if (initialised) Bridge.nativeRaGameTitle() else null
+            // Alpha.23 — the numeric game id, for the web API.
+            gameId = if (initialised) Bridge.nativeRaGameId() else 0
             refreshAchievements()
             refreshLeaderboards()
             refreshRichPresence()
@@ -758,10 +819,78 @@ object RaClient {
             }
             currentGameBase = null
             gameTitle = null
+            gameId = 0
             achievements = emptyList()
+            // Alpha.23 — no set, no rarity.
+            rarityByAchievement = emptyMap()
+            rarityState = RaWebApiState.Idle
             clearLeaderboardState()
             pendingProgress = null
             pendingProgressReset = false
+        }
+    }
+
+    // Alpha.23 — rarity tiers and the full unlock history (web
+    // API). Both are one-shot fetches on the IO scope, guarded
+    // on a stored key and the network gate: without a key, or
+    // with the gate closed, the state is Unavailable and the
+    // views simply do not appear — no error, no nag. A failed
+    // fetch is Failed, which the views treat the same way
+    // (hidden). Neither retries on its own; opening the screen
+    // again re-attempts the fetch.
+
+    /**
+     * Fetch this game's rarity tiers. [gameId] is a parameter —
+     * the loaded game's id — rather than reading [RaClient.gameId],
+     * so the screens pass what they show and the tests pass a
+     * fixed id without the native layer.
+     */
+    fun refreshRarity(gameId: Int, networkAvailable: Boolean) {
+        val key = session?.apiKey().orEmpty()
+        if (!loggedIn || gameId <= 0 || key.isEmpty() || !networkAvailable) {
+            rarityState = RaWebApiState.Unavailable
+            return
+        }
+        if (rarityState == RaWebApiState.Loading) return
+        rarityState = RaWebApiState.Loading
+        val user = username
+        ioScope.launch {
+            val body = try {
+                webApiFetcher.fetch(RaWebApi.gameInfoUrl(user, key, gameId))
+            } catch (_: Exception) {
+                null
+            }
+            if (body == null) {
+                rarityState = RaWebApiState.Failed
+                return@launch
+            }
+            rarityByAchievement = RaWebApi.parseGameRarity(body)
+            rarityState = RaWebApiState.Loaded
+        }
+    }
+
+    /** Fetch the account's unlock history, newest first. */
+    fun refreshUnlockHistory(networkAvailable: Boolean) {
+        val key = session?.apiKey().orEmpty()
+        if (!loggedIn || key.isEmpty() || !networkAvailable) {
+            historyState = RaWebApiState.Unavailable
+            return
+        }
+        if (historyState == RaWebApiState.Loading) return
+        historyState = RaWebApiState.Loading
+        val user = username
+        ioScope.launch {
+            val body = try {
+                webApiFetcher.fetch(RaWebApi.recentAchievementsUrl(user, key))
+            } catch (_: Exception) {
+                null
+            }
+            if (body == null) {
+                historyState = RaWebApiState.Failed
+                return@launch
+            }
+            unlockHistory = RaWebApi.parseRecentAchievements(body)
+            historyState = RaWebApiState.Loaded
         }
     }
 

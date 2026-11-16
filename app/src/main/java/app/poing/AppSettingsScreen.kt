@@ -21,6 +21,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
@@ -42,6 +43,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -83,6 +85,9 @@ fun AppSettingsScreen(
     },
     onCoreOptions: () -> Unit,
     onRaLogin: () -> Unit = {},
+    // Alpha.23 — the RA session store for the web API key row.
+    // Null (tests) hides the row, same pattern as optionsStore.
+    sessionStore: RaSessionStore? = null,
     onBack: () -> Unit,
 ) {
     var ffControl by remember { mutableStateOf(store.ffControlVisible()) }
@@ -157,6 +162,12 @@ fun AppSettingsScreen(
     var downloadedUpdate by remember { mutableStateOf<java.io.File?>(null) }
     var needsUnknownAppsGrant by remember { mutableStateOf(false) }
     var updateError by remember { mutableStateOf<String?>(null) }
+    // Alpha.23 — the web API key: the typed draft (never
+    // persisted until Save) and the stored key (in memory only
+    // for the presence check — the screen shows only its masked
+    // form, never the full key).
+    var apiKeyDraft by remember { mutableStateOf("") }
+    var apiKeyStored by remember { mutableStateOf(sessionStore?.apiKey().orEmpty()) }
     // Overlay defaults (Robert, 2026-11-14): which handheld's
     // default layout is being edited in the full-screen
     // editor, null while the list shows. defaultsNonce is
@@ -523,6 +534,72 @@ fun AppSettingsScreen(
                     }
                     Button(onClick = onRaLogin) {
                         Text(if (RaClient.loggedIn) "Account" else "Log in")
+                    }
+                }
+            }
+            // Alpha.23 — the optional web API key, under the
+            // login row it belongs to. It unlocks rarity tiers
+            // and the full unlock history (both read-only web-API
+            // calls); without it the hub keeps showing exactly
+            // what it already shows. The key is stored locally
+            // like the login token, never shown in full after
+            // entry, and removable. Null store (tests) hides
+            // the row.
+            if (sessionStore != null) {
+                item {
+                    Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
+                        Text(
+                            "Web API key (optional)",
+                            style = MaterialTheme.typography.titleMedium,
+                        )
+                        Text(
+                            "Your RetroAchievements web API key, from your account settings on retroachievements.org. It unlocks rarity tiers and your full unlock history. Stored on this device only.",
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                        Spacer(Modifier.height(8.dp))
+                        if (apiKeyStored.isNullOrEmpty()) {
+                            OutlinedTextField(
+                                value = apiKeyDraft,
+                                onValueChange = { apiKeyDraft = it },
+                                label = { Text("Web API key") },
+                                singleLine = true,
+                                visualTransformation = PasswordVisualTransformation(),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .testTag("ra-api-key-field"),
+                            )
+                            Spacer(Modifier.height(8.dp))
+                            Button(
+                                onClick = {
+                                    val key = apiKeyDraft.trim()
+                                    if (key.isNotEmpty()) {
+                                        sessionStore.setApiKey(key)
+                                        apiKeyStored = key
+                                        apiKeyDraft = ""
+                                    }
+                                },
+                                enabled = apiKeyDraft.trim().isNotEmpty(),
+                                modifier = Modifier.testTag("ra-api-key-save"),
+                            ) {
+                                Text("Save key")
+                            }
+                        } else {
+                            Text(
+                                "API key saved: ${maskApiKey(apiKeyStored!!)}",
+                                style = MaterialTheme.typography.bodyMedium,
+                                modifier = Modifier.testTag("ra-api-key-saved"),
+                            )
+                            Spacer(Modifier.height(8.dp))
+                            TextButton(
+                                onClick = {
+                                    sessionStore.clearApiKey()
+                                    apiKeyStored = ""
+                                },
+                                modifier = Modifier.testTag("ra-api-key-remove"),
+                            ) {
+                                Text("Remove key")
+                            }
+                        }
                     }
                 }
             }

@@ -17,9 +17,11 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -61,6 +63,26 @@ fun RaAchievementsScreen(
     val achievements = RaClient.achievements
         .filter { it.state != RaAchievements.STATE_INACTIVE }
     val richPresence = RaClient.richPresence
+    // Alpha.23 — rarity tiers come from the web API (a stored
+    // key + the network gate), fetched once per loaded game.
+    // The fetch is gated on Idle/Failed, so a Loaded state a
+    // test (or an earlier open) already filled is kept, never
+    // clobbered by an Unavailable verdict on re-entry.
+    val context = LocalContext.current
+    val networkAvailable = remember {
+        isCoverArtNetworkAvailable(
+            context,
+            AppSettingsStore(context.filesDir).coverArtMobileDataAllowed(),
+        )
+    }
+    LaunchedEffect(gameLoaded, RaClient.gameId) {
+        if (gameLoaded && RaClient.gameId > 0 &&
+            (RaClient.rarityState == RaWebApiState.Idle ||
+                RaClient.rarityState == RaWebApiState.Failed)
+        ) {
+            RaClient.refreshRarity(RaClient.gameId, networkAvailable)
+        }
+    }
     // One badge store for the screen — the rows share it, so a
     // badge decoded for one row is already there for the next.
     val badgeStore = rememberRaBadgeStore()
@@ -199,6 +221,17 @@ fun RaAchievementsScreen(
                                     append("${achievement.points} pts")
                                     if (achievement.isUnlocked) append(" — Unlocked")
                                     achievement.measuredProgress?.let { append(" — $it") }
+                                    // Alpha.23 — the rarity tier,
+                                    // once the web-API fetch has
+                                    // landed: "Rare · 12%". No key
+                                    // (or a failed fetch) means no
+                                    // rarity line at all, never an
+                                    // error.
+                                    if (RaClient.rarityState == RaWebApiState.Loaded) {
+                                        RaClient.rarityByAchievement[achievement.id]?.let { rarity ->
+                                            append(" — ${rarity.tier.label} · ${formatRarityPercent(rarity.percent)}")
+                                        }
+                                    }
                                 },
                                 fontSize = 13.sp,
                                 color = Color(0xFF9E9EA5),
