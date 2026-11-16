@@ -46,19 +46,20 @@ fun BoxScope.ControlOverlay(
     // Haptics click for every overlay button, gated by the
     // caller (a running cartridge rumble wins over the click).
     onControlDown: () -> Unit,
-    // Alpha.11 — per-button character: the release tick, the
-    // D-pad / stick roll tick, the Start/Select light click,
-    // the L/R shoulder click. Defaults keep every existing
-    // caller on the single press click.
-    onControlUp: () -> Unit = {},
-    onDirectionTick: () -> Unit = onControlDown,
-    onLightDown: () -> Unit = onControlDown,
-    onShoulderDown: () -> Unit = onControlDown,
     // Alpha.10 — which control lives in the left-hand slot:
     // the D-pad cross, or a joystick. One slot holds EITHER,
     // never both; the caller resolves the global default +
     // per-game override (see GameScreen).
     leftControl: LeftControl = LeftControl.DPAD,
+    // Alpha.11 — per-button character: the release tick, the
+    // D-pad / stick roll tick, the Start/Select light click,
+    // the L/R shoulder click. Defaults keep every existing
+    // caller on the single press click. These sit after
+    // leftControl so the positional callers keep working.
+    onControlUp: () -> Unit = {},
+    onDirectionTick: () -> Unit = onControlDown,
+    onLightDown: () -> Unit = onControlDown,
+    onShoulderDown: () -> Unit = onControlDown,
     // Alpha.10 (Part D) — the FF / 0.5x / RW buttons live in
     // the overlay now: they render from the layout like every
     // other control, and only when their Settings toggle is on
@@ -141,19 +142,20 @@ fun ControlButton(
     paused: Boolean,
     onInputChanged: () -> Unit,
     onControlDown: () -> Unit,
-    // Alpha.11 — per-button character (see ControlOverlay):
-    // the release tick, the roll tick, the light click, the
-    // shoulder click. Defaults keep every existing caller on
-    // the single press click.
-    onControlUp: () -> Unit = {},
-    onDirectionTick: () -> Unit = onControlDown,
-    onLightDown: () -> Unit = onControlDown,
-    onShoulderDown: () -> Unit = onControlDown,
     // Alpha.10 — which control lives in the left-hand slot.
     // The D-pad is the default, so existing callers (the
     // editor's tests, the Settings default editor) keep the
     // cross unless they pass the choice.
     leftControl: LeftControl = LeftControl.DPAD,
+    // Alpha.11 — per-button character (see ControlOverlay):
+    // the release tick, the roll tick, the light click, the
+    // shoulder click. Defaults keep every existing caller on
+    // the single press click. These sit after leftControl so
+    // the positional callers keep working.
+    onControlUp: () -> Unit = {},
+    onDirectionTick: () -> Unit = onControlDown,
+    onLightDown: () -> Unit = onControlDown,
+    onShoulderDown: () -> Unit = onControlDown,
     // Alpha.10 (Part D) — the FF / 0.5x / RW actions. The
     // editor previews with the defaults (no-ops): a press
     // there is inert, the game is paused. Visibility is the
