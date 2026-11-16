@@ -661,10 +661,15 @@ class WormLightGeometryTest {
     // thumb orbit — must tilt clearly, and full tilt must
     // be reachable inside a thumb's reach, so the max is
     // pinned here and cannot silently drift back out.
+    // Alpha.18 (Robert, 2026-11-16): the 12–64dp range
+    // tilted 0.73 at a 50dp orbit — too sensitive. The range
+    // widens to 12–96dp, so the same orbit tilts about 0.45:
+    // clearly visible, not nearly full, and the pool still
+    // stretches by more than a fifth.
     @Test
-    fun aFiftyDpOrbitTiltsClearly() {
-        assertTrue(WORM_LIGHT_TILT_MAX_DP <= 80f)
-        assertTrue(tiltForDistance(50f) > 0.5f)
+    fun aFiftyDpOrbitTiltsGently() {
+        assertEquals(96f, WORM_LIGHT_TILT_MAX_DP)
+        assertEquals(0.45f, tiltForDistance(50f), 0.01f)
         val tilted = geometry(aimAngleRad = -0.5f, aimTilt = tiltForDistance(50f))
         assertTrue(tilted.pool.radii.x > WORM_LIGHT_POOL_RX * 1.2f)
         assertEquals(WORM_LIGHT_POOL_RY, tilted.pool.radii.y, 0.001f)

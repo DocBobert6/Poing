@@ -198,16 +198,23 @@ class PlayerSessionTest {
         val a = 1 shl InputMask.JOY_A
         s.setInput(left or a)
         s.setStickState(left, 0.5f)
-        // t = 0.5: ON for steps 0, 1, 2, OFF for 3, 4, 5 — and
-        // the A button rides through the OFF phase untouched.
+        // Alpha.18 — t = 0.5 is a quarter duty now (t-squared),
+        // 1.5 frames per period: period 1 is 1 ON frame with
+        // the half frame carried forward, period 2 is 2 ON.
+        // The A button rides through the OFF phase untouched.
         assertEquals(left or a, s.nextPulsedMask())
+        assertEquals(a, s.nextPulsedMask())
+        assertEquals(a, s.nextPulsedMask())
+        assertEquals(a, s.nextPulsedMask())
+        assertEquals(a, s.nextPulsedMask())
+        assertEquals(a, s.nextPulsedMask())
+        // Period 2: the carried half frame makes it 2 ON.
         assertEquals(left or a, s.nextPulsedMask())
         assertEquals(left or a, s.nextPulsedMask())
         assertEquals(a, s.nextPulsedMask())
         assertEquals(a, s.nextPulsedMask())
         assertEquals(a, s.nextPulsedMask())
-        // The period wraps: step 6 is step 0 again.
-        assertEquals(left or a, s.nextPulsedMask())
+        assertEquals(a, s.nextPulsedMask())
     }
 
     @Test
@@ -236,13 +243,13 @@ class PlayerSessionTest {
         val left = 1 shl InputMask.JOY_LEFT
         s.setInput(left)
         s.setStickState(left, 0.5f)
-        // Off: the raw mask, every step (and six steps is a
-        // full period, so the counter is back at 0).
+        // Off: the raw mask, every step. The pulse state
+        // resets while it cannot run, so the counter is at 0
+        // whenever the toggle comes on.
         repeat(6) { assertEquals(left, s.nextPulsedMask()) }
-        // On, from step 0: ON, ON, ON, then OFF.
+        // On, from step 0: period 1 is 1 ON frame (t = 0.5 is
+        // a quarter duty), then OFF.
         s.setProportionalSteering(true)
-        assertEquals(left, s.nextPulsedMask())
-        assertEquals(left, s.nextPulsedMask())
         assertEquals(left, s.nextPulsedMask())
         assertEquals(0, s.nextPulsedMask())
         // Off again, mid-period: the raw mask at once.

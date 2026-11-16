@@ -383,7 +383,13 @@ class WormLightOverlayTest {
             swipe(head, head + Offset(0f, 50f * density))
         }
         composeRule.waitForIdle()
-        assertTrue("a 50dp aim orbit should stretch the pool", reported!!.radii.x > WORM_LIGHT_POOL_RX * 1.05f)
+        // Alpha.18 — the 12–96dp range: a 50dp orbit tilts
+        // 0.45, so the pool stretches by about a fifth
+        // (1 + 0.5 * 0.45 ≈ 1.23) — clearly visible, and
+        // below the old 12–64dp range's ≈ 1.37, so the band
+        // pins the new value end-to-end at this density.
+        assertTrue("a 50dp aim orbit should stretch the pool", reported!!.radii.x > WORM_LIGHT_POOL_RX * 1.2f)
+        assertTrue("a 50dp aim orbit should not tilt nearly full", reported!!.radii.x < WORM_LIGHT_POOL_RX * 1.3f)
         assertEquals(1.57f, reported!!.rotationRad, 0.15f)
         assertEquals(0.5f, reported!!.center.x, 0.01f)
         assertEquals(0.20f, reported!!.center.y, 0.01f)

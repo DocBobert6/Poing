@@ -219,8 +219,20 @@ class PlayerSession(
      * Emu-thread only: it advances once per emulated step in
      * [nextPulsedMask] and restarts at 0 on resume, so a
      * resumed game never picks up mid-period.
+     *
+     * Alpha.18 — the error-diffusion remainder, carried
+     * across periods ([ProportionalSteering.nextCarry]), and
+     * the current period's ON-frame count, computed once per
+     * period at the boundary. Both are emu-thread only, like
+     * the step; both reset with it on resume and whenever
+     * the pulse cannot run (toggle off, stick centred), so a
+     * fresh press always starts from a clean period.
      */
     private var steeringStep: Int = 0
+
+    private var steeringCarry: Float = 0f
+
+    private var steeringOnFrames: Int = 0
 
     /** The mask the loop last pushed to the bridge (emu-thread only). */
     private var lastPulsedMask: Int = -1
@@ -478,10 +490,30 @@ class PlayerSession(
      * fast-forward step is a step, not a displayed frame).
      * Internal so the per-step sequence is testable without
      * the native loop (see PlayerSessionTest).
+     *
+     * Alpha.18 — the period's ON count is computed once, at
+     * the period boundary, from the t-squared duty plus the
+     * carried remainder ([ProportionalSteering.onFrames] /
+     * [ProportionalSteering.nextCarry]); the steps inside the
+     * period just read it. When the pulse cannot run — the
+     * toggle off, or no stick direction held — the state
+     * resets and the raw mask passes through, so a fresh
+     * press always starts from a clean period.
      */
     internal fun nextPulsedMask(): Int {
+        val stickBits = stickMask and ActuationDetector.DIRECTION_BITS
+        if (!proportionalSteering || stickBits == 0) {
+            steeringStep = 0
+            steeringCarry = 0f
+            steeringOnFrames = 0
+            return inputMask
+        }
+        if (steeringStep == 0) {
+            steeringOnFrames = ProportionalSteering.onFrames(stickDeflection, steeringCarry)
+            steeringCarry = ProportionalSteering.nextCarry(stickDeflection, steeringCarry)
+        }
         val pulsed = ProportionalSteering.pulsedMask(
-            inputMask, stickMask, steeringStep, stickDeflection, proportionalSteering,
+            inputMask, stickMask, steeringStep, steeringOnFrames, true,
         )
         steeringStep = (steeringStep + 1) % ProportionalSteering.PERIOD_FRAMES
         return pulsed
@@ -496,9 +528,11 @@ class PlayerSession(
         }
     }
 
-    /** Alpha.16 — restart the pulse counter (the loop calls this on resume from pause). */
+    /** Alpha.16 — restart the pulse counter (the loop calls this on resume from pause). Alpha.18: the carried remainder restarts with it, so a resumed game never picks up a stale fraction. */
     private fun resetSteeringPulse() {
         steeringStep = 0
+        steeringCarry = 0f
+        steeringOnFrames = 0
     }
 
     /**

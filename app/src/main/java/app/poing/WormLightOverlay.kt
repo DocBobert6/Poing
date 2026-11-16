@@ -209,7 +209,7 @@ const val WORM_LIGHT_COVERAGE_DEFAULT_PCT = 100
 // bearing still spins the pool; the distance stretches its
 // long axis along that bearing, up to half again as long at
 // a wide orbit. A finger on the lens itself (12dp) does not
-// tilt at all; a comfortable thumb orbit (64dp) tilts fully;
+// tilt at all; a wide thumb orbit (96dp) tilts fully;
 // between them it is linear and clamped. The centre never
 // moves with the tilt — it stays head-anchored (the pool
 // centre still follows the head, pinned by
@@ -220,8 +220,17 @@ const val WORM_LIGHT_COVERAGE_DEFAULT_PCT = 100
 // on his Pixel 10a (density 2.625), and a natural thumb
 // orbit stays around 20–80dp, so the tilt stayed ~0 and
 // the pool only spun. The range must be a thumb's orbit.
+// Retuned again (Robert, 2026-11-16 — alpha.18): the
+// 12–64dp range worked but was a little sensitive — a 50dp
+// orbit tilted 0.73, nearly full, so an ordinary thumb
+// orbit read as a hard tilt. The range widens to 12–96dp:
+// the same 50dp orbit now tilts 0.45, clearly visible but
+// not nearly full, and full tilt needs a deliberate 96dp
+// sweep (252px on his Pixel 10a) — still inside a thumb's
+// reach, no longer hit by accident. The 12dp floor is
+// unchanged: a finger on the lens still does not tilt.
 const val WORM_LIGHT_TILT_MIN_DP = 12f
-const val WORM_LIGHT_TILT_MAX_DP = 64f
+const val WORM_LIGHT_TILT_MAX_DP = 96f
 const val WORM_LIGHT_TILT_ELONGATION = 0.5f
 const val WORM_LIGHT_POOL_CENTER_X_MIN = 0.15f
 const val WORM_LIGHT_POOL_CENTER_X_MAX = 0.85f
