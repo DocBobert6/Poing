@@ -1,20 +1,21 @@
-## Poing! v0.1.0-alpha.21 — The fetch-on-open diagnostic
+## Poing! v0.1.0-alpha.22 — The RetroAchievements display pair
 
-The twenty-first signed alpha of Poing!, the standalone Game Boy / Game Boy Color / Game Boy Advance emulator for Android (mGBA core, one app, arm64-v8a only).
+The twenty-second signed alpha of Poing!, the standalone Game Boy / Game Boy Color / Game Boy Advance emulator for Android (mGBA core, one app, arm64-v8a only).
 
-**Install first — read this:** this alpha is signed with the same release key as alpha.1 through alpha.20, so it installs straight over alpha.20 — no uninstall needed, saves and settings carry over. It will **not** install over the debug builds (different key). Uninstall the debug build first. Uninstalling wipes local saves (battery saves + save states); RetroAchievements progress is server-side and safe.
+**Install first — read this:** this alpha is signed with the same release key as alpha.1 through alpha.21, so it installs straight over alpha.21 — no uninstall needed, saves and settings carry over. It will **not** install over the debug builds (different key). Uninstall the debug build first. Uninstalling wipes local saves (battery saves + save states); RetroAchievements progress is server-side and safe.
 
 ## Download
 
-The signed APK is attached to this release: `poing-v0.1.0-alpha.21.apk` (size + SHA-256 in the Build section below).
+The signed APK is attached to this release: `poing-v0.1.0-alpha.22.apk` (size + SHA-256 in the Build section below).
 
-## What changed in alpha.21
+## What changed in alpha.22
 
-- The library status line now names the game it is fetching cover art for, instead of only naming the system. When a fetch runs you will see "fetching art for …" with the game's name; if several are fetching at once, the first three are named.
-- If a game is still missing its cover after a fetch finishes, the status bar stays visible and names it ("still missing: …") instead of hiding after four seconds — so the answer is still there to read after the pass, not only while it runs. The bar hides again once every game has reached a final state.
-- This is a diagnostic build: it changes only what the status line reports, not the fetch itself. The investigation behind it found no code path that fetches on open with an unchanged library — so the fetch that still shows on open must be a game that never reaches a final state on the device, and this build identifies which one.
-- Nothing else changed: the haptics (including the alpha.17 pair), the steering and Worm Light tilt tuning, the dead zone, the layout editor minimize, the cheat screen, cover fetching, and RA are untouched.
-- What you should see: open the library and, if a fetch runs, the status line names the game it is fetching for. If a game is still missing its cover when the pass ends, the bar stays up with its name — tell me the name and that is the game to fix next.
+- RetroAchievements now tells you *why* a game has no achievements, instead of showing the same line for every case. Pause → Achievements distinguishes three outcomes: an unrecognised ROM ("RetroAchievements doesn't recognise this ROM, so it has no achievement set"), a failed load ("couldn't load this game's achievements", with a Retry button), and a genuinely empty set ("This game has no achievements").
+- A failed set load is no longer silent during gameplay: a small gold RA chip under the top bar shows the loaded game's state while you play — "RA 3/12" when the set is in, "RA: unrecognised ROM" when there is no set, "RA: load failed — Retry" when the load failed (tap the chip to retry). It hides while paused and when logged out, like the other RA notes.
+- The unlock toast is richer: it now shows the achievement's description under its title and points, as the Achievement Center already does.
+- The library now shows per-game achievement progress ("Achievements 3/12") on each row and grid cell, from the Achievement Center's cached sets. A game that has never loaded a set shows nothing — never a misleading 0/12.
+- Nothing else changed: the haptics, the steering and Worm Light tilt tuning, the dead zone, the layout editor minimize, the cheat screen, cover fetching (including the alpha.21 diagnostic), and RA login are untouched.
+- What you should see: play a game with achievements and the RA chip shows its progress under the top bar; open a ROM hack or an unrecognised game and Pause → Achievements says plainly that RA doesn't recognise it.
 
 ## What is in it
 
