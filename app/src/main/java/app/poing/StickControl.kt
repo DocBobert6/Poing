@@ -107,6 +107,16 @@ fun StickControl(
     // tracks the finger inside the zone — only the direction
     // is gated, never the visual.
     deadZone: Float = StickInput.DEAD_ZONE,
+    // Alpha.16 — proportional steering: the stick's live state
+    // (direction mask + normalised deflection t), reported on
+    // every knob move and on release. The caller hands it to
+    // the session, which pulses the mask the core is handed;
+    // null keeps every existing caller (the editor preview)
+    // on the old behaviour. It never fires the haptics hooks
+    // — those read the direction mask only, so a deeper push
+    // in the same direction reports new state without
+    // re-clicking.
+    onStickStateChanged: ((mask: Int, deflection: Float) -> Unit)? = null,
 ) {
     var sizePx by remember { mutableStateOf(0f) }
     var sizePy by remember { mutableStateOf(0f) }
@@ -192,7 +202,21 @@ fun StickControl(
                             raw
                         }
                         knob = clamped * 0.45f
-                        setDirection(StickInput.direction(cx, cy, deadZone))
+                        val mask = StickInput.direction(cx, cy, deadZone)
+                        setDirection(mask)
+                        // Alpha.16 — proportional steering: the
+                        // stick's live state for the session.
+                        // Reported on every knob move, not only
+                        // when the mask changes — a deeper push
+                        // in the same direction is a new
+                        // deflection with the same mask, and the
+                        // pulse needs it. The haptics hooks above
+                        // are untouched: they fire from the mask
+                        // only, so this report never re-clicks.
+                        onStickStateChanged?.invoke(
+                            mask,
+                            ProportionalSteering.deflection(cx, cy, deadZone),
+                        )
                     }
                     try {
                         updateKnob(down.position)
@@ -212,6 +236,12 @@ fun StickControl(
                         // silent).
                         knob = Offset.Zero
                         setDirection(0)
+                        // Alpha.16 — proportional steering: the
+                        // stick is centred again, so the session
+                        // drops the held state too. Without this
+                        // a released stick would keep its last
+                        // deflection until the next drag.
+                        onStickStateChanged?.invoke(0, 0f)
                     }
                 }
             },

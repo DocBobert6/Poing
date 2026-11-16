@@ -9,6 +9,7 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.unit.dp
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -232,5 +233,49 @@ class PlayerControlsTest {
             up()
         }
         assertEquals(1, empties)
+    }
+
+    // Alpha.16 — proportional steering never drives a
+    // direction tick: the tick path reads the direction mask
+    // only, and the stick's state report (mask + deflection)
+    // fires on every knob move. Pushing deeper in the same
+    // direction reports new deflections with the same mask —
+    // the tick must fire once for the actuation, never again
+    // for the deeper push.
+    @Test
+    fun stickDeflectionChangesWithoutAMaskChangeFireNoTick() {
+        var ticks = 0
+        val reports = mutableListOf<Pair<Int, Float>>()
+        composeRule.setContent {
+            PoingTheme {
+                StickControl(
+                    HeldInput(), false, {},
+                    onDirectionChange = { ticks++ },
+                    onStickStateChanged = { mask, deflection ->
+                        reports += mask to deflection
+                    },
+                )
+            }
+        }
+        val size = composeRule.onNodeWithTag("stick").fetchSemanticsNode().size
+        val centre = Offset(size.width / 2f, size.height / 2f)
+        composeRule.onNodeWithTag("stick").performTouchInput {
+            // Down at the centre, then up partway, then
+            // further up in the same direction, then release.
+            down(centre)
+            moveTo(Offset(centre.x, centre.y - 30f))
+            moveTo(Offset(centre.x, centre.y - 38f))
+            up()
+        }
+        // One actuation (neutral -> UP); the deeper push and
+        // the release fire no second tick.
+        assertEquals(1, ticks)
+        // But the state report did fire for the deeper push:
+        // two distinct non-zero deflections for the same UP
+        // mask, so the session would have seen the change.
+        val upMask = 1 shl InputMask.JOY_UP
+        val upDeflections = reports.filter { it.first == upMask }.map { it.second }
+        assertTrue(upDeflections.size >= 2)
+        assertTrue(upDeflections.max() > upDeflections.min())
     }
 }

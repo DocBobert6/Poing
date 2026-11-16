@@ -31,7 +31,7 @@ class PlayerSessionTest {
     @get:Rule
     val temp = TemporaryFolder()
 
-    private fun session(): PlayerSession {
+    private fun session(proportionalSteering: Boolean = false): PlayerSession {
         val system = File(temp.root, "system").apply { mkdirs() }
         val saves = File(temp.root, "saves").apply { mkdirs() }
         return PlayerSession(
@@ -42,6 +42,7 @@ class PlayerSessionTest {
             onFrame = {},
             onStats = {},
             onError = {},
+            proportionalSteering = proportionalSteering,
         )
     }
 
@@ -172,5 +173,80 @@ class PlayerSessionTest {
         val s = session()
         assertNull(s.readRtcBytes())
         assertFalse(s.spinRtc(ByteArray(CartridgeClock.BUFFER_SIZE)))
+    }
+
+    // Alpha.16 — proportional steering, at the session level:
+    // the per-step mask sequence the loop hands the core. The
+    // loop itself never runs here (no native code under
+    // Robolectric), so these drive nextPulsedMask() directly —
+    // the same function the loop calls once per emulated step.
+    @Test
+    fun steeringOffPassesTheMaskThroughUnpulsed() {
+        val s = session()
+        val left = 1 shl InputMask.JOY_LEFT
+        val a = 1 shl InputMask.JOY_A
+        s.setInput(left or a)
+        s.setStickState(left, 0.5f)
+        // Toggle off: today's behaviour byte-for-byte, every step.
+        repeat(12) { assertEquals(left or a, s.nextPulsedMask()) }
+    }
+
+    @Test
+    fun steeringPulsesTheStickMaskAtHalfDeflection() {
+        val s = session(proportionalSteering = true)
+        val left = 1 shl InputMask.JOY_LEFT
+        val a = 1 shl InputMask.JOY_A
+        s.setInput(left or a)
+        s.setStickState(left, 0.5f)
+        // t = 0.5: ON for steps 0, 1, 2, OFF for 3, 4, 5 — and
+        // the A button rides through the OFF phase untouched.
+        assertEquals(left or a, s.nextPulsedMask())
+        assertEquals(left or a, s.nextPulsedMask())
+        assertEquals(left or a, s.nextPulsedMask())
+        assertEquals(a, s.nextPulsedMask())
+        assertEquals(a, s.nextPulsedMask())
+        assertEquals(a, s.nextPulsedMask())
+        // The period wraps: step 6 is step 0 again.
+        assertEquals(left or a, s.nextPulsedMask())
+    }
+
+    @Test
+    fun steeringFullDeflectionIsHeldContinuously() {
+        val s = session(proportionalSteering = true)
+        val left = 1 shl InputMask.JOY_LEFT
+        s.setInput(left)
+        s.setStickState(left, 1f)
+        repeat(12) { assertEquals(left, s.nextPulsedMask()) }
+    }
+
+    @Test
+    fun steeringNeverPulsesADpadMask() {
+        val s = session(proportionalSteering = true)
+        val up = 1 shl InputMask.JOY_UP
+        s.setInput(up)
+        // The stick is centred: no stick state at all, so a held
+        // direction reaches the core on every step, whatever the
+        // toggle says.
+        repeat(12) { assertEquals(up, s.nextPulsedMask()) }
+    }
+
+    @Test
+    fun setProportionalSteeringTogglesThePulseLive() {
+        val s = session()
+        val left = 1 shl InputMask.JOY_LEFT
+        s.setInput(left)
+        s.setStickState(left, 0.5f)
+        // Off: the raw mask, every step (and six steps is a
+        // full period, so the counter is back at 0).
+        repeat(6) { assertEquals(left, s.nextPulsedMask()) }
+        // On, from step 0: ON, ON, ON, then OFF.
+        s.setProportionalSteering(true)
+        assertEquals(left, s.nextPulsedMask())
+        assertEquals(left, s.nextPulsedMask())
+        assertEquals(left, s.nextPulsedMask())
+        assertEquals(0, s.nextPulsedMask())
+        // Off again, mid-period: the raw mask at once.
+        s.setProportionalSteering(false)
+        assertEquals(left, s.nextPulsedMask())
     }
 }

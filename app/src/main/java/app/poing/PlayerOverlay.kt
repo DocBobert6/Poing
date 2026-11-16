@@ -66,6 +66,12 @@ fun BoxScope.ControlOverlay(
     // The default is the shipped 0.22. It reaches only the
     // stick — the D-pad keeps its own fixed dead zone.
     deadZone: Float = StickInput.DEAD_ZONE,
+    // Alpha.16 — proportional steering: the stick's live
+    // state (mask + deflection), handed to the session by the
+    // caller. Null keeps the editor preview on the old
+    // behaviour — the game is paused there, so the loop
+    // never pulses.
+    onStickStateChanged: ((mask: Int, deflection: Float) -> Unit)? = null,
     // Alpha.10 (Part D) — the FF / 0.5x / RW buttons live in
     // the overlay now: they render from the layout like every
     // other control, and only when their Settings toggle is on
@@ -122,6 +128,7 @@ fun BoxScope.ControlOverlay(
                 onLightDown = onLightDown,
                 onShoulderDown = onShoulderDown,
                 deadZone = deadZone,
+                onStickStateChanged = onStickStateChanged,
                 slowOn = slowOn,
                 onFfDown = onFfDown, onFfUp = onFfUp, onSlowToggle = onSlowToggle,
                 onRwDown = onRwDown, onRwUp = onRwUp,
@@ -167,6 +174,10 @@ fun ControlButton(
     // the per-game override when it has one, otherwise the
     // global slider value. The D-pad never reads it.
     deadZone: Float = StickInput.DEAD_ZONE,
+    // Alpha.16 — proportional steering (see ControlOverlay):
+    // the stick's live state for the session. The editor
+    // preview keeps the null default.
+    onStickStateChanged: ((mask: Int, deflection: Float) -> Unit)? = null,
     // Alpha.10 (Part D) — the FF / 0.5x / RW actions. The
     // editor previews with the defaults (no-ops): a press
     // there is inert, the game is paused. Visibility is the
@@ -201,6 +212,7 @@ fun ControlButton(
                 accentColor = pressed,
                 sizeDp = spec.sizeDp.dp,
                 deadZone = deadZone,
+                onStickStateChanged = onStickStateChanged,
             )
         }
         ControlId.A -> HoldButton(

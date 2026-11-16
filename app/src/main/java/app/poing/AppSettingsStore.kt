@@ -33,6 +33,7 @@ class AppSettingsStore(private val root: File) {
         const val KEY_REWIND_CONTROL = "rewind_control_visible"
         const val KEY_LEFT_CONTROL = "controls.leftControl"
         const val KEY_STICK_DEAD_ZONE = "controls.stickDeadZone"
+        const val KEY_PROPORTIONAL_STEERING = "controls.proportionalSteering"
         const val KEY_JADE_CHAIN = "display_jade"
         const val KEY_PRISM_CHAIN = "display_prism"
         const val KEY_DUSK_CHAIN = "display_dusk"
@@ -124,6 +125,20 @@ class AppSettingsStore(private val root: File) {
         write(KEY_STICK_DEAD_ZONE, pct.toString())
         return true
     }
+
+    /**
+     * Alpha.16 — proportional steering: the stick's deflection
+     * controls how much steering the game gets, by pulsing the
+     * direction (see ProportionalSteering). Off by default:
+     * it changes what holding a direction means everywhere —
+     * in a menu a held direction taps repeatedly, in a
+     * platformer holding to run stutter-steps — so racing
+     * games opt in, per game or globally. A game can override
+     * it in the layout editor (see ControlLayoutStore).
+     */
+    fun proportionalSteering(): Boolean = readBoolean(KEY_PROPORTIONAL_STEERING, false)
+    fun setProportionalSteering(enabled: Boolean) =
+        write(KEY_PROPORTIONAL_STEERING, enabled.toString())
 
     /** The rewind control (hold to step back through the last 30 seconds): off by default (the standing overlay rule). */
     fun rewindControlVisible(): Boolean = readBoolean(KEY_REWIND_CONTROL, false)

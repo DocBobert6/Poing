@@ -436,6 +436,20 @@ class AppSettingsStoreTest {
     }
 
     @Test
+    fun proportionalSteeringDefaultsOffAndRoundTrips() {
+        // Alpha.16 — off by default: steering changes what
+        // holding a direction means everywhere, so racing
+        // games opt in.
+        val s = store()
+        assertFalse(s.proportionalSteering())
+        s.setProportionalSteering(true)
+        assertTrue(s.proportionalSteering())
+        assertTrue(AppSettingsStore(temp.root).proportionalSteering())
+        s.setProportionalSteering(false)
+        assertFalse(s.proportionalSteering())
+    }
+
+    @Test
     fun edgeSmoothingDefaultsOffAndRoundTrips() {
         // Phase 9 — off by default: edge smoothing is an
         // alternative to the chains, never the default look.

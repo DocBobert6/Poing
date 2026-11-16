@@ -382,4 +382,63 @@ class ControlLayoutStoreTest {
         store.setStickDeadZoneOverridePct("abc123", null)
         assertEquals(30, store.resolvedStickDeadZonePct("abc123", 30))
     }
+
+    // Alpha.16 — the per-game proportional-steering override,
+    // in its own small file beside the layout file: the
+    // layout's save/clear rules must never wipe it, or be
+    // wiped by it.
+    @Test
+    fun `proportional steering override is null by default`() {
+        assertEquals(null, store.proportionalSteeringOverride("abc123"))
+    }
+
+    @Test
+    fun `proportional steering override round-trips and clears`() {
+        store.setProportionalSteeringOverride("abc123", true)
+        assertEquals(true, store.proportionalSteeringOverride("abc123"))
+        assertEquals(true, ControlLayoutStore(dir).proportionalSteeringOverride("abc123"))
+        store.setProportionalSteeringOverride("abc123", false)
+        assertEquals(false, store.proportionalSteeringOverride("abc123"))
+        store.setProportionalSteeringOverride("abc123", null)
+        assertEquals(null, store.proportionalSteeringOverride("abc123"))
+        // Clearing deletes the file: a later load must not
+        // resurrect the override.
+        assertFalse(java.io.File(dir, "abc123.propsteering").exists())
+    }
+
+    @Test
+    fun `proportional steering override survives a layout save and clear`() {
+        store.setProportionalSteeringOverride("abc123", true)
+        store.save("abc123", ControlLayout.DEFAULT.moved(ControlId.A, 0.9f, 0.4f, grouped = false))
+        assertEquals(true, store.proportionalSteeringOverride("abc123"))
+        store.clearOverride("abc123")
+        assertEquals(true, store.proportionalSteeringOverride("abc123"))
+    }
+
+    @Test
+    fun `proportional steering override does not leak between games`() {
+        store.setProportionalSteeringOverride("abc123", true)
+        assertEquals(null, store.proportionalSteeringOverride("def456"))
+    }
+
+    @Test
+    fun `an unreadable proportional steering override reads as no override`() {
+        java.io.File(dir, "abc123.propsteering").writeText("banana")
+        assertEquals(null, store.proportionalSteeringOverride("abc123"))
+    }
+
+    @Test
+    fun `resolved proportional steering prefers the override over the global value`() {
+        // No override: the global value wins.
+        assertFalse(store.resolvedProportionalSteering("abc123", false))
+        assertTrue(store.resolvedProportionalSteering("abc123", true))
+        // An override wins over the global value, either way.
+        store.setProportionalSteeringOverride("abc123", true)
+        assertTrue(store.resolvedProportionalSteering("abc123", false))
+        store.setProportionalSteeringOverride("abc123", false)
+        assertFalse(store.resolvedProportionalSteering("abc123", true))
+        // Clearing the override falls back to the global value.
+        store.setProportionalSteeringOverride("abc123", null)
+        assertTrue(store.resolvedProportionalSteering("abc123", true))
+    }
 }

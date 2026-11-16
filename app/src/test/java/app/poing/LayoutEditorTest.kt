@@ -44,6 +44,7 @@ class LayoutEditorTest {
     private var committed: ControlLayout? = null
     private var committedChoice: LeftControl? = null
     private var committedDeadZone: Int? = null
+    private var committedSteering: Boolean? = null
 
     private fun setContent(
         isGba: Boolean = false,
@@ -61,10 +62,17 @@ class LayoutEditorTest {
         showDeadZoneChoice: Boolean = false,
         deadZoneDefaultPct: Int = StickInput.DEAD_ZONE_DEFAULT_PCT,
         deadZoneOverridePct: Int? = null,
+        // Alpha.16 — proportional steering for this game: the
+        // row shows only when showSteeringChoice is true and
+        // the stick is the control in the slot.
+        showSteeringChoice: Boolean = false,
+        steeringDefault: Boolean = false,
+        steeringOverride: Boolean? = null,
     ) {
         committed = null
         committedChoice = null
         committedDeadZone = null
+        committedSteering = null
         composeRule.setContent {
             PoingTheme {
                 LayoutEditor(
@@ -80,10 +88,14 @@ class LayoutEditorTest {
                     deadZoneDefaultPct = deadZoneDefaultPct,
                     deadZoneOverridePct = deadZoneOverridePct,
                     showDeadZoneChoice = showDeadZoneChoice,
-                    onDone = { layout, choice, deadZonePct ->
+                    steeringDefault = steeringDefault,
+                    steeringOverride = steeringOverride,
+                    showSteeringChoice = showSteeringChoice,
+                    onDone = { layout, choice, deadZonePct, steering ->
                         committed = layout
                         committedChoice = choice
                         committedDeadZone = deadZonePct
+                        committedSteering = steering
                     },
                     onBack = {},
                     resetLayout = resetLayout,
@@ -402,5 +414,90 @@ class LayoutEditorTest {
         composeRule.onNodeWithTag("editor-reset").performClick()
         composeRule.onNodeWithTag("editor-done").performClick()
         assertEquals(27, committedDeadZone)
+    }
+
+    // Alpha.16 — proportional steering for this game: the row
+    // shows only while the stick is in the slot, Global / On /
+    // Off like the left-control row, Done commits the draft.
+    @Test
+    fun steeringRowHiddenWithoutTheChoice() {
+        // The per-game editor never passes the choice: the
+        // stick is in the slot, but there is no steering row.
+        setContent(leftControlOverride = LeftControl.STICK)
+        composeRule.onAllNodesWithTag("editor-steering-value").assertCountEquals(0)
+    }
+
+    @Test
+    fun steeringRowHiddenWithTheDpad() {
+        // The choice is passed, but the D-pad is the control
+        // in the slot: steering is the stick's, so there is
+        // no row to show.
+        setContent(showSteeringChoice = true)
+        composeRule.onAllNodesWithTag("editor-steering-value").assertCountEquals(0)
+    }
+
+    @Test
+    fun steeringRowShowsTheGlobalValueForTheStick() {
+        setContent(showSteeringChoice = true, leftControlOverride = LeftControl.STICK)
+        composeRule.onNodeWithText("Steering off (Global)").assertIsDisplayed()
+    }
+
+    @Test
+    fun steeringRowShowsTheGlobalOnValueForTheStick() {
+        setContent(
+            showSteeringChoice = true,
+            leftControlOverride = LeftControl.STICK,
+            steeringDefault = true,
+        )
+        composeRule.onNodeWithText("Steering on (Global)").assertIsDisplayed()
+    }
+
+    @Test
+    fun steeringOnCreatesAnOverrideAndDoneCommitsIt() {
+        setContent(showSteeringChoice = true, leftControlOverride = LeftControl.STICK)
+        composeRule.onNodeWithTag("editor-steering-on").performClick()
+        composeRule.onNodeWithText("Steering on").assertIsDisplayed()
+        composeRule.onNodeWithTag("editor-done").performClick()
+        assertEquals(true, committedSteering)
+    }
+
+    @Test
+    fun steeringGlobalClearsTheOverride() {
+        setContent(
+            showSteeringChoice = true,
+            leftControlOverride = LeftControl.STICK,
+            steeringOverride = true,
+        )
+        composeRule.onNodeWithText("Steering on").assertIsDisplayed()
+        composeRule.onNodeWithTag("editor-steering-global").performClick()
+        composeRule.onNodeWithText("Steering off (Global)").assertIsDisplayed()
+        composeRule.onNodeWithTag("editor-done").performClick()
+        assertEquals(null, committedSteering)
+    }
+
+    @Test
+    fun steeringRowHidesWhenTheDpadIsChosenButTheOverrideSurvives() {
+        setContent(
+            showLeftControlChoice = true,
+            showSteeringChoice = true,
+            leftControlOverride = LeftControl.STICK,
+            steeringOverride = true,
+        )
+        composeRule.onNodeWithText("Steering on").assertIsDisplayed()
+        composeRule.onNodeWithTag("editor-left-control-dpad").performClick()
+        composeRule.onAllNodesWithTag("editor-steering-value").assertCountEquals(0)
+        // The hidden override is still committed: switching
+        // away from the stick does not wipe it.
+        composeRule.onNodeWithTag("editor-done").performClick()
+        assertEquals(true, committedSteering)
+    }
+
+    @Test
+    fun resetLeavesTheSteeringOverrideAlone() {
+        setContent(showSteeringChoice = true, leftControlOverride = LeftControl.STICK)
+        composeRule.onNodeWithTag("editor-steering-on").performClick()
+        composeRule.onNodeWithTag("editor-reset").performClick()
+        composeRule.onNodeWithTag("editor-done").performClick()
+        assertEquals(true, committedSteering)
     }
 }

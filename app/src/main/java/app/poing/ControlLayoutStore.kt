@@ -157,6 +157,60 @@ class ControlLayoutStore(private val layoutsDir: File) {
         stickDeadZoneOverridePct(base) ?: globalPct
 
     /**
+     * Alpha.16 — a game's proportional-steering override, in
+     * its own small file beside the layout file
+     * (`<base>.propsteering`, holding "on" or "off"). It
+     * lives apart from the layout on purpose, for the same
+     * reason the left-control choice and the dead-zone
+     * override do: the layout file's save/clear rules must
+     * never be able to wipe — or be wiped by — the override.
+     * A missing file (or an unreadable one) means no
+     * override: the game follows the global switch.
+     */
+    private fun proportionalSteeringFile(base: String): File = File(layoutsDir, "$base.propsteering")
+
+    /** This game's steering override, or null when it follows the global switch. */
+    fun proportionalSteeringOverride(base: String): Boolean? {
+        val f = proportionalSteeringFile(base)
+        if (!f.exists()) return null
+        val raw = try {
+            f.readText().trim()
+        } catch (_: Exception) {
+            return null
+        }
+        return when (raw) {
+            "on" -> true
+            "off" -> false
+            else -> null
+        }
+    }
+
+    /** Store (or clear, with null) this game's steering override. */
+    fun setProportionalSteeringOverride(base: String, enabled: Boolean?) {
+        try {
+            val f = proportionalSteeringFile(base)
+            if (enabled == null) {
+                f.delete()
+            } else {
+                f.parentFile?.mkdirs()
+                f.writeText(if (enabled) "on" else "off")
+            }
+        } catch (_: Exception) {
+            // A failed write leaves the previous choice in place.
+        }
+    }
+
+    /**
+     * Alpha.16 — proportional steering in effect for a game:
+     * the game's own override when it has one, otherwise the
+     * global value the caller passes in. The resolution order,
+     * pinned in ControlLayoutStoreTest: per-game override wins
+     * over the global switch.
+     */
+    fun resolvedProportionalSteering(base: String, global: Boolean): Boolean =
+        proportionalSteeringOverride(base) ?: global
+
+    /**
      * The resolution order, pinned in ControlLayoutStoreTest:
      * a game's own file wins; otherwise its handheld's
      * default; otherwise ControlLayout.DEFAULT.

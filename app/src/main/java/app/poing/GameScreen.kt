@@ -211,6 +211,17 @@ fun GameScreen(
             layoutStore.resolvedStickDeadZonePct(saveBase, appSettings.stickDeadZonePct()) / 100f,
         )
     }
+    // Alpha.16 — proportional steering for this game: the
+    // game's own override when it has one, otherwise the
+    // global switch (off by default). Resolved once per game,
+    // like the dead zone. Mutable so the editor's Done can
+    // commit a new choice for this game at once, and the
+    // session is told through its setter there.
+    var proportionalSteering by remember(gamePath) {
+        mutableStateOf(
+            layoutStore.resolvedProportionalSteering(saveBase, appSettings.proportionalSteering()),
+        )
+    }
     // The handheld default, snapshotted with the game like the
     // other player settings: it is what the editor's Reset
     // restores, and what Done falls back to when the draft
@@ -449,6 +460,11 @@ fun GameScreen(
             // captured when the control is visible (same
             // snapshotted setting the overlay reads).
             rewindControlVisible = rewindControlVisible,
+            // Alpha.16 — proportional steering for this game
+            // at start (per-game override, or the global
+            // switch). The editor's Done pushes a later
+            // change through the session's setter.
+            proportionalSteering = proportionalSteering,
         )
     }
 
@@ -457,6 +473,10 @@ fun GameScreen(
     // display mirrors it, so what it shows is what the game receives.
     // doPause clears both masks and then calls this, so a pause
     // clears the display too.
+    // Alpha.16 — the display mirrors the RAW mask, not the pulsed
+    // one: the pulse lives in the session's loop, below this
+    // push, so the display never flickers with the pulse and
+    // shows what the player's thumb is doing.
     fun pushInput() {
         val mask = held.mask or GamepadInput.state.mask
         session.setInput(mask)
@@ -907,6 +927,13 @@ fun GameScreen(
             // Alpha.14 — the dead zone in effect for this game
             // (per-game override, or the global slider value).
             deadZone = deadZone,
+            // Alpha.16 — proportional steering: the stick's
+            // live state goes straight to the session, which
+            // pulses the mask the core is handed. The display
+            // and the haptics never see it (see pushInput).
+            onStickStateChanged = { mask, deflection ->
+                session.setStickState(mask, deflection)
+            },
             // Alpha.10 (Part D) — FF / 0.5x / RW live in the
             // overlay now (see ControlOverlay): the same
             // hold/toggle behaviour the fixed Row had, at the
@@ -1231,7 +1258,14 @@ fun GameScreen(
                 deadZoneDefaultPct = appSettings.stickDeadZonePct(),
                 deadZoneOverridePct = layoutStore.stickDeadZoneOverridePct(saveBase),
                 showDeadZoneChoice = true,
-                onDone = { draft, choice, deadZonePct ->
+                // Alpha.16 — proportional steering for this
+                // game: the editor shows the Global / On / Off
+                // row for this game, and Done commits the
+                // override with the layout.
+                steeringDefault = appSettings.proportionalSteering(),
+                steeringOverride = layoutStore.proportionalSteeringOverride(saveBase),
+                showSteeringChoice = true,
+                onDone = { draft, choice, deadZonePct, steering ->
                     layout = draft
                     if (draft == handheldDefault) layoutStore.clearOverride(saveBase)
                     else layoutStore.save(saveBase, draft)
@@ -1239,6 +1273,9 @@ fun GameScreen(
                     leftControl = choice ?: appSettings.leftControl()
                     layoutStore.setStickDeadZoneOverridePct(saveBase, deadZonePct)
                     deadZone = (deadZonePct ?: appSettings.stickDeadZonePct()) / 100f
+                    layoutStore.setProportionalSteeringOverride(saveBase, steering)
+                    proportionalSteering = steering ?: appSettings.proportionalSteering()
+                    session.setProportionalSteering(proportionalSteering)
                     editingLayout = false
                 },
                 onBack = { editingLayout = false },

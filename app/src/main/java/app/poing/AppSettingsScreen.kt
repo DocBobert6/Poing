@@ -102,6 +102,9 @@ fun AppSettingsScreen(
     // player's thumb, not the handheld; a game can override
     // it in the layout editor.
     var stickDeadZone by remember { mutableStateOf(store.stickDeadZonePct()) }
+    // Alpha.16 — proportional steering: off by default. A
+    // game can override it in the layout editor.
+    var proportionalSteering by remember { mutableStateOf(store.proportionalSteering()) }
     var rewindControl by remember { mutableStateOf(store.rewindControlVisible()) }
     // Player chrome (Robert, 2026-11-12) — the dev stats:
     // when on, the top bar stays visible during gameplay;
@@ -456,6 +459,42 @@ fun AppSettingsScreen(
                             modifier = Modifier.padding(start = 12.dp),
                         )
                     }
+                }
+            }
+            // Alpha.16 — proportional steering, beside the dead
+            // zone it belongs to: the stick's deflection controls
+            // how much steering the game gets — a slight push
+            // pulses the direction in gentle taps, full push
+            // holds it. Off by default: it changes what holding
+            // a direction means everywhere (a held direction in
+            // a menu taps repeatedly), so racing games opt in —
+            // change it for one game in the layout editor. It
+            // does nothing while the D-pad is in the slot.
+            item {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            "Proportional steering",
+                            style = MaterialTheme.typography.titleMedium,
+                        )
+                        Text(
+                            "How much you push the joystick controls how much steering the game gets: a slight push steers gently, a full push steers fully. Off by default — change it for one game in the layout editor.",
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                    }
+                    Switch(
+                        checked = proportionalSteering,
+                        onCheckedChange = {
+                            store.setProportionalSteering(it)
+                            proportionalSteering = it
+                        },
+                        modifier = Modifier.testTag("proportional-steering-switch"),
+                    )
                 }
             }
             item {
@@ -1066,7 +1105,7 @@ fun AppSettingsScreen(
             held = editorHeld,
             onInputChanged = {},
             onControlDown = {},
-            onDone = { draft, _, _ ->
+            onDone = { draft, _, _, _ ->
                 if (draft == ControlLayout.DEFAULT) layoutStore.clearDefault(editingSystem)
                 else layoutStore.saveDefault(editingSystem, draft)
                 defaultsNonce++

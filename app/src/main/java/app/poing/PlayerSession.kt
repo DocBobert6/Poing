@@ -88,6 +88,16 @@ class PlayerSession(
     // snapshots could never be used, so capturing one every
     // second was pure waste.
     private val rewindControlVisible: Boolean = false,
+    // Alpha.16 — proportional steering for this game at
+    // start: the per-game override when it has one,
+    // otherwise the global switch (see GameScreen, which
+    // resolves it the same way it resolves the dead zone).
+    // Snapshotted like the rewind control; the editor's Done
+    // pushes a later change through [setProportionalSteering].
+    // Volatile: written by the UI thread, read by the emu
+    // loop once per step.
+    @Volatile
+    private var proportionalSteering: Boolean = false,
 ) {
     companion object {
         private const val TAG = "Poing"
@@ -186,6 +196,34 @@ class PlayerSession(
 
     @Volatile
     private var inputMask = 0
+
+    /**
+     * Alpha.16 — proportional steering state, written by the
+     * UI thread (StickControl reports it) and read by the emu
+     * loop once per step. [stickMask] is the stick's current
+     * direction mask (0 when centred or released) and
+     * [stickDeflection] its normalised deflection t in 0..1.
+     * The D-pad never writes either, so the toggle does
+     * nothing while it is in the slot — the pulse gates only
+     * bits the stick itself holds. The toggle itself is the
+     * constructor property above.
+     */
+    @Volatile
+    private var stickMask: Int = 0
+
+    @Volatile
+    private var stickDeflection: Float = 0f
+
+    /**
+     * Alpha.16 — the pulse's step within its 6-frame period.
+     * Emu-thread only: it advances once per emulated step in
+     * [nextPulsedMask] and restarts at 0 on resume, so a
+     * resumed game never picks up mid-period.
+     */
+    private var steeringStep: Int = 0
+
+    /** The mask the loop last pushed to the bridge (emu-thread only). */
+    private var lastPulsedMask: Int = -1
 
     /** The latest frame drawn, for save-state thumbnails. Written by the emu loop, read only while paused (the loop is idle then, so the Bitmap is stable). */
     @Volatile
@@ -405,6 +443,62 @@ class PlayerSession(
         // is stored first and the emu loop pushes it after a
         // successful load, so nothing is lost by waiting.
         if (loaded) Bridge.nativeSetInput(mask)
+    }
+
+    /**
+     * Alpha.16 — proportional steering: the toggle in effect
+     * for this game, after the constructor snapshot. Called
+     * from the layout editor's Done when the per-game
+     * override changes mid-session; the game is paused there,
+     * so the loop picks the new value up on resume with the
+     * pulse counter restarted.
+     */
+    fun setProportionalSteering(enabled: Boolean) {
+        proportionalSteering = enabled
+    }
+
+    /**
+     * Alpha.16 — the stick's live state, reported by
+     * StickControl on every knob move (and on release, as
+     * 0 / 0f): its direction mask and its normalised
+     * deflection t in 0..1. Plain field writes — the loop
+     * reads them once per step, so a report that lands
+     * between steps takes effect on the next one.
+     */
+    fun setStickState(mask: Int, deflection: Float) {
+        stickMask = mask
+        stickDeflection = deflection.coerceIn(0f, 1f)
+    }
+
+    /**
+     * Alpha.16 — the mask the core is handed this step, with
+     * the stick's direction bits gated by the steering pulse;
+     * advances the pulse counter. The loop calls this once per
+     * emulated step, so the pulse advances in game time (a
+     * fast-forward step is a step, not a displayed frame).
+     * Internal so the per-step sequence is testable without
+     * the native loop (see PlayerSessionTest).
+     */
+    internal fun nextPulsedMask(): Int {
+        val pulsed = ProportionalSteering.pulsedMask(
+            inputMask, stickMask, steeringStep, stickDeflection, proportionalSteering,
+        )
+        steeringStep = (steeringStep + 1) % ProportionalSteering.PERIOD_FRAMES
+        return pulsed
+    }
+
+    /** Alpha.16 — push the pulsed mask to the bridge when it changed since the last step. */
+    private fun pushPulsedInput() {
+        val pulsed = nextPulsedMask()
+        if (pulsed != lastPulsedMask) {
+            lastPulsedMask = pulsed
+            Bridge.nativeSetInput(pulsed)
+        }
+    }
+
+    /** Alpha.16 — restart the pulse counter (the loop calls this on resume from pause). */
+    private fun resetSteeringPulse() {
+        steeringStep = 0
     }
 
     /**
@@ -1008,11 +1102,21 @@ class PlayerSession(
                 } catch (e: InterruptedException) {
                     break
                 }
+                // Alpha.16 — proportional steering: the pulse
+                // counter restarts cleanly on resume, so a
+                // resumed game never picks up mid-period.
+                resetSteeringPulse()
                 continue
             }
             val t0 = System.nanoTime()
             inFrame = true
             try {
+                // Alpha.16 — proportional steering: the mask
+                // the core is handed this step, pulsed from
+                // the stick's deflection. The haptics and the
+                // input display read the raw mask the UI
+                // pushed, so they never see the pulsing.
+                pushPulsedInput()
                 Bridge.nativeRunFrame()
             } finally {
                 inFrame = false

@@ -93,7 +93,21 @@ fun LayoutEditor(
     deadZoneDefaultPct: Int = StickInput.DEAD_ZONE_DEFAULT_PCT,
     deadZoneOverridePct: Int? = null,
     showDeadZoneChoice: Boolean = false,
-    onDone: (ControlLayout, LeftControl?, Int?) -> Unit,
+    // Alpha.16 — proportional steering for the game being
+    // edited. [steeringDefault] is the global switch (what
+    // "Global" previews to); [steeringOverride] is this
+    // game's stored override, null when it follows the global
+    // switch. [showSteeringChoice] shows the row — the
+    // per-game editor only, and only while the stick is the
+    // control in the slot (steering is the stick's, the D-pad
+    // has no deflection to measure). [onDone] commits the
+    // layout AND all three draft overrides (null = follow
+    // global). This param sits after the dead-zone ones so the
+    // existing callers keep working.
+    steeringDefault: Boolean = false,
+    steeringOverride: Boolean? = null,
+    showSteeringChoice: Boolean = false,
+    onDone: (ControlLayout, LeftControl?, Int?, Boolean?) -> Unit,
     onBack: () -> Unit,
     // Overlay defaults (Robert, 2026-11-14): what Reset
     // restores. The player passes the game's handheld
@@ -119,6 +133,14 @@ fun LayoutEditor(
     // The dead zone the editor previews: the draft override,
     // or the global slider value while the game follows it.
     val deadZonePreviewPct = deadZoneDraftPct ?: deadZoneDefaultPct
+    // Alpha.16 — the steering draft: the override until Done,
+    // like the dead-zone draft. Null means this game follows
+    // the global switch. Reset is layout-only: it never
+    // touches this draft either.
+    var steeringDraft by remember { mutableStateOf(steeringOverride) }
+    // The steering the editor previews: the draft override,
+    // or the global switch while the game follows it.
+    val steeringPreview = steeringDraft ?: steeringDefault
     var selectedId by remember { mutableStateOf<ControlId?>(null) }
     var snapOn by remember { mutableStateOf(true) }
     var grouped by remember { mutableStateOf(true) }
@@ -185,7 +207,7 @@ fun LayoutEditor(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 EditorPill("Back", "editor-back") { onBack() }
-                EditorPill("Done", "editor-done") { onDone(draft, leftControlDraft, deadZoneDraftPct) }
+                EditorPill("Done", "editor-done") { onDone(draft, leftControlDraft, deadZoneDraftPct, steeringDraft) }
                 EditorPill("Reset", "editor-reset") {
                     draft = resetLayout
                     selectedId = null
@@ -244,6 +266,34 @@ fun LayoutEditor(
                     }
                     EditorChoicePill("Global", deadZoneDraftPct == null, "editor-dead-zone-global") {
                         deadZoneDraftPct = null
+                    }
+                }
+            }
+            // Alpha.16 — proportional steering for this game,
+            // only while the stick is the control in the slot:
+            // the D-pad has no deflection to measure. Global
+            // (follow the Settings switch), On, or Off — the
+            // same three-way pattern as the left-control row.
+            // The label shows the value in effect and
+            // "(Global)" while it follows the switch.
+            if (showSteeringChoice && leftControlPreview == LeftControl.STICK) {
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    EditorPillLabel(
+                        "Steering " + (if (steeringPreview) "on" else "off") +
+                            (if (steeringDraft == null) " (Global)" else ""),
+                        "editor-steering-value",
+                    )
+                    EditorChoicePill("Global", steeringDraft == null, "editor-steering-global") {
+                        steeringDraft = null
+                    }
+                    EditorChoicePill("On", steeringDraft == true, "editor-steering-on") {
+                        steeringDraft = true
+                    }
+                    EditorChoicePill("Off", steeringDraft == false, "editor-steering-off") {
+                        steeringDraft = false
                     }
                 }
             }

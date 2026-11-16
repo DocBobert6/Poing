@@ -309,6 +309,29 @@ class AppSettingsScreenTest {
     }
 
     @Test
+    fun proportionalSteeringSwitchIsOffByDefaultAndTogglingPersists() {
+        // Alpha.16 — the switch lives under the dead-zone
+        // slider, off by default; flipping it writes to the
+        // store. The list is a LazyColumn: scroll it to the
+        // switch first, or the row is not composed in the
+        // small test window.
+        val s = store()
+        composeRule.setContent {
+            PoingTheme {
+                AppSettingsScreen(store = s, onCoreOptions = {}, onBack = { })
+            }
+        }
+        composeRule.onNodeWithTag("settings-list")
+            .performScrollToNode(hasTestTag("proportional-steering-switch"))
+        composeRule.onNodeWithText("Proportional steering").assertIsDisplayed()
+        assertFalse(AppSettingsStore(temp.root).proportionalSteering())
+        composeRule.onNodeWithTag("proportional-steering-switch").performClick()
+        assertTrue(AppSettingsStore(temp.root).proportionalSteering())
+        composeRule.onNodeWithTag("proportional-steering-switch").performClick()
+        assertFalse(AppSettingsStore(temp.root).proportionalSteering())
+    }
+
+    @Test
     fun devStatsOffByDefaultAndTogglingPersists() {
         val s = store()
         composeRule.setContent {
