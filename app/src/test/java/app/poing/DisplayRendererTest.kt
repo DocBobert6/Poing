@@ -257,12 +257,67 @@ class DisplayRendererTest {
         assertEquals(DrawPath.PLAIN, renderer.lastDrawPath)
     }
 
+    /**
+     * Black screen on launch (Robert, 2026-11-16, still
+     * happening on alpha.16): the alpha.10 fix notified
+     * only while a frame was pending — and the launch
+     * rotation destroys and recreates the surface AFTER
+     * the pending frame was already consumed, so the
+     * recreation found nothing pending and nothing drew.
+     * On a static screen no new frame ever arrives, so
+     * the screen stayed black until the picture changed
+     * (a button press advances the game; a tap on empty
+     * space does not). The notify is unconditional now:
+     * every surface creation asks the session to
+     * re-deliver its latest frame, because
+     * onSurfaceCreated resets every texture and handle —
+     * after it the renderer holds no valid picture at
+     * all, pending frame or not. The replay is null-safe
+     * before the first frame, so a creation with nothing
+     * to re-deliver is a no-op. This pins the new
+     * contract: a creation with no pending frame still
+     * notifies exactly once.
+     */
     @Test
-    fun surfaceCreatedWithNoPendingFrameDoesNotNotifyReady() {
+    fun surfaceCreatedNotifiesReadyEvenWithNoPendingFrame() {
         val renderer = DisplayRenderer()
         var readyCalls = 0
         renderer.onSurfaceReady = { readyCalls++ }
         renderer.onSurfaceCreated(null, null)
-        assertEquals(0, readyCalls)
+        assertEquals(1, readyCalls)
+    }
+
+    /**
+     * The rotation case, end to end: the first creation
+     * notifies and the first draw consumes the pending
+     * frame; the window then rotates, the surface is
+     * destroyed and recreated, and the recreation must
+     * notify AGAIN even though nothing is pending — the
+     * picture was lost with the old surface, and on a
+     * static screen no new frame will arrive to draw it.
+     * Fails on the old code: the pending-only check
+     * leaves readyCalls at 1 after the recreation.
+     */
+    @Test
+    fun surfaceRecreationAfterFrameConsumedNotifiesReadyAgain() {
+        val renderer = DisplayRenderer()
+        var readyCalls = 0
+        renderer.onSurfaceReady = { readyCalls++ }
+        renderer.setDisplay(
+            DisplayChain.CLEAN,
+            JadeMode.FSTN,
+            EdgeMode.OFF,
+            GameSystem.GB,
+        )
+        renderer.setFrame(Bitmap.createBitmap(160, 144, Bitmap.Config.ARGB_8888))
+        renderer.onSurfaceCreated(null, null)
+        assertEquals(1, readyCalls)
+        renderer.onSurfaceChanged(null, 800, 600)
+        renderer.onDrawFrame(null)
+        assertTrue(renderer.frameConsumed)
+        assertEquals(DrawPath.PLAIN, renderer.lastDrawPath)
+        // The window rotates: surface destroyed, recreated.
+        renderer.onSurfaceCreated(null, null)
+        assertEquals(2, readyCalls)
     }
 }

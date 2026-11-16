@@ -247,7 +247,8 @@ class DisplayRenderer : GLSurfaceView.Renderer {
 
     /**
      * Black screen on launch (Robert, 2026-11-15, still
-     * happening on alpha.9): the session starts before the
+     * happening on alpha.9; and STILL happening on
+     * alpha.16, 2026-11-16): the session starts before the
      * GL view is attached, so the first frame's
      * requestRender() is DROPPED — GLSurfaceView no-ops it
      * while the GL thread does not exist yet — and the
@@ -264,6 +265,29 @@ class DisplayRenderer : GLSurfaceView.Renderer {
      * no-GL fallback path, which has no surface to wait
      * on). The dirty-check semantics are unchanged: the
      * steady state still skips copies for static screens.
+     *
+     * Alpha.20 — the hole in that fix (Robert, 2026-11-16:
+     * still black on alpha.16 until a BUTTON press, not
+     * any tap): the notify fired only while a frame was
+     * pending. The game requests landscape from a portrait
+     * library, so the window rotates and the surface is
+     * destroyed and RECREATED — and a recreation after the
+     * pending frame was already consumed finds nothing
+     * pending, so nothing replays and nothing draws. On a
+     * static screen no new frame ever arrives to break
+     * the silence (the emu loop copies nothing while the
+     * picture is unchanged), so the screen stays black
+     * until the picture changes — which is exactly what a
+     * button press does (it advances the game) and what a
+     * tap on empty space does not. The notify is therefore
+     * UNCONDITIONAL now: every surface creation asks the
+     * session to re-deliver its latest frame, because
+     * onSurfaceCreated resets every texture and handle
+     * above — after it, the renderer holds no valid
+     * picture at all, pending frame or not. The replay is
+     * null-safe before the first frame, and a creation is
+     * a rare event (rotation, pause/resume), so this is
+     * one re-delivery per creation, never a loop.
      */
     var onSurfaceReady: (() -> Unit)? = null
 
@@ -428,12 +452,20 @@ class DisplayRenderer : GLSurfaceView.Renderer {
         reconH = 0
         frameW = 0
         frameH = 0
-        // Black screen on launch (see onSurfaceReady): a
-        // frame that arrived before the GL thread existed
-        // is still pending here, and its render request was
-        // dropped — tell the view now, while the thread
-        // exists, so the frame draws with no input.
-        if (pendingBitmap != null) onSurfaceReady?.invoke()
+        // Black screen on launch (see onSurfaceReady):
+        // every surface creation loses the picture — the
+        // handles and textures above are all fresh, so the
+        // renderer holds nothing drawable — and the session
+        // must re-deliver its latest frame for the picture
+        // to come back. UNCONDITIONAL since alpha.20: the
+        // old pending-only check missed a recreation after
+        // the pending frame was already consumed (the
+        // landscape rotation on launch), and on a static
+        // screen no new frame ever arrives to break the
+        // silence. The replay is null-safe before the first
+        // frame, so a creation with nothing to re-deliver
+        // is a no-op, not a crash.
+        onSurfaceReady?.invoke()
     }
 
     override fun onSurfaceChanged(gl: GL10?, w: Int, h: Int) {
