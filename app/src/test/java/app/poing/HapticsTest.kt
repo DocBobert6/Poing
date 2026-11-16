@@ -252,10 +252,15 @@ class HapticsTest {
         // Start/Select are a lighter click, and the thud sits
         // low under the shoulder click. The release stays in
         // the 0.3–0.5 band Robert approved, and the thud lands
-        // 15–25ms after the click.
+        // 15–25ms after the click. Alpha.15: the direction
+        // tick rose to 0.6, the same scale as Start/Select —
+        // that is fine, because the tick is a softer primitive
+        // than the click, and the direction envelope's
+        // sharpness is pulled down a quarter, so the roll
+        // still lands clearly below a face button's click.
         assertTrue(Haptics.RELEASE_TICK_SCALE in 0.3f..0.5f)
         assertTrue(Haptics.RELEASE_TICK_SCALE < Haptics.DIRECTION_TICK_SCALE)
-        assertTrue(Haptics.DIRECTION_TICK_SCALE < Haptics.START_SELECT_SCALE)
+        assertTrue(Haptics.DIRECTION_TICK_SCALE <= Haptics.START_SELECT_SCALE)
         assertTrue(Haptics.START_SELECT_SCALE < 1f)
         assertTrue(Haptics.SHOULDER_THUD_SCALE < Haptics.DIRECTION_TICK_SCALE)
         assertTrue(Haptics.SHOULDER_THUD_DELAY_MS in 15..25)
@@ -312,5 +317,66 @@ class HapticsTest {
         // ~15ms, inside the 10–20ms a crisp click wants —
         // the same order as the 12ms click it refines.
         assertTrue(Haptics.ENVELOPE_CLICK_TOTAL_MS in 10L..20L)
+    }
+
+    // Alpha.15 — the retune (Robert's device verdict on
+    // alpha.13): A/B are back on the alpha.12 click, no
+    // envelope; Start/Select keep the envelope; the D-pad
+    // and the stick try the envelope on a direction change,
+    // softer than Start/Select's and slightly stronger than
+    // the old 0.5x tick. The routing itself can only be
+    // proven on a real API 36 device (at SDK 35 the
+    // envelope is never taken, so the behaviour tests above
+    // prove the fallback path still ticks) — what pins here
+    // is the decision math: the raised fallback scale, the
+    // direction envelope's strength, and its softer
+    // sharpness. Nothing here claims the envelope on the
+    // rocker feels better — that is Robert's device verdict.
+    @Test
+    fun directionTickScaleIsSlightlyStronger() {
+        // 0.5 to 0.6: a small step up from the old tick —
+        // clearly present, still obviously below A/B's full
+        // click (scale 1.0) and inside the strength the
+        // slider already maps.
+        assertEquals(0.6f, Haptics.DIRECTION_TICK_SCALE)
+        assertTrue(Haptics.DIRECTION_TICK_SCALE < 1f)
+        assertTrue(Haptics.RELEASE_TICK_SCALE < Haptics.DIRECTION_TICK_SCALE)
+    }
+
+    @Test
+    fun directionEnvelopeStrengthMatchesTheFallbackTick() {
+        // The envelope lands at exactly the fallback tick's
+        // amplitude — the envelope-or-tick choice changes
+        // only the character of the roll, never how hard it
+        // lands. The tick's amplitude is the primitive scale
+        // times the direction scale; the envelope's strength
+        // is the same product, as a 0–100 strength.
+        assertEquals(60, Haptics.directionEnvelopeStrength(100))
+        assertEquals(30, Haptics.directionEnvelopeStrength(50))
+        assertEquals(0, Haptics.directionEnvelopeStrength(0))
+        assertEquals(
+            0.6f,
+            Haptics.primitiveScale(Haptics.directionEnvelopeStrength(100)),
+            0.001f,
+        )
+        assertEquals(
+            Haptics.primitiveScale(100) * Haptics.DIRECTION_TICK_SCALE,
+            Haptics.primitiveScale(Haptics.directionEnvelopeStrength(100)),
+            0.001f,
+        )
+    }
+
+    @Test
+    fun directionEnvelopeSharpnessIsSofterThanThePress() {
+        // The resonant sharpness pulled down a quarter: the
+        // roll reads softer than Start/Select's envelope,
+        // which takes the resonant sharpness whole, while
+        // staying in the resonant neighbourhood.
+        assertEquals(0.75f, Haptics.directionEnvelopeSharpness(1.0f), 0.001f)
+        assertEquals(0.6f, Haptics.directionEnvelopeSharpness(0.8f), 0.001f)
+        assertEquals(0f, Haptics.directionEnvelopeSharpness(0f), 0.001f)
+        // Always softer than the resonant sharpness it starts
+        // from — the pull-down never leaves the value alone.
+        assertTrue(Haptics.directionEnvelopeSharpness(0.8f) < 0.8f)
     }
 }
