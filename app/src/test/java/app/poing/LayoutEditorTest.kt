@@ -330,9 +330,18 @@ class LayoutEditorTest {
     // from the global value, Global clears it, Done commits it
     // with the layout, and Reset never touches the draft.
     @Test
-    fun deadZoneRowHiddenWithoutTheChoiceOrWithTheDpad() {
+    fun deadZoneRowHiddenWithoutTheChoice() {
+        // The per-game editor never passes the choice: the
+        // stick is in the slot, but there is no dead-zone row.
         setContent(leftControlOverride = LeftControl.STICK)
         composeRule.onAllNodesWithTag("editor-dead-zone-value").assertCountEquals(0)
+    }
+
+    @Test
+    fun deadZoneRowHiddenWithTheDpad() {
+        // The choice is passed, but the D-pad is the control
+        // in the slot: the dead zone is the stick's, so there
+        // is no row to show.
         setContent(showDeadZoneChoice = true)
         composeRule.onAllNodesWithTag("editor-dead-zone-value").assertCountEquals(0)
     }
