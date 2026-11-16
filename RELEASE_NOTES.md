@@ -1,21 +1,20 @@
-## Poing! v0.1.0-alpha.27 — D-pad envelope split
+## Poing! v0.1.0-alpha.28 — Black-screen trace
 
-The twenty-seventh signed alpha of Poing!, the standalone Game Boy / Game Boy Color / Game Boy Advance emulator for Android (mGBA core, one app, arm64-v8a only).
+The twenty-eighth signed alpha of Poing!, the standalone Game Boy / Game Boy Color / Game Boy Advance emulator for Android (mGBA core, one app, arm64-v8a only).
 
-**Install first — read this:** this alpha is signed with the same release key as alpha.1 through alpha.26, so it installs straight over alpha.26 — no uninstall needed, saves and settings carry over. It will **not** install over the debug builds (different key). Uninstall the debug build first. Uninstalling wipes local saves (battery saves + save states); RetroAchievements progress is server-side and safe.
+**Install first — read this:** this alpha is signed with the same release key as alpha.1 through alpha.27, so it installs straight over alpha.27 — no uninstall needed, saves and settings carry over. It will **not** install over the debug builds (different key). Uninstall the debug build first. Uninstalling wipes local saves (battery saves + save states); RetroAchievements progress is server-side and safe.
 
 ## Download
 
-The signed APK is attached to this release: `poing-v0.1.0-alpha.27.apk` (size + SHA-256 in the Build section below).
+The signed APK is attached to this release: `poing-v0.1.0-alpha.28.apk` (size + SHA-256 in the Build section below).
 
-## What changed in alpha.27
+## What changed in alpha.28
 
-- The D-pad's haptics are split by how you roll it. Pressing a direction from neutral — any direction — is the envelope click again, the softer one from alpha.15 (0.75× resonant sharpness, weaker than A/B). Rolling to a straight direction (up, down, left, right) is the envelope click too.
-- Rolling to a diagonal is the plain tick at 0.6 — the regular haptic click, not the envelope.
-- The release tick is unchanged: 0.5, and it only fires when you lift off completely, never on a roll.
-- The joystick is untouched — it stays on the plain tick.
-- Nothing else changed: the A/B click, the Start/Select envelope, the L/R envelope + thud, the strength slider, proportional steering, the dead zone, and all the wiring are untouched.
-- What you should feel: pressing the D-pad or rolling it straight should feel like the envelope's smoother click again; rolling through a diagonal should feel like the normal tick.
+- There is now a display trace for diagnosing the black screen. Turn it on in Settings → Display ("Display trace", off by default), then start a game: it records the display path with timestamps — session start, first frame, surface created / changed, surface ready (with whether a frame was pending and whether the last frame was consumed), the first frame drawn after a surface is created, pause / resume, and orientation.
+- When the black screen bites, open the pause menu and tap "Display trace". The record reads newest first, and it survives the session, so you can screenshot what the display path did — in particular whether the surface was ever created, and whether a frame ever drew after it.
+- This build only diagnoses: the trace records, it changes nothing about how the picture draws. The fix for whatever it catches follows as its own build.
+- Nothing else changed: the D-pad envelope split, haptics, RA, covers, and all the wiring are untouched.
+- What you should do: turn the trace on, play until the screen stays black before a button press, then pause and screenshot the trace.
 
 ## What is in it
 
