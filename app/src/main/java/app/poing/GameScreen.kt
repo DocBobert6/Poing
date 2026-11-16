@@ -869,12 +869,23 @@ fun GameScreen(
             // attempt tracker, under the top bar while an attempt
             // runs. Hidden while paused.
             RaTrackerLine(paused = paused)
-            // Alpha.22 — the RA indicator, next to the tracker:
-            // the loaded game's achievement state while playing
-            // (loaded count, unrecognised ROM, or a failed load
-            // with a Retry). Same gold chip family as the unlock
-            // popup; hidden while paused, like the tracker.
-            RaGameIndicator(paused = paused)
+            // Alpha.24 — the RA indicator follows the top bar
+            // (Robert, 2026-11-16): the chip was persistent —
+            // "state, not an event, so it never auto-clears" —
+            // and sat outside the barVisible gate, so it stayed
+            // up the whole session and ate the game area's
+            // height (the game shrank under it). Now it shows
+            // while the bar is up and hides a few seconds into
+            // gameplay with it, and comes back with the bar on
+            // a back swipe; the game regains the chip's height
+            // like it regains the bar's. Hidden while paused,
+            // like the tracker. (The Failed chip's Retry is
+            // unreachable while the bar is hidden — Pause →
+            // Achievements already carries a retry, so that
+            // path stays open.)
+            if (barVisible) {
+                RaGameIndicator(paused = paused)
+            }
             // Player area (Robert, 2026-11-12: the game basically
             // the phone's height in landscape, controls overlaid):
             // one Box below the top bar. The game view fills it at

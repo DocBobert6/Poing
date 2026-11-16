@@ -34,20 +34,25 @@ import kotlinx.coroutines.delay
  * shown under the top bar while an attempt runs and hidden while
  * paused. All three are reads of RaClient's state — no polling,
  * the native layer pushes the events. Alpha.22 adds the game
- * indicator (RaGameIndicator): the persistent RA state chip
- * under the top bar — loaded count, unrecognised ROM, or a
- * failed load with a Retry.
+ * indicator (RaGameIndicator): the RA state chip under the top
+ * bar — loaded count, unrecognised ROM, or a failed load with
+ * a Retry. Alpha.24: the chip follows the top bar (GameScreen
+ * gates it on barVisible), so it hides a few seconds into
+ * gameplay with the bar instead of staying up all session.
  */
 /**
  * Alpha.22 — the in-game RetroAchievements indicator: one small
  * gold chip under the top bar (next to the tracker line) that
  * shows the loaded game's RA state while playing, in the same
  * gold-on-dark chip style as the unlock popup. It is state, not
- * an event, so it never auto-clears — and it is hidden while
- * paused, like the popup and the tracker (the Pause menu's
- * Achievements entry carries the state then), and hidden
- * entirely when logged out (logged out, achievements are simply
- * inactive — no errors, no nagging).
+ * an event, so it never auto-clears on its own — but GameScreen
+ * gates it on the top bar's visibility (alpha.24), so it hides
+ * a few seconds into gameplay with the bar and comes back with
+ * it on a back swipe. It is hidden while paused, like the
+ * popup and the tracker (the Pause menu's Achievements entry
+ * carries the state then), and hidden entirely when logged out
+ * (logged out, achievements are simply inactive — no errors,
+ * no nagging).
  *
  * Loaded shows the count ("RA 3/12", the same unlocked/total
  * the hub snapshots) — or "RA: no achievements" when the set

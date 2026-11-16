@@ -6,6 +6,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
+import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
@@ -18,6 +19,7 @@ import androidx.compose.ui.test.swipe
 import androidx.test.core.app.ApplicationProvider
 import java.io.File
 import java.util.Properties
+import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -56,6 +58,24 @@ class GameScreenLayoutTest {
 
     @get:Rule
     val temp = TemporaryFolder()
+
+    @After
+    fun tearDown() {
+        // The RA client is a singleton: leave it as the other
+        // tests found it — logged out, no hub store wired.
+        RaClient.logout()
+        RaClient.init(RaSessionStore(temp.root))
+    }
+
+    private fun logInWithLoadedSet() {
+        // Drive the client to Loaded with an empty set through
+        // its own callbacks, the same entry points the native
+        // layer calls — the chip composes ("RA: no
+        // achievements") without any achievements to seed.
+        RaClient.init(RaSessionStore(temp.root))
+        RaClient.onLoginResult(true, null)
+        RaClient.onLoadGameResult(true, null)
+    }
 
     private fun setContent(
         gamePath: String,
@@ -482,6 +502,70 @@ class GameScreenLayoutTest {
         composeRule.waitForIdle()
         composeRule.onNodeWithTag("top-bar-button").assertIsDisplayed()
         composeRule.onAllNodesWithText("Resume").assertCountEquals(2)
+    }
+
+    /**
+     * Alpha.24 — the RA indicator follows the top bar
+     * (Robert, 2026-11-16): with the bar hidden during
+     * gameplay, the chip is gone too — on the old code it
+     * sat outside the barVisible gate and stayed up the
+     * whole session, so this count was 1.
+     */
+    @Test
+    fun raIndicatorHiddenWhenTopBarHidden() {
+        logInWithLoadedSet()
+        val game = File(temp.root, "game.gb")
+        setContent(game.absolutePath)
+        composeRule.onAllNodesWithTag("ra-indicator").assertCountEquals(0)
+    }
+
+    /**
+     * Alpha.24 — the same chip shows while the bar is up
+     * (dev stats on): the fix gates it, it does not delete
+     * it.
+     */
+    @Test
+    fun raIndicatorShowsWhenTopBarVisible() {
+        logInWithLoadedSet()
+        val game = File(temp.root, "game.gb")
+        setContent(game.absolutePath, devStats = true)
+        composeRule.onNodeWithTag("ra-indicator").assertIsDisplayed()
+        composeRule.onNodeWithText("RA: no achievements").assertIsDisplayed()
+    }
+
+    /**
+     * Alpha.24 — the game regains the chip's height when
+     * the chip hides: with the bar hidden and a set loaded,
+     * the player area fills the whole root, like the bar
+     * test above. On the old code the chip ate its height
+     * and the area was shorter.
+     */
+    @Test
+    fun playerAreaRegainsHeightWhenChipHides() {
+        logInWithLoadedSet()
+        val game = File(temp.root, "game.gb")
+        setContent(game.absolutePath)
+        val root = composeRule.onRoot().fetchSemanticsNode().boundsInRoot
+        val area = composeRule.onNodeWithTag("player-area").fetchSemanticsNode().boundsInRoot
+        assertEquals(root.height, area.height, 2f)
+    }
+
+    /**
+     * Alpha.24 — a back swipe brings the chip back with
+     * the bar for a few seconds, then both hide again.
+     */
+    @Test
+    fun backSwipeShowsRaIndicatorThenHidesItAgain() {
+        logInWithLoadedSet()
+        val game = File(temp.root, "game.gb")
+        setContent(game.absolutePath)
+        composeRule.onAllNodesWithTag("ra-indicator").assertCountEquals(0)
+        composeRule.activity.onBackPressedDispatcher.onBackPressed()
+        composeRule.waitForIdle()
+        composeRule.onNodeWithTag("ra-indicator").assertIsDisplayed()
+        composeRule.mainClock.advanceTimeBy(5000)
+        composeRule.waitForIdle()
+        composeRule.onAllNodesWithTag("ra-indicator").assertCountEquals(0)
     }
 
     /**
