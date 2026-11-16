@@ -299,5 +299,12 @@ fun ControlButton(
             "RW", paused, onDown = onRwDown, onUp = onRwUp,
             sizeDp = spec.sizeDp.dp,
         )
+        // Alpha.25 — the popup is not a button and never
+        // reaches this function: ControlOverlay filters it
+        // out of the button loop and LayoutEditor branches
+        // to EditorPopup. The branch exists because this
+        // when is the function's last statement, so Kotlin
+        // requires it to be exhaustive.
+        ControlId.POPUP -> Unit
     }
 }
