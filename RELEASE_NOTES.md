@@ -1,18 +1,20 @@
-## Poing! v0.1.0-alpha.20 — The black screen fix
+## Poing! v0.1.0-alpha.21 — The fetch-on-open diagnostic
 
-The twentieth signed alpha of Poing!, the standalone Game Boy / Game Boy Color / Game Boy Advance emulator for Android (mGBA core, one app, arm64-v8a only).
+The twenty-first signed alpha of Poing!, the standalone Game Boy / Game Boy Color / Game Boy Advance emulator for Android (mGBA core, one app, arm64-v8a only).
 
-**Install first — read this:** this alpha is signed with the same release key as alpha.1 through alpha.19, so it installs straight over alpha.19 — no uninstall needed, saves and settings carry over. It will **not** install over the debug builds (different key). Uninstall the debug build first. Uninstalling wipes local saves (battery saves + save states); RetroAchievements progress is server-side and safe.
+**Install first — read this:** this alpha is signed with the same release key as alpha.1 through alpha.20, so it installs straight over alpha.20 — no uninstall needed, saves and settings carry over. It will **not** install over the debug builds (different key). Uninstall the debug build first. Uninstalling wipes local saves (battery saves + save states); RetroAchievements progress is server-side and safe.
 
 ## Download
 
-The signed APK is attached to this release: `poing-v0.1.0-alpha.20.apk` (size + SHA-256 in the Build section below).
+The signed APK is attached to this release: `poing-v0.1.0-alpha.21.apk` (size + SHA-256 in the Build section below).
 
-## What changed in alpha.20
+## What changed in alpha.21
 
-- The black screen on launch is fixed — properly this time. Launching a game still showed black with audio until you pressed a button, even after the alpha.10 fix. The hole in that fix: it only asked for the picture again while a frame was still waiting — but the game asks for landscape from a portrait library, so the screen is destroyed and rebuilt during the rotation, and a rebuild after the waiting frame was already shown found nothing to ask for, so nothing drew. On a still screen (a title screen) no new frame ever arrived to break the silence, so it stayed black until the picture changed — which is what pressing a button does, and what tapping empty space does not. Now every rebuild of the screen asks the game to send its latest frame again, so the picture comes back with no input at all. The same rebuild happens coming back from a phone call, and the fix covers that too.
+- The library status line now names the game it is fetching cover art for, instead of only naming the system. When a fetch runs you will see "fetching art for …" with the game's name; if several are fetching at once, the first three are named.
+- If a game is still missing its cover after a fetch finishes, the status bar stays visible and names it ("still missing: …") instead of hiding after four seconds — so the answer is still there to read after the pass, not only while it runs. The bar hides again once every game has reached a final state.
+- This is a diagnostic build: it changes only what the status line reports, not the fetch itself. The investigation behind it found no code path that fetches on open with an unchanged library — so the fetch that still shows on open must be a game that never reaches a final state on the device, and this build identifies which one.
 - Nothing else changed: the haptics (including the alpha.17 pair), the steering and Worm Light tilt tuning, the dead zone, the layout editor minimize, the cheat screen, cover fetching, and RA are untouched.
-- What you should see: launch a game and the picture appears on its own, with no press needed — including after rotating or coming back from a phone call.
+- What you should see: open the library and, if a fetch runs, the status line names the game it is fetching for. If a game is still missing its cover when the pass ends, the bar stays up with its name — tell me the name and that is the game to fix next.
 
 ## What is in it
 
