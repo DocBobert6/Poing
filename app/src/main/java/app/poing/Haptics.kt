@@ -167,41 +167,60 @@ class Haptics(
          * one-shot at the tick's reduced amplitude. Never the
          * predefined click — it has no amplitude, so it would
          * land at press strength, which a tick must never do.
+         * The choice is a pure function ([tickEffectKind]),
+         * so the matrix pins in the tests.
          */
         fun buildTickEffect(scale: Float, strength: Int, sdkInt: Int, tickSupported: Boolean): VibrationEffect =
-            if (sdkInt >= Build.VERSION_CODES.R && tickSupported) {
-                VibrationEffect.startComposition()
+            when (tickEffectKind(sdkInt, tickSupported)) {
+                TickEffectKind.PRIMITIVE_TICK -> VibrationEffect.startComposition()
                     .addPrimitive(
                         VibrationEffect.Composition.PRIMITIVE_TICK,
                         (primitiveScale(strength) * scale).coerceIn(0f, 1f),
                     )
                     .compose()
-            } else {
-                VibrationEffect.createOneShot(
+                TickEffectKind.ONE_SHOT -> VibrationEffect.createOneShot(
                     TICK_MS,
                     (scaledAmplitude(strength) * scale).roundToInt().coerceIn(1, 255),
                 )
+            }
+
+        /** Which effect a tick is, for this device. */
+        enum class TickEffectKind {
+            /** The scaled tick primitive (API 30+, vibrator plays primitives). */
+            PRIMITIVE_TICK,
+
+            /** The 8ms one-shot, amplitude scaled (no tick primitive). */
+            ONE_SHOT,
+        }
+
+        fun tickEffectKind(sdkInt: Int, tickSupported: Boolean): TickEffectKind =
+            if (sdkInt >= Build.VERSION_CODES.R && tickSupported) {
+                TickEffectKind.PRIMITIVE_TICK
+            } else {
+                TickEffectKind.ONE_SHOT
             }
 
         /**
          * L/R: a click, plus a low thud 20ms later where the
          * vibrator plays it. Without the thud primitive it is
          * just the click; without primitives at all it is the
-         * plain click effect.
+         * plain click effect. The choice is a pure function
+         * ([shoulderEffectKind]), so the matrix pins in the
+         * tests.
          */
         fun buildShoulderEffect(
             strength: Int,
             sdkInt: Int,
             primitivesSupported: Boolean,
             thudSupported: Boolean,
-        ): VibrationEffect {
-            if (sdkInt >= Build.VERSION_CODES.R && primitivesSupported) {
-                val composition = VibrationEffect.startComposition()
-                    .addPrimitive(
-                        VibrationEffect.Composition.PRIMITIVE_CLICK,
-                        primitiveScale(strength),
-                    )
-                if (thudSupported) {
+        ): VibrationEffect =
+            when (shoulderEffectKind(sdkInt, primitivesSupported, thudSupported)) {
+                ShoulderEffectKind.CLICK_THUD -> {
+                    val composition = VibrationEffect.startComposition()
+                        .addPrimitive(
+                            VibrationEffect.Composition.PRIMITIVE_CLICK,
+                            primitiveScale(strength),
+                        )
                     val thudScale = (primitiveScale(strength) * SHOULDER_THUD_SCALE).coerceIn(0f, 1f)
                     // The 4-arg form (delay type) is API 34+;
                     // below that the 3-arg form carries the
@@ -221,11 +240,41 @@ class Haptics(
                             SHOULDER_THUD_DELAY_MS,
                         )
                     }
+                    composition.compose()
                 }
-                return composition.compose()
+                ShoulderEffectKind.CLICK_ONLY -> VibrationEffect.startComposition()
+                    .addPrimitive(
+                        VibrationEffect.Composition.PRIMITIVE_CLICK,
+                        primitiveScale(strength),
+                    )
+                    .compose()
+                ShoulderEffectKind.PLAIN_CLICK -> buildEffect(strength, sdkInt, primitivesSupported)
             }
-            return buildEffect(strength, sdkInt, primitivesSupported)
+
+        /** Which effect an L/R press is, for this device. */
+        enum class ShoulderEffectKind {
+            /** Click + low thud (API 30+, both primitives play). */
+            CLICK_THUD,
+
+            /** Click alone (thud primitive unsupported). */
+            CLICK_ONLY,
+
+            /** The plain click effect (no primitives at all). */
+            PLAIN_CLICK,
         }
+
+        fun shoulderEffectKind(
+            sdkInt: Int,
+            primitivesSupported: Boolean,
+            thudSupported: Boolean,
+        ): ShoulderEffectKind =
+            when {
+                sdkInt >= Build.VERSION_CODES.R && primitivesSupported && thudSupported ->
+                    ShoulderEffectKind.CLICK_THUD
+                sdkInt >= Build.VERSION_CODES.R && primitivesSupported ->
+                    ShoulderEffectKind.CLICK_ONLY
+                else -> ShoulderEffectKind.PLAIN_CLICK
+            }
 
         /**
          * True when this vibrator can play the scaled click

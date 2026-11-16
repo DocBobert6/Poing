@@ -187,21 +187,45 @@ class HapticsTest {
         // Without the tick primitive the tick is an 8ms
         // one-shot — shorter than the 12ms click, never the
         // predefined click (which has no amplitude and would
-        // land at press strength).
+        // land at press strength). The choice is a pure
+        // function, so the matrix pins here; the effect
+        // itself has no readable duration on the public API.
         assertEquals(
-            Haptics.TICK_MS,
-            Haptics.buildTickEffect(0.5f, 100, 24, tickSupported = false).duration,
+            Haptics.TickEffectKind.PRIMITIVE_TICK,
+            Haptics.tickEffectKind(35, tickSupported = true),
+        )
+        assertEquals(
+            Haptics.TickEffectKind.ONE_SHOT,
+            Haptics.tickEffectKind(35, tickSupported = false),
+        )
+        assertEquals(
+            Haptics.TickEffectKind.ONE_SHOT,
+            Haptics.tickEffectKind(24, tickSupported = false),
         )
         assertTrue(Haptics.TICK_MS < Haptics.CLICK_MS)
     }
 
     @Test
     fun shoulderFallbackIsThePlainClick() {
-        // Without primitives at all the shoulder is the plain
-        // click effect (a 12ms one-shot on an old device).
+        // Without the thud the shoulder is the click alone;
+        // without primitives at all it is the plain click
+        // effect. The choice is a pure function, so the
+        // matrix pins here.
         assertEquals(
-            Haptics.CLICK_MS,
-            Haptics.buildShoulderEffect(100, 24, primitivesSupported = false, thudSupported = false).duration,
+            Haptics.ShoulderEffectKind.CLICK_THUD,
+            Haptics.shoulderEffectKind(35, primitivesSupported = true, thudSupported = true),
+        )
+        assertEquals(
+            Haptics.ShoulderEffectKind.CLICK_ONLY,
+            Haptics.shoulderEffectKind(35, primitivesSupported = true, thudSupported = false),
+        )
+        assertEquals(
+            Haptics.ShoulderEffectKind.PLAIN_CLICK,
+            Haptics.shoulderEffectKind(35, primitivesSupported = false, thudSupported = false),
+        )
+        assertEquals(
+            Haptics.ShoulderEffectKind.PLAIN_CLICK,
+            Haptics.shoulderEffectKind(24, primitivesSupported = false, thudSupported = false),
         )
     }
 
