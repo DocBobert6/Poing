@@ -1,19 +1,18 @@
-## Poing! v0.1.0-alpha.19 — The small UI pair
+## Poing! v0.1.0-alpha.20 — The black screen fix
 
-The nineteenth signed alpha of Poing!, the standalone Game Boy / Game Boy Color / Game Boy Advance emulator for Android (mGBA core, one app, arm64-v8a only).
+The twentieth signed alpha of Poing!, the standalone Game Boy / Game Boy Color / Game Boy Advance emulator for Android (mGBA core, one app, arm64-v8a only).
 
-**Install first — read this:** this alpha is signed with the same release key as alpha.1 through alpha.18, so it installs straight over alpha.18 — no uninstall needed, saves and settings carry over. It will **not** install over the debug builds (different key). Uninstall the debug build first. Uninstalling wipes local saves (battery saves + save states); RetroAchievements progress is server-side and safe.
+**Install first — read this:** this alpha is signed with the same release key as alpha.1 through alpha.19, so it installs straight over alpha.19 — no uninstall needed, saves and settings carry over. It will **not** install over the debug builds (different key). Uninstall the debug build first. Uninstalling wipes local saves (battery saves + save states); RetroAchievements progress is server-side and safe.
 
 ## Download
 
-The signed APK is attached to this release: `poing-v0.1.0-alpha.19.apk` (size + SHA-256 in the Build section below).
+The signed APK is attached to this release: `poing-v0.1.0-alpha.20.apk` (size + SHA-256 in the Build section below).
 
-## What changed in alpha.19
+## What changed in alpha.20
 
-- The layout editor's settings panel collapses. A Hide/Show settings toggle under the action row folds the panel down to a slim bar, so the settings stop covering the whole screen while you drag the controls around; the action row (Back / Done / Reset / Snap / Together) stays visible throughout, and the controls stay draggable while minimized. It is session-only — the editor always opens expanded, and collapsing never touches a saved layout.
-- The cheat screen uses the detected system. It used to take the system from the file extension, so a GBC game in a `.gb` file got GB cheat formats; it now takes the system the core actually loaded (the header-detected one the library already knows), so that game gets GBC cheat formats.
-- Nothing else changed: the haptics (including the alpha.17 pair), the steering and Worm Light tilt tuning, the dead zone, the black-screen path, cover fetching, and RA are untouched.
-- What you should see: in the layout editor, tap Hide settings and the panel folds away to a slim bar with the controls free to drag; tap Show settings and it comes back. In the cheat screen for a GBC game in a `.gb` file, the formats are GBC ones.
+- The black screen on launch is fixed — properly this time. Launching a game still showed black with audio until you pressed a button, even after the alpha.10 fix. The hole in that fix: it only asked for the picture again while a frame was still waiting — but the game asks for landscape from a portrait library, so the screen is destroyed and rebuilt during the rotation, and a rebuild after the waiting frame was already shown found nothing to ask for, so nothing drew. On a still screen (a title screen) no new frame ever arrived to break the silence, so it stayed black until the picture changed — which is what pressing a button does, and what tapping empty space does not. Now every rebuild of the screen asks the game to send its latest frame again, so the picture comes back with no input at all. The same rebuild happens coming back from a phone call, and the fix covers that too.
+- Nothing else changed: the haptics (including the alpha.17 pair), the steering and Worm Light tilt tuning, the dead zone, the layout editor minimize, the cheat screen, cover fetching, and RA are untouched.
+- What you should see: launch a game and the picture appears on its own, with no press needed — including after rotating or coming back from a phone call.
 
 ## What is in it
 
