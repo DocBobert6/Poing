@@ -4,7 +4,9 @@ import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
+import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -138,5 +140,43 @@ class GameRowTest {
         }
         composeRule.onNodeWithText("TETRIS").performClick()
         assertTrue(played)
+    }
+
+    // TEMPORARY DIAGNOSTIC (alpha.9): gridCellTapPlays and the
+    // LibraryScreen tap test went red after the Cover button
+    // was added — the title tap no longer reaches onPlay.
+    // Dumps the semantics tree + the resolved text node's
+    // bounds/actions, and compares a tag click with a text
+    // click. Remove once the cause is known.
+    @Test
+    fun diagnoseGridCellTap() {
+        var playedByTag = false
+        composeRule.setContent {
+            PoingTheme {
+                GameGridCell(
+                    game = game(),
+                    coverBitmap = null,
+                    onPlay = { playedByTag = true },
+                    onRemove = {},
+                )
+            }
+        }
+        println("DIAG TREE:\n" + composeRule.onRoot().printToString())
+        composeRule.onNodeWithTag("game-grid-cell").performClick()
+        println("DIAG playedByTag=$playedByTag")
+        var playedByText = false
+        composeRule.setContent {
+            PoingTheme {
+                GameGridCell(
+                    game = game(),
+                    coverBitmap = null,
+                    onPlay = { playedByText = true },
+                    onRemove = {},
+                )
+            }
+        }
+        println("DIAG TEXT NODE:\n" + composeRule.onNodeWithText("TETRIS").printToString(0))
+        composeRule.onNodeWithText("TETRIS").performClick()
+        println("DIAG playedByText=$playedByText")
     }
 }

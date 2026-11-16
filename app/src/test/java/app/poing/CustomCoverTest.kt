@@ -286,8 +286,11 @@ class CustomCoverTest {
     fun customCoverShowsOnTileForAGameWithNoBoxart() {
         // The point of custom art: a game with no boxart to
         // fetch (a fan translation by any other name) still
-        // gets a cover — with no network at all.
-        seedGame("ZZZ UNKNOWN")
+        // gets a cover — with no network at all. The title is
+        // 9 chars: the fake header holds 10 (see
+        // LibraryScreenTest.seedTwoGames), so a longer title
+        // would be truncated and the row would never show it.
+        seedGame("ZZZ NOART")
         val context = ApplicationProvider.getApplicationContext<Context>()
         val game = seededGame()
         val repository = CoverRepository(context.filesDir, deadNetwork())
@@ -302,10 +305,10 @@ class CustomCoverTest {
                     repository = repository,
                 )
             }
-            composeRule.waitForText("ZZZ UNKNOWN")
+            composeRule.waitForText("ZZZ NOART")
             composeRule.waitUntil(timeoutMillis = 10_000) {
                 try {
-                    composeRule.onAllNodesWithContentDescription("Cover art for ZZZ UNKNOWN")
+                    composeRule.onAllNodesWithContentDescription("Cover art for ZZZ NOART")
                         .assertCountEquals(1)
                     true
                 } catch (_: AssertionError) {
