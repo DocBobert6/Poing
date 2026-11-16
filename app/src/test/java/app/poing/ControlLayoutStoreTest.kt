@@ -253,4 +253,47 @@ class ControlLayoutStoreTest {
         assertEquals(ControlLayout.DEFAULT, store.loadDefault(GameSystem.GBA))
         assertEquals(ControlLayout.DEFAULT, store.loadForGame("game1", GameSystem.GBA))
     }
+
+    // Alpha.10 — the per-game left-control choice, in its own
+    // small file beside the layout file: the layout's
+    // save/clear rules must never wipe it, or be wiped by it.
+    @Test
+    fun `left-control override is null by default`() {
+        assertEquals(null, store.leftControlOverride("abc123"))
+    }
+
+    @Test
+    fun `left-control override round-trips and clears`() {
+        store.setLeftControlOverride("abc123", LeftControl.STICK)
+        assertEquals(LeftControl.STICK, store.leftControlOverride("abc123"))
+        assertEquals(LeftControl.STICK, ControlLayoutStore(dir).leftControlOverride("abc123"))
+        store.setLeftControlOverride("abc123", LeftControl.DPAD)
+        assertEquals(LeftControl.DPAD, store.leftControlOverride("abc123"))
+        store.setLeftControlOverride("abc123", null)
+        assertEquals(null, store.leftControlOverride("abc123"))
+        // Clearing deletes the file: a later load must not
+        // resurrect the choice.
+        assertFalse(java.io.File(dir, "abc123.leftcontrol").exists())
+    }
+
+    @Test
+    fun `left-control override survives a layout save and clear`() {
+        store.setLeftControlOverride("abc123", LeftControl.STICK)
+        store.save("abc123", ControlLayout.DEFAULT.moved(ControlId.A, 0.9f, 0.4f, grouped = false))
+        assertEquals(LeftControl.STICK, store.leftControlOverride("abc123"))
+        store.clearOverride("abc123")
+        assertEquals(LeftControl.STICK, store.leftControlOverride("abc123"))
+    }
+
+    @Test
+    fun `left-control override does not leak between games`() {
+        store.setLeftControlOverride("abc123", LeftControl.STICK)
+        assertEquals(null, store.leftControlOverride("def456"))
+    }
+
+    @Test
+    fun `an unreadable left-control choice reads as no override`() {
+        java.io.File(dir, "abc123.leftcontrol").writeText("banana")
+        assertEquals(null, store.leftControlOverride("abc123"))
+    }
 }

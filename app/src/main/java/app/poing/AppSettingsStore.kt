@@ -31,6 +31,7 @@ class AppSettingsStore(private val root: File) {
         const val KEY_HAPTICS = "haptics_enabled"
         const val KEY_HAPTICS_STRENGTH = "haptics_strength"
         const val KEY_REWIND_CONTROL = "rewind_control_visible"
+        const val KEY_LEFT_CONTROL = "controls.leftControl"
         const val KEY_JADE_CHAIN = "display_jade"
         const val KEY_PRISM_CHAIN = "display_prism"
         const val KEY_DUSK_CHAIN = "display_dusk"
@@ -83,6 +84,18 @@ class AppSettingsStore(private val root: File) {
         write(KEY_HAPTICS_STRENGTH, strength.toString())
         return true
     }
+
+    /**
+     * Alpha.10 — the control in the left-hand slot: the D-pad
+     * cross, or a joystick. One slot holds EITHER, never both.
+     * The D-pad is the default, so nothing changes on install;
+     * a game can override it (see ControlLayoutStore's
+     * per-game choice). A stale or hand-edited value reads as
+     * the D-pad, so the slot can never be left empty.
+     */
+    fun leftControl(): LeftControl = leftControlFromName(readAll()[KEY_LEFT_CONTROL])
+    fun setLeftControl(control: LeftControl) =
+        write(KEY_LEFT_CONTROL, control.name.lowercase())
 
     /** The rewind control (hold to step back through the last 30 seconds): off by default (the standing overlay rule). */
     fun rewindControlVisible(): Boolean = readBoolean(KEY_REWIND_CONTROL, false)

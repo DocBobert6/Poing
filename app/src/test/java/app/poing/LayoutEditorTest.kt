@@ -2,9 +2,11 @@ package app.poing
 
 import androidx.activity.ComponentActivity
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
+import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onChildren
 import androidx.compose.ui.test.onFirst
 import androidx.compose.ui.test.onNodeWithTag
@@ -40,12 +42,21 @@ class LayoutEditorTest {
     val composeRule = createAndroidComposeRule<ComponentActivity>()
 
     private var committed: ControlLayout? = null
+    private var committedChoice: LeftControl? = null
 
     private fun setContent(
         isGba: Boolean = false,
         resetLayout: ControlLayout = ControlLayout.DEFAULT,
+        // Alpha.10 — the per-game left-control choice: the
+        // toggle row shows only when showLeftControlChoice is
+        // true (the per-game editor); the Settings default
+        // editor never passes it.
+        showLeftControlChoice: Boolean = false,
+        leftControlDefault: LeftControl = LeftControl.DPAD,
+        leftControlOverride: LeftControl? = null,
     ) {
         committed = null
+        committedChoice = null
         composeRule.setContent {
             PoingTheme {
                 LayoutEditor(
@@ -55,7 +66,13 @@ class LayoutEditorTest {
                     held = HeldInput(),
                     onInputChanged = {},
                     onControlDown = {},
-                    onDone = { committed = it },
+                    leftControlDefault = leftControlDefault,
+                    leftControlOverride = leftControlOverride,
+                    showLeftControlChoice = showLeftControlChoice,
+                    onDone = { layout, choice ->
+                        committed = layout
+                        committedChoice = choice
+                    },
                     onBack = {},
                     resetLayout = resetLayout,
                 )
@@ -220,5 +237,51 @@ class LayoutEditorTest {
         // And Done commits the reset layout itself.
         composeRule.onNodeWithTag("editor-done").performClick()
         assertEquals(custom, committed)
+    }
+
+    // Alpha.10 — the per-game left-control choice: the toggle
+    // row shows only in the per-game editor, choosing the
+    // joystick previews the stick live in the slot, Done
+    // commits the choice with the layout, and Reset never
+    // touches the choice draft.
+    @Test
+    fun leftControlRowHiddenWithoutTheChoice() {
+        setContent()
+        composeRule.onAllNodesWithTag("editor-left-control-global").assertCountEquals(0)
+        composeRule.onAllNodesWithTag("editor-left-control-dpad").assertCountEquals(0)
+        composeRule.onAllNodesWithTag("editor-left-control-stick").assertCountEquals(0)
+    }
+
+    @Test
+    fun choosingJoystickCommitsStickAndPreviewsTheStick() {
+        setContent(showLeftControlChoice = true)
+        composeRule.onNodeWithTag("editor-left-control-stick").performClick()
+        // The preview switches live: the stick renders in the
+        // slot and the cross leaves it.
+        composeRule.onNodeWithTag("stick").assertIsDisplayed()
+        composeRule.onAllNodesWithTag("dpad").assertCountEquals(0)
+        composeRule.onNodeWithTag("editor-done").performClick()
+        assertEquals(LeftControl.STICK, committedChoice)
+    }
+
+    @Test
+    fun choosingGlobalCommitsNullAndPreviewsTheDefault() {
+        setContent(showLeftControlChoice = true, leftControlOverride = LeftControl.STICK)
+        // It starts on the stored override: the stick shows.
+        composeRule.onNodeWithTag("stick").assertIsDisplayed()
+        composeRule.onNodeWithTag("editor-left-control-global").performClick()
+        // Back to the global default (D-pad): the cross returns.
+        composeRule.onNodeWithTag("dpad").assertIsDisplayed()
+        composeRule.onNodeWithTag("editor-done").performClick()
+        assertEquals(null, committedChoice)
+    }
+
+    @Test
+    fun resetLeavesTheLeftControlChoiceAlone() {
+        setContent(showLeftControlChoice = true)
+        composeRule.onNodeWithTag("editor-left-control-stick").performClick()
+        composeRule.onNodeWithTag("editor-reset").performClick()
+        composeRule.onNodeWithTag("editor-done").performClick()
+        assertEquals(LeftControl.STICK, committedChoice)
     }
 }

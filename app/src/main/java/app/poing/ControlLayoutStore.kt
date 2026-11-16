@@ -63,6 +63,50 @@ class ControlLayoutStore(private val layoutsDir: File) {
     fun hasOverride(base: String): Boolean = exists(base)
 
     /**
+     * Alpha.10 — a game's left-control choice, in its own
+     * small file beside the layout file (`<base>.leftcontrol`,
+     * holding "dpad" or "stick"). It lives apart from the
+     * layout on purpose: the layout file is positions only,
+     * and its save/clear rules (a Done that lands exactly on
+     * the handheld default clears the file) must never be
+     * able to wipe — or be wiped by — the choice. A missing
+     * file (or an unreadable one) means no override: the game
+     * follows the global default.
+     */
+    private fun leftControlFile(base: String): File = File(layoutsDir, "$base.leftcontrol")
+
+    /** This game's left-control override, or null when it follows the global default. */
+    fun leftControlOverride(base: String): LeftControl? {
+        val f = leftControlFile(base)
+        if (!f.exists()) return null
+        val raw = try {
+            f.readText().trim().lowercase()
+        } catch (_: Exception) {
+            return null
+        }
+        return when (raw) {
+            "stick" -> LeftControl.STICK
+            "dpad" -> LeftControl.DPAD
+            else -> null
+        }
+    }
+
+    /** Store (or clear, with null) this game's left-control override. */
+    fun setLeftControlOverride(base: String, control: LeftControl?) {
+        try {
+            val f = leftControlFile(base)
+            if (control == null) {
+                f.delete()
+            } else {
+                f.parentFile?.mkdirs()
+                f.writeText(control.name.lowercase())
+            }
+        } catch (_: Exception) {
+            // A failed write leaves the previous choice in place.
+        }
+    }
+
+    /**
      * The resolution order, pinned in ControlLayoutStoreTest:
      * a game's own file wins; otherwise its handheld's
      * default; otherwise ControlLayout.DEFAULT.

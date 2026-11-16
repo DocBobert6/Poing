@@ -494,4 +494,27 @@ class AppSettingsStoreTest {
         s.setReconGbEnabled(false)
         assertFalse(s.reconGbEnabled())
     }
+
+    @Test
+    fun leftControlDefaultsToDpadAndRoundTrips() {
+        // Alpha.10 — the control in the left-hand slot: the
+        // D-pad cross by default, the joystick when chosen,
+        // and the choice survives a restart.
+        val s = store()
+        assertEquals(LeftControl.DPAD, s.leftControl())
+        s.setLeftControl(LeftControl.STICK)
+        assertEquals(LeftControl.STICK, s.leftControl())
+        assertEquals(LeftControl.STICK, AppSettingsStore(temp.root).leftControl())
+        s.setLeftControl(LeftControl.DPAD)
+        assertEquals(LeftControl.DPAD, s.leftControl())
+    }
+
+    @Test
+    fun unknownLeftControlReadsAsDpad() {
+        // A stale or hand-edited value never leaves the slot
+        // empty: anything the app does not know reads as the
+        // D-pad.
+        File(temp.root, "app-settings.properties").writeText("controls.leftControl=banana\n")
+        assertEquals(LeftControl.DPAD, store().leftControl())
+    }
 }

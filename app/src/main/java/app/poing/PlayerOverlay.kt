@@ -46,6 +46,11 @@ fun BoxScope.ControlOverlay(
     // Haptics click for every overlay button, gated by the
     // caller (a running cartridge rumble wins over the click).
     onControlDown: () -> Unit,
+    // Alpha.10 — which control lives in the left-hand slot:
+    // the D-pad cross, or a joystick. One slot holds EITHER,
+    // never both; the caller resolves the global default +
+    // per-game override (see GameScreen).
+    leftControl: LeftControl = LeftControl.DPAD,
 ) {
     val theme = ControlThemes.themeFor(system)
     val alpha = layout.opacity / 100f
@@ -73,7 +78,7 @@ fun BoxScope.ControlOverlay(
             canvasWidthDp = canvasWidthDp, canvasHeightDp = canvasHeightDp,
             alpha = alpha, testTag = "controls-${spec.id.key}",
         ) {
-            ControlButton(spec, theme, held, paused, onInputChanged, onControlDown)
+            ControlButton(spec, theme, held, paused, onInputChanged, onControlDown, leftControl)
         }
     }
 }
@@ -81,7 +86,8 @@ fun BoxScope.ControlOverlay(
 /**
  * One control's button, shared by the play overlay and the
  * editor (LayoutEditor) so the two can never drift apart: the
- * D-pad cross, a round A/B button, a wide L/R shoulder pill,
+ * D-pad cross — or the joystick, when the left-control choice
+ * says so — a round A/B button, a wide L/R shoulder pill,
  * or a small Start/Select pill, in the system's theme, at the
  * spec's size.
  */
@@ -93,15 +99,33 @@ fun ControlButton(
     paused: Boolean,
     onInputChanged: () -> Unit,
     onControlDown: () -> Unit,
+    // Alpha.10 — which control lives in the left-hand slot.
+    // The D-pad is the default, so existing callers (the
+    // editor's tests, the Settings default editor) keep the
+    // cross unless they pass the choice.
+    leftControl: LeftControl = LeftControl.DPAD,
 ) {
     val pressed = Color(theme.pressed)
     when (spec.id) {
-        ControlId.DPAD -> DpadControl(
-            held, paused, onInputChanged, onDirectionChange = onControlDown,
-            crossColor = Color(theme.dpadCross), wellColor = Color(theme.dpadWell),
-            pressedColor = Color(theme.pressed),
-            sizeDp = spec.sizeDp.dp,
-        )
+        ControlId.DPAD -> when (leftControl) {
+            LeftControl.DPAD -> DpadControl(
+                held, paused, onInputChanged, onDirectionChange = onControlDown,
+                crossColor = Color(theme.dpadCross), wellColor = Color(theme.dpadWell),
+                pressedColor = pressed,
+                sizeDp = spec.sizeDp.dp,
+            )
+            // Alpha.10 — the joystick lives in the same slot:
+            // the same spec (position, size) and the same
+            // layout opacity, so a game that switches keeps its
+            // tuned spot, and the editor moves and resizes it
+            // exactly like the D-pad.
+            LeftControl.STICK -> StickControl(
+                held, paused, onInputChanged, onDirectionChange = onControlDown,
+                baseColor = Color(theme.dpadWell), nubColor = Color(theme.dpadCross),
+                accentColor = pressed,
+                sizeDp = spec.sizeDp.dp,
+            )
+        }
         ControlId.A -> HoldButton(
             "A", InputMask.JOY_A, held, paused, onInputChanged, onDown = onControlDown,
             sizeDp = spec.sizeDp.dp,

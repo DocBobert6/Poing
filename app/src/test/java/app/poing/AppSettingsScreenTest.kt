@@ -4,8 +4,10 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertIsNotSelected
 import androidx.compose.ui.test.assertIsOff
 import androidx.compose.ui.test.assertIsOn
+import androidx.compose.ui.test.assertIsSelected
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createComposeRule
@@ -906,5 +908,33 @@ class AppSettingsScreenTest {
         val context = androidx.test.core.app.ApplicationProvider
             .getApplicationContext<android.content.Context>()
         assertTrue(File(context.filesDir, "updates/${AppUpdate.APK_FILE_NAME}").isFile)
+    }
+
+    // Alpha.10 — the global left-control row: the D-pad is
+    // selected by default, and choosing the joystick persists
+    // it as the global default (a game can still override it
+    // in its layout editor).
+    @Test
+    fun leftControlDefaultsToDpadOnTheSettingsRow() {
+        composeRule.setContent {
+            PoingTheme {
+                AppSettingsScreen(store = store(), onCoreOptions = {}, onBack = {})
+            }
+        }
+        composeRule.onNodeWithTag("left-control-dpad").performScrollTo()
+        composeRule.onNodeWithTag("left-control-dpad").assertIsSelected()
+        composeRule.onNodeWithTag("left-control-stick").assertIsNotSelected()
+    }
+
+    @Test
+    fun choosingJoystickAsTheLeftControlPersistsIt() {
+        val s = store()
+        composeRule.setContent {
+            PoingTheme {
+                AppSettingsScreen(store = s, onCoreOptions = {}, onBack = {})
+            }
+        }
+        composeRule.onNodeWithTag("left-control-stick").performScrollTo().performClick()
+        assertEquals(LeftControl.STICK, AppSettingsStore(temp.root).leftControl())
     }
 }

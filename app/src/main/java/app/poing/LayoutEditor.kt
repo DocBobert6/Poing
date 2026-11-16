@@ -60,7 +60,19 @@ fun LayoutEditor(
     held: HeldInput,
     onInputChanged: () -> Unit,
     onControlDown: () -> Unit,
-    onDone: (ControlLayout) -> Unit,
+    // Alpha.10 — the left-control choice for the game being
+    // edited. [leftControlDefault] is the global default (what
+    // "Global" previews to); [leftControlOverride] is this
+    // game's stored override, null when it follows the global
+    // default. [showLeftControlChoice] shows the toggle row —
+    // the per-game editor only; the Settings default editor
+    // has no per-game choice to make, so it passes nothing
+    // and the row stays hidden. [onDone] commits the layout
+    // AND the draft override (null = follow global).
+    leftControlDefault: LeftControl = LeftControl.DPAD,
+    leftControlOverride: LeftControl? = null,
+    showLeftControlChoice: Boolean = false,
+    onDone: (ControlLayout, LeftControl?) -> Unit,
     onBack: () -> Unit,
     // Overlay defaults (Robert, 2026-11-14): what Reset
     // restores. The player passes the game's handheld
@@ -70,6 +82,14 @@ fun LayoutEditor(
     resetLayout: ControlLayout = ControlLayout.DEFAULT,
 ) {
     var draft by remember { mutableStateOf(initial) }
+    // Alpha.10 — the left-control draft: the override until
+    // Done, like the layout draft. Null means this game
+    // follows the global default. Reset is layout-only (see
+    // the Reset pill): it never touches this draft.
+    var leftControlDraft by remember { mutableStateOf(leftControlOverride) }
+    // The control the editor previews: the draft override,
+    // or the global default while the game follows it.
+    val leftControlPreview = leftControlDraft ?: leftControlDefault
     var selectedId by remember { mutableStateOf<ControlId?>(null) }
     var snapOn by remember { mutableStateOf(true) }
     var grouped by remember { mutableStateOf(true) }
@@ -101,6 +121,10 @@ fun LayoutEditor(
                     held = held,
                     onInputChanged = onInputChanged,
                     onControlDown = onControlDown,
+                    // Alpha.10 — the editor previews the draft
+                    // choice, so switching D-pad / Joystick
+                    // shows the live control in its slot.
+                    leftControl = leftControlPreview,
                     onSelect = { selectedId = spec.id },
                     onMove = { cx, cy ->
                         draft = draft.moved(spec.id, cx, cy, grouped)
@@ -124,13 +148,34 @@ fun LayoutEditor(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 EditorPill("Back", "editor-back") { onBack() }
-                EditorPill("Done", "editor-done") { onDone(draft) }
+                EditorPill("Done", "editor-done") { onDone(draft, leftControlDraft) }
                 EditorPill("Reset", "editor-reset") {
                     draft = resetLayout
                     selectedId = null
                 }
                 EditorTogglePill("Snap", snapOn, "editor-snap") { snapOn = it }
                 EditorTogglePill("Together", grouped, "editor-together") { grouped = it }
+            }
+            // Alpha.10 — the left-control choice for this game:
+            // the D-pad cross, the joystick, or Global (follow
+            // the Settings default). The preview below switches
+            // with the draft, so the choice is judged live.
+            if (showLeftControlChoice) {
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    EditorPillLabel("Left control", "editor-left-control-label")
+                    EditorChoicePill("Global", leftControlDraft == null, "editor-left-control-global") {
+                        leftControlDraft = null
+                    }
+                    EditorChoicePill("D-pad", leftControlDraft == LeftControl.DPAD, "editor-left-control-dpad") {
+                        leftControlDraft = LeftControl.DPAD
+                    }
+                    EditorChoicePill("Joystick", leftControlDraft == LeftControl.STICK, "editor-left-control-stick") {
+                        leftControlDraft = LeftControl.STICK
+                    }
+                }
             }
             // Opacity, over the whole layout (Mariner's
             // per-console alpha, here per game): 0–100% in
@@ -215,6 +260,31 @@ private fun EditorTogglePill(
 }
 
 /**
+ * Alpha.10 — one choice in a small set (the left-control
+ * toggle): gold text while selected, white otherwise. Unlike
+ * [EditorTogglePill] it does not negate — the caller sets
+ * the choice outright.
+ */
+@Composable
+private fun EditorChoicePill(
+    label: String,
+    selected: Boolean,
+    testTag: String,
+    onClick: () -> Unit,
+) {
+    Box(
+        modifier = Modifier
+            .testTag(testTag)
+            .background(PoingPurpleDeep.copy(alpha = 0.55f), RoundedCornerShape(50))
+            .clickable(onClick = onClick)
+            .padding(horizontal = 12.dp, vertical = 10.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(label, color = if (selected) PoingGold else Color.White)
+    }
+}
+
+/**
  * One control in the editor: the real button (see
  * ControlButton — the editor shows what the player shows),
  * draggable anywhere on the canvas. A drag selects the
@@ -242,6 +312,10 @@ private fun EditorControl(
     held: HeldInput,
     onInputChanged: () -> Unit,
     onControlDown: () -> Unit,
+    // Alpha.10 — which control the editor previews in the
+    // left-hand slot (the draft choice, or the global default
+    // while the game follows it).
+    leftControl: LeftControl = LeftControl.DPAD,
     onSelect: () -> Unit,
     onMove: (Float, Float) -> Unit,
 ) {
@@ -299,7 +373,7 @@ private fun EditorControl(
             },
         contentAlignment = Alignment.Center,
     ) {
-        ControlButton(spec, theme, held, true, onInputChanged, onControlDown)
+        ControlButton(spec, theme, held, true, onInputChanged, onControlDown, leftControl)
         // A selected control shows its exact size in dp inside
         // itself, Mariner's model — a small gold label at its
         // bottom edge, inside the control.

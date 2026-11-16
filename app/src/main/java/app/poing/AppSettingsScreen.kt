@@ -93,6 +93,10 @@ fun AppSettingsScreen(
     // default. Global, not per-system: strength is about
     // the player's hand and phone, not the handheld.
     var hapticsStrength by remember { mutableStateOf(store.hapticsStrength()) }
+    // Alpha.10 — the control in the left-hand slot: the D-pad
+    // cross, or a joystick. Global default, D-pad; a game can
+    // override it in the layout editor.
+    var leftControl by remember { mutableStateOf(store.leftControl()) }
     var rewindControl by remember { mutableStateOf(store.rewindControlVisible()) }
     // Player chrome (Robert, 2026-11-12) — the dev stats:
     // when on, the top bar stays visible during gameplay;
@@ -352,6 +356,49 @@ fun AppSettingsScreen(
                                 style = MaterialTheme.typography.bodyMedium,
                                 modifier = Modifier.padding(start = 12.dp),
                             )
+                        }
+                    }
+                }
+            }
+            // Alpha.10 — the left control: which control lives
+            // in the left-hand slot. The D-pad cross, or a
+            // joystick — one slot holds EITHER, never both.
+            // D-pad by default; a game can use the other one
+            // from its layout editor.
+            item {
+                Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
+                    Text(
+                        "Left control",
+                        style = MaterialTheme.typography.titleMedium,
+                    )
+                    Text(
+                        "The control in the left-hand spot: the D-pad cross, or a joystick. D-pad by default — change it for one game in the layout editor.",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                    Row(modifier = Modifier.padding(top = 8.dp)) {
+                        for ((label, value) in listOf(
+                            "D-pad" to LeftControl.DPAD,
+                            "Joystick" to LeftControl.STICK,
+                        )) {
+                            Row(
+                                modifier = Modifier
+                                    .selectable(
+                                        selected = leftControl == value,
+                                        onClick = {
+                                            store.setLeftControl(value)
+                                            leftControl = value
+                                        },
+                                        role = Role.RadioButton,
+                                    )
+                                    .padding(end = 16.dp)
+                                    .testTag(
+                                        if (value == LeftControl.DPAD) "left-control-dpad"
+                                        else "left-control-stick",
+                                    ),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Text(label)
+                            }
                         }
                     }
                 }
@@ -923,7 +970,7 @@ fun AppSettingsScreen(
             held = editorHeld,
             onInputChanged = {},
             onControlDown = {},
-            onDone = { draft ->
+            onDone = { draft, _ ->
                 if (draft == ControlLayout.DEFAULT) layoutStore.clearDefault(editingSystem)
                 else layoutStore.saveDefault(editingSystem, draft)
                 defaultsNonce++

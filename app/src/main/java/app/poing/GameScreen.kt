@@ -191,6 +191,15 @@ fun GameScreen(
     val saveBase = java.io.File(gamePath).nameWithoutExtension
     val layoutStore = remember { ControlLayoutStore(context.filesDir.resolve("control-layouts").apply { mkdirs() }) }
     var layout by remember(gamePath) { mutableStateOf(layoutStore.loadForGame(saveBase, system)) }
+    // Alpha.10 — the left control for this game: the game's
+    // own override when it has one, otherwise the global
+    // default (D-pad). Resolved once per game, like the
+    // layout: it can only change in Settings or in the layout
+    // editor, never mid-game. Mutable so the editor's Done
+    // can commit a new choice for this game at once.
+    var leftControl by remember(gamePath) {
+        mutableStateOf(layoutStore.leftControlOverride(saveBase) ?: appSettings.leftControl())
+    }
     // The handheld default, snapshotted with the game like the
     // other player settings: it is what the editor's Reset
     // restores, and what Done falls back to when the draft
@@ -901,6 +910,7 @@ fun GameScreen(
             paused = paused,
             onInputChanged = onInputChanged,
             onControlDown = onControlDown,
+            leftControl = leftControl,
         )
         // Worm Light improvements (Robert, 2026-11-13):
         // while a drag is in progress, the lamp's head
@@ -1175,10 +1185,19 @@ fun GameScreen(
                 onControlDown = {
                     if (cartridgeRumble.currentStrength == 0) hapticsImpl.click()
                 },
-                onDone = { draft ->
+                // Alpha.10 — the per-game left-control choice:
+                // the editor shows the D-pad / Joystick toggle
+                // for this game, and Done commits the choice
+                // with the layout.
+                leftControlDefault = appSettings.leftControl(),
+                leftControlOverride = layoutStore.leftControlOverride(saveBase),
+                showLeftControlChoice = true,
+                onDone = { draft, choice ->
                     layout = draft
                     if (draft == handheldDefault) layoutStore.clearOverride(saveBase)
                     else layoutStore.save(saveBase, draft)
+                    layoutStore.setLeftControlOverride(saveBase, choice)
+                    leftControl = choice ?: appSettings.leftControl()
                     editingLayout = false
                 },
                 onBack = { editingLayout = false },
