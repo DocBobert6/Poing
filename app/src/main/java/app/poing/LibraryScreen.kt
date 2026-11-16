@@ -2,6 +2,7 @@ package app.poing
 
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -670,9 +671,16 @@ fun LibraryScreen(
                     pendingCoverGame = game
                     coverDialogGame = null
                     pickCover.launch(
-                        ActivityResultContracts.PickVisualMedia.PickVisualMediaRequest(
-                            ActivityResultContracts.PickVisualMedia.ImageOnly,
-                        ),
+                        // Activity 1.11 moved the request out of
+                        // the contract: PickVisualMediaRequest is
+                        // a top-level class in
+                        // androidx.activity.result, built with its
+                        // Builder (verified against the 1.11.0 AAR).
+                        PickVisualMediaRequest.Builder()
+                            .setMediaType(
+                                ActivityResultContracts.PickVisualMedia.ImageOnly,
+                            )
+                            .build(),
                     )
                 }) {
                     Text("Set cover")
