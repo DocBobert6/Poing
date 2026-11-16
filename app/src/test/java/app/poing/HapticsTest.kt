@@ -130,4 +130,94 @@ class HapticsTest {
         Haptics(v, strength = 0).click()
         assertFalse(shadowOf(v).isVibrating)
     }
+
+    // Alpha.11 — per-button character: every new effect
+    // vibrates through the same guard as the click.
+    @Test
+    fun directionTickVibrates() {
+        val v = vibrator()
+        Haptics(v).directionTick()
+        assertTrue(shadowOf(v).isVibrating)
+    }
+
+    @Test
+    fun releaseTickVibrates() {
+        val v = vibrator()
+        Haptics(v).releaseTick()
+        assertTrue(shadowOf(v).isVibrating)
+    }
+
+    @Test
+    fun lightClickVibrates() {
+        val v = vibrator()
+        Haptics(v).lightClick()
+        assertTrue(shadowOf(v).isVibrating)
+    }
+
+    @Test
+    fun shoulderClickVibrates() {
+        val v = vibrator()
+        Haptics(v).shoulderClick()
+        assertTrue(shadowOf(v).isVibrating)
+    }
+
+    @Test
+    fun disabledTickDoesNothing() {
+        val v = vibrator()
+        Haptics(v, enabled = false).directionTick()
+        assertFalse(shadowOf(v).isVibrating)
+    }
+
+    @Test
+    fun strengthZeroTickDoesNothing() {
+        val v = vibrator()
+        Haptics(v, strength = 0).releaseTick()
+        assertFalse(shadowOf(v).isVibrating)
+    }
+
+    @Test
+    fun nullVibratorTickIsASilentNoOp() {
+        Haptics(null).directionTick()
+        Haptics(null).releaseTick()
+        Haptics(null).shoulderClick()
+    }
+
+    @Test
+    fun tickFallbackIsAShortOneShot() {
+        // Without the tick primitive the tick is an 8ms
+        // one-shot — shorter than the 12ms click, never the
+        // predefined click (which has no amplitude and would
+        // land at press strength).
+        assertEquals(
+            Haptics.TICK_MS,
+            Haptics.buildTickEffect(0.5f, 100, 24, tickSupported = false).duration,
+        )
+        assertTrue(Haptics.TICK_MS < Haptics.CLICK_MS)
+    }
+
+    @Test
+    fun shoulderFallbackIsThePlainClick() {
+        // Without primitives at all the shoulder is the plain
+        // click effect (a 12ms one-shot on an old device).
+        assertEquals(
+            Haptics.CLICK_MS,
+            Haptics.buildShoulderEffect(100, 24, primitivesSupported = false, thudSupported = false).duration,
+        )
+    }
+
+    @Test
+    fun characterScalesAreOrdered() {
+        // The release is the lightest event (a spring-back),
+        // the roll tick is an actuation so it ticks harder,
+        // Start/Select are a lighter click, and the thud sits
+        // low under the shoulder click. The release stays in
+        // the 0.3–0.5 band Robert approved, and the thud lands
+        // 15–25ms after the click.
+        assertTrue(Haptics.RELEASE_TICK_SCALE in 0.3f..0.5f)
+        assertTrue(Haptics.RELEASE_TICK_SCALE < Haptics.DIRECTION_TICK_SCALE)
+        assertTrue(Haptics.DIRECTION_TICK_SCALE < Haptics.START_SELECT_SCALE)
+        assertTrue(Haptics.START_SELECT_SCALE < 1f)
+        assertTrue(Haptics.SHOULDER_THUD_SCALE < Haptics.DIRECTION_TICK_SCALE)
+        assertTrue(Haptics.SHOULDER_THUD_DELAY_MS in 15..25)
+    }
 }

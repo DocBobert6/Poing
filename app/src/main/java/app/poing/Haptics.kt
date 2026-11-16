@@ -3,6 +3,7 @@ package app.poing
 import android.os.Build
 import android.os.VibrationEffect
 import android.os.Vibrator
+import kotlin.math.roundToInt
 
 /**
  * Alpha.8 — haptics, the realistic-click version: a short click
@@ -14,6 +15,21 @@ import android.os.Vibrator
  * like a real click, not a buzz. Below that, or on a vibrator
  * that cannot play primitives, it falls back to the old 12ms
  * one-shot, quieter when the strength is turned down.
+ *
+ * Alpha.11 — per-button character (Robert, 2026-11-15): a real
+ * rubber-dome button has TWO tactile events (dome collapse on
+ * press, spring-back on release) and the D-pad is a rocker, so
+ * each button now feels like its own hardware instead of the
+ * same click everywhere. A/B keep the full click; Start/Select
+ * click lighter; a D-pad direction change while held is a
+ * lighter tick (the confirmed-kept roll tick — holding one
+ * direction steady fires nothing, only a change ticks); GBA
+ * L/R are click + low thud, the longer travel; every release
+ * is a lighter tick. Each primitive is probed at runtime and
+ * falls back to the plain click when unsupported — never to a
+ * longer one-shot or a square waveform (50ms+ ringing reads
+ * as a notification buzz), and a release tick is never at
+ * press strength.
  *
  * [enabled] is the Settings toggle (on by default).
  * [strength] is the Settings slider, 0–100 (100 by default);
@@ -39,12 +55,52 @@ class Haptics(
         ONE_SHOT,
     }
 
+    /** A/B (and the old single-click path): the full click. */
     fun click() {
-        if (!enabled || strength <= 0) return
         val v = vibrator ?: return
+        play(v, buildEffect(strength, Build.VERSION.SDK_INT, primitivesSupported(v)))
+    }
+
+    /** Start/Select: the same click, lighter — a smaller pill. */
+    fun lightClick() {
+        val v = vibrator ?: return
+        val effectiveStrength = (strength * START_SELECT_SCALE).roundToInt()
+        play(v, buildEffect(effectiveStrength, Build.VERSION.SDK_INT, primitivesSupported(v)))
+    }
+
+    /**
+     * A D-pad / joystick direction change while held: the
+     * rocker rolling onto a new dome. A tick, not a click —
+     * the dome is already half down, so the event is lighter
+     * than the press.
+     */
+    fun directionTick() {
+        val v = vibrator ?: return
+        play(v, buildTickEffect(DIRECTION_TICK_SCALE, strength, Build.VERSION.SDK_INT, tickSupported(v)))
+    }
+
+    /** A release: the dome springing back. Lighter than the press, always. */
+    fun releaseTick() {
+        val v = vibrator ?: return
+        play(v, buildTickEffect(RELEASE_TICK_SCALE, strength, Build.VERSION.SDK_INT, tickSupported(v)))
+    }
+
+    /**
+     * GBA L/R: the shoulder's longer travel — a click plus a
+     * low thud 20ms later, one thunk. Without the thud
+     * primitive it is just the click.
+     */
+    fun shoulderClick() {
+        val v = vibrator ?: return
+        play(v, buildShoulderEffect(strength, Build.VERSION.SDK_INT, primitivesSupported(v), thudSupported(v)))
+    }
+
+    /** The one guard: enabled, strength, a real vibrator, never a crash. */
+    private fun play(v: Vibrator, effect: VibrationEffect) {
+        if (!enabled || strength <= 0) return
         if (!v.hasVibrator()) return
         try {
-            v.vibrate(buildEffect(strength, Build.VERSION.SDK_INT, primitivesSupported(v)))
+            v.vibrate(effect)
         } catch (_: Exception) {
             // A vibrator that rejects the effect: silent, never a crash.
         }
@@ -52,9 +108,25 @@ class Haptics(
 
     companion object {
         const val CLICK_MS = 12L
+        const val TICK_MS = 8L
         const val DEFAULT_STRENGTH = 100
         const val MIN_STRENGTH = 0
         const val MAX_STRENGTH = 100
+
+        /** Release tick scale: inside the 0.3–0.5 band, lighter than the roll tick. */
+        const val RELEASE_TICK_SCALE = 0.4f
+
+        /** Direction-change tick scale: a roll is an actuation, so it ticks harder than a release. */
+        const val DIRECTION_TICK_SCALE = 0.5f
+
+        /** Start/Select click scale: a lighter click, still clearly a click. */
+        const val START_SELECT_SCALE = 0.6f
+
+        /** L/R thud scale: low, the shoulder's deeper travel under the click. */
+        const val SHOULDER_THUD_SCALE = 0.3f
+
+        /** L/R thud delay: 15–25ms after the click starts, one thunk. */
+        const val SHOULDER_THUD_DELAY_MS = 20
 
         fun effectKind(strength: Int, sdkInt: Int, primitivesSupported: Boolean): EffectKind =
             when {
@@ -90,14 +162,90 @@ class Haptics(
             }
 
         /**
+         * A tick at [scale] of the user's strength: the tick
+         * primitive where the vibrator plays it, else a short
+         * one-shot at the tick's reduced amplitude. Never the
+         * predefined click — it has no amplitude, so it would
+         * land at press strength, which a tick must never do.
+         */
+        fun buildTickEffect(scale: Float, strength: Int, sdkInt: Int, tickSupported: Boolean): VibrationEffect =
+            if (sdkInt >= Build.VERSION_CODES.R && tickSupported) {
+                VibrationEffect.startComposition()
+                    .addPrimitive(
+                        VibrationEffect.Composition.PRIMITIVE_TICK,
+                        (primitiveScale(strength) * scale).coerceIn(0f, 1f),
+                    )
+                    .compose()
+            } else {
+                VibrationEffect.createOneShot(
+                    TICK_MS,
+                    (scaledAmplitude(strength) * scale).roundToInt().coerceIn(1, 255),
+                )
+            }
+
+        /**
+         * L/R: a click, plus a low thud 20ms later where the
+         * vibrator plays it. Without the thud primitive it is
+         * just the click; without primitives at all it is the
+         * plain click effect.
+         */
+        fun buildShoulderEffect(
+            strength: Int,
+            sdkInt: Int,
+            primitivesSupported: Boolean,
+            thudSupported: Boolean,
+        ): VibrationEffect {
+            if (sdkInt >= Build.VERSION_CODES.R && primitivesSupported) {
+                val composition = VibrationEffect.startComposition()
+                    .addPrimitive(
+                        VibrationEffect.Composition.PRIMITIVE_CLICK,
+                        primitiveScale(strength),
+                    )
+                if (thudSupported) {
+                    val thudScale = (primitiveScale(strength) * SHOULDER_THUD_SCALE).coerceIn(0f, 1f)
+                    // The 4-arg form (delay type) is API 34+;
+                    // below that the 3-arg form carries the
+                    // same delay.
+                    if (sdkInt >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                        composition.addPrimitive(
+                            VibrationEffect.Composition.PRIMITIVE_THUD,
+                            thudScale,
+                            SHOULDER_THUD_DELAY_MS,
+                            VibrationEffect.DELAY_TYPE_RELATIVE_START_OFFSET,
+                        )
+                    } else {
+                        composition.addPrimitive(
+                            VibrationEffect.Composition.PRIMITIVE_THUD,
+                            thudScale,
+                            SHOULDER_THUD_DELAY_MS,
+                        )
+                    }
+                }
+                return composition.compose()
+            }
+            return buildEffect(strength, sdkInt, primitivesSupported)
+        }
+
+        /**
          * True when this vibrator can play the scaled click
          * primitive. A vibrator that cannot answer falls back
          * to the predefined click — never a crash.
          */
-        fun primitivesSupported(vibrator: Vibrator): Boolean {
+        fun primitivesSupported(vibrator: Vibrator): Boolean =
+            allPrimitivesSupported(vibrator, VibrationEffect.Composition.PRIMITIVE_CLICK)
+
+        /** True when this vibrator can play the tick primitive. */
+        fun tickSupported(vibrator: Vibrator): Boolean =
+            allPrimitivesSupported(vibrator, VibrationEffect.Composition.PRIMITIVE_TICK)
+
+        /** True when this vibrator can play the thud primitive. */
+        fun thudSupported(vibrator: Vibrator): Boolean =
+            allPrimitivesSupported(vibrator, VibrationEffect.Composition.PRIMITIVE_THUD)
+
+        private fun allPrimitivesSupported(vibrator: Vibrator, vararg primitiveIds: Int): Boolean {
             if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) return false
             return try {
-                vibrator.areAllPrimitivesSupported(VibrationEffect.Composition.PRIMITIVE_CLICK)
+                vibrator.areAllPrimitivesSupported(*primitiveIds)
             } catch (_: Exception) {
                 false
             }
