@@ -1,18 +1,18 @@
-## Poing! v0.1.0-alpha.11 — Haptics realism, Worm Light aim tilt
+## Poing! v0.1.0-alpha.12 — Screen Optics everywhere, deeper dimming
 
-The eleventh signed alpha of Poing!, the standalone Game Boy / Game Boy Color / Game Boy Advance emulator for Android (mGBA core, one app, arm64-v8a only).
+The twelfth signed alpha of Poing!, the standalone Game Boy / Game Boy Color / Game Boy Advance emulator for Android (mGBA core, one app, arm64-v8a only).
 
-**Install first — read this:** this alpha is signed with the same release key as alpha.1 through alpha.10, so it installs straight over alpha.10 — no uninstall needed, saves and settings carry over. It will **not** install over the debug builds (different key). Uninstall the debug build first. Uninstalling wipes local saves (battery saves + save states); RetroAchievements progress is server-side and safe.
+**Install first — read this:** this alpha is signed with the same release key as alpha.1 through alpha.11, so it installs straight over alpha.11 — no uninstall needed, saves and settings carry over. It will **not** install over the debug builds (different key). Uninstall the debug build first. Uninstalling wipes local saves (battery saves + save states); RetroAchievements progress is server-side and safe.
 
 ## Download
 
-The signed APK is attached to this release: `poing-v0.1.0-alpha.11.apk` (size + SHA-256 in the Build section below).
+The signed APK is attached to this release: `poing-v0.1.0-alpha.12.apk` (size + SHA-256 in the Build section below).
 
-## What changed in alpha.11
+## What changed in alpha.12
 
-- Haptics realism: every button now feels like its own hardware. A real rubber-dome button has two tactile events — the dome collapsing on press and springing back on release — and the D-pad is a rocker, so the phone now plays both. A/B keep the full press click; Start and Select click lighter; rolling the D-pad (or the joystick) onto a new direction ticks, lighter than the press, while holding one direction steady fires nothing; every button ticks lightly on release, always lighter than its press; GBA L/R are a click plus a low thud a beat later, one thunk for the longer travel. Each effect is probed at runtime and falls back to the plain click where the vibrator does not play it. The strength slider and the haptics toggle still silence everything, and a game's cartridge rumble still wins while it is running.
-- Worm Light aim tilt, fixed: in aim mode the forward/back tilt was dead on device — the angle spun, but the pool never stretched. The tilt needed a sweep far wider than a thumb can make. It now runs over a thumb's orbit: no tilt only with the finger right on the lens, full tilt at a comfortable orbit out from it, so dragging out along a bearing visibly stretches the pool further along that bearing, and dragging back in pulls it back. The angle still spins the same way, and the pool centre stays on the head.
-- What you should feel now: a lighter click on Start and Select; a light tick when you roll the D-pad or stick to a new direction, and a lighter tick still when you lift any button; a click-plus-thud on L and R. And in Worm Light aim mode, dragging your thumb out from the lamp stretches the pool forward along the bearing you are pointing.
+- Screen Optics everywhere: the room light's brightness, contrast and gamma used to ride only on the chains and on edge smoothing with the grid. Edge smoothing without the grid, and plain with no chain at all, never got them — the final blit is the plain program, which carried the Worm Light pool but no optics. The plain program now applies the same optics as the grid passes, before the pool, so the lamp still sits on top of the room light instead of being cancelled by it. The chains and edge-with-grid are untouched.
+- Deeper dimming: in a dark room with the dimming toggle on, the picture now falls to about 0.35 brightness at pitch black, instead of 0.60. Same threshold and same ease-in as before — only the floor is deeper. The bright-room boost is unchanged.
+- What you should see now: with edge smoothing on and the grid off, the picture brightens in a bright room and dims in a dark room (with the toggle on) just like it already did on the chains; and in a dark room with dimming on, the picture gets properly dark.
 
 ## What is in it
 

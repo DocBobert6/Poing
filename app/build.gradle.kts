@@ -12,8 +12,8 @@ android {
         applicationId = "app.poing"
         minSdk = 24
         targetSdk = 36
-        versionCode = 12
-        versionName = "0.1.0-alpha.11"
+        versionCode = 13
+        versionName = "0.1.0-alpha.12"
     }
 
     // Signed alpha (Step 4, 2026-11-15): the release keystore is
