@@ -500,4 +500,63 @@ class LayoutEditorTest {
         composeRule.onNodeWithTag("editor-done").performClick()
         assertEquals(true, committedSteering)
     }
+
+    // Alpha.19 — the settings panel collapses (Robert,
+    // 2026-11-16 11:16: the panel covers the whole screen
+    // while editing): a slim bar stays, the action row stays,
+    // the controls stay draggable. Session-only: a plain
+    // remember, never persisted — a fresh editor (each test
+    // method is one) always opens expanded.
+    @Test
+    fun settingsPanelStartsExpanded() {
+        setContent()
+        composeRule.onNodeWithTag("editor-settings-collapse").assertIsDisplayed()
+        composeRule.onNodeWithText("Hide settings").assertIsDisplayed()
+        composeRule.onNodeWithText("Opacity 100%").assertIsDisplayed()
+    }
+
+    @Test
+    fun collapsingHidesTheSettingsRowsButKeepsTheActionRow() {
+        setContent()
+        composeRule.onNodeWithTag("editor-settings-collapse").performClick()
+        composeRule.onNodeWithText("Show settings").assertIsDisplayed()
+        composeRule.onAllNodesWithText("Opacity 100%").assertCountEquals(0)
+        composeRule.onNodeWithTag("editor-back").assertIsDisplayed()
+        composeRule.onNodeWithTag("editor-done").assertIsDisplayed()
+        composeRule.onNodeWithTag("editor-reset").assertIsDisplayed()
+        composeRule.onNodeWithTag("editor-snap").assertIsDisplayed()
+        composeRule.onNodeWithTag("editor-together").assertIsDisplayed()
+        // And it expands again, settings back.
+        composeRule.onNodeWithTag("editor-settings-collapse").performClick()
+        composeRule.onNodeWithText("Hide settings").assertIsDisplayed()
+        composeRule.onNodeWithText("Opacity 100%").assertIsDisplayed()
+    }
+
+    @Test
+    fun collapsingSurvivesRecompositionWithinTheSession() {
+        setContent()
+        composeRule.onNodeWithTag("editor-settings-collapse").performClick()
+        // Any other state change recomposes the editor; the
+        // collapsed panel stays collapsed in this session.
+        composeRule.onNodeWithTag("editor-snap").performClick()
+        composeRule.onAllNodesWithText("Opacity 100%").assertCountEquals(0)
+        composeRule.onNodeWithText("Show settings").assertIsDisplayed()
+    }
+
+    @Test
+    fun controlsStayDraggableWhileMinimized() {
+        setContent()
+        composeRule.onNodeWithTag("editor-settings-collapse").performClick()
+        val bBefore = centreX("editor-b")
+        composeRule.onNodeWithTag("editor-a").performTouchInput {
+            val start = aDragStart(center, width)
+            swipe(start = start, end = start + Offset(200f, 0f), durationMillis = 300)
+        }
+        val bAfter = centreX("editor-b")
+        assertTrue("B should move right with A when grouped, was $bBefore now $bAfter", bAfter > bBefore + 10f)
+        composeRule.onNodeWithTag("editor-done").performClick()
+        val done = committed
+        assertNotNull(done)
+        assertTrue(done!!.control(ControlId.A).cx > ControlLayout.DEFAULT.control(ControlId.A).cx)
+    }
 }

@@ -1129,8 +1129,12 @@ fun GameScreen(
             ) {
                 CheatsScreen(
                     gameName = gameName,
-                    system = GameSystem.fromExtension(gamePath)
-                        ?: if (isGba) GameSystem.GBA else GameSystem.GB,
+                    // Alpha.19 — the detected system, not the
+                    // file extension: a GBC game in a .gb file
+                    // plays as GBC, and its cheats are GBC
+                    // cheats. [system] is the header-detected
+                    // system MainActivity passes in.
+                    system = system,
                     saveBase = saveBase,
                     store = remember { CheatStore(context.filesDir.resolve("cheats").apply { mkdirs() }) },
                     session = session,

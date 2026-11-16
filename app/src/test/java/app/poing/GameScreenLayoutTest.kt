@@ -12,6 +12,7 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
+import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.swipe
 import androidx.test.core.app.ApplicationProvider
@@ -495,5 +496,22 @@ class GameScreenLayoutTest {
         composeRule.onNodeWithTag("editor-done").assertIsDisplayed()
         composeRule.onNodeWithTag("editor-done").performClick()
         composeRule.onNodeWithText("Move controls").performScrollTo().assertIsDisplayed()
+    }
+
+    // Alpha.19 — the cheat screen uses the detected system,
+    // not the file extension (Robert, 2026-11-16 11:43): a
+    // GBC game in a .gb file gets GBC cheat formats. The
+    // formats are the same strings for GB and GBC, so the pin
+    // is the rejection message, which names the system — on
+    // the old code it would read "GB cheat code" here.
+    @Test
+    fun cheatsScreenUsesTheDetectedSystemNotTheExtension() {
+        val game = File(temp.root, "game.gb")
+        setContent(game.absolutePath, system = GameSystem.GBC, devStats = true)
+        composeRule.onNodeWithText("Pause").performClick()
+        composeRule.onNodeWithText("Cheats").performScrollTo().performClick()
+        composeRule.onNodeWithTag("cheat-code-field").performTextInput("bogus")
+        composeRule.onNodeWithText("Add").performClick()
+        composeRule.onNodeWithText("That is not a valid GBC cheat code.").performScrollTo().assertIsDisplayed()
     }
 }

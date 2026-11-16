@@ -141,6 +141,12 @@ fun LayoutEditor(
     // The steering the editor previews: the draft override,
     // or the global switch while the game follows it.
     val steeringPreview = steeringDraft ?: steeringDefault
+    // Alpha.19 — the settings panel collapses to a slim bar
+    // (Robert, 2026-11-16 11:16: the panel covers the whole
+    // screen while editing). Session-only by construction: a
+    // plain remember, never persisted — the editor always
+    // opens expanded, and collapsing never touches a store.
+    var settingsCollapsed by remember { mutableStateOf(false) }
     var selectedId by remember { mutableStateOf<ControlId?>(null) }
     var snapOn by remember { mutableStateOf(true) }
     var grouped by remember { mutableStateOf(true) }
@@ -215,117 +221,133 @@ fun LayoutEditor(
                 EditorTogglePill("Snap", snapOn, "editor-snap") { snapOn = it }
                 EditorTogglePill("Together", grouped, "editor-together") { grouped = it }
             }
-            // Alpha.10 — the left-control choice for this game:
-            // the D-pad cross, the joystick, or Global (follow
-            // the Settings default). The preview below switches
-            // with the draft, so the choice is judged live.
-            if (showLeftControlChoice) {
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    EditorPillLabel("Left control", "editor-left-control-label")
-                    EditorChoicePill("Global", leftControlDraft == null, "editor-left-control-global") {
-                        leftControlDraft = null
-                    }
-                    EditorChoicePill("D-pad", leftControlDraft == LeftControl.DPAD, "editor-left-control-dpad") {
-                        leftControlDraft = LeftControl.DPAD
-                    }
-                    EditorChoicePill("Joystick", leftControlDraft == LeftControl.STICK, "editor-left-control-stick") {
-                        leftControlDraft = LeftControl.STICK
-                    }
-                }
-            }
-            // Alpha.14 — the joystick dead zone for this game,
-            // only while the stick is the control in the slot:
-            // the D-pad has no dead zone to set. A stepper in
-            // 5% steps, like the opacity stepper, plus a Global
-            // pill that clears the override. Stepping while the
-            // game follows the global slider starts an override
-            // from that value; the label shows the value in
-            // effect and "(Global)" while it follows the slider.
-            if (showDeadZoneChoice && leftControlPreview == LeftControl.STICK) {
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    EditorPill("−", "editor-dead-zone-minus") {
-                        val base = deadZoneDraftPct ?: deadZoneDefaultPct
-                        deadZoneDraftPct = (base - StickInput.DEAD_ZONE_STEP_PCT)
-                            .coerceIn(StickInput.DEAD_ZONE_MIN_PCT, StickInput.DEAD_ZONE_MAX_PCT)
-                    }
-                    EditorPillLabel(
-                        "Dead zone $deadZonePreviewPct%" +
-                            if (deadZoneDraftPct == null) " (Global)" else "",
-                        "editor-dead-zone-value",
-                    )
-                    EditorPill("+", "editor-dead-zone-plus") {
-                        val base = deadZoneDraftPct ?: deadZoneDefaultPct
-                        deadZoneDraftPct = (base + StickInput.DEAD_ZONE_STEP_PCT)
-                            .coerceIn(StickInput.DEAD_ZONE_MIN_PCT, StickInput.DEAD_ZONE_MAX_PCT)
-                    }
-                    EditorChoicePill("Global", deadZoneDraftPct == null, "editor-dead-zone-global") {
-                        deadZoneDraftPct = null
-                    }
-                }
-            }
-            // Alpha.16 — proportional steering for this game,
-            // only while the stick is the control in the slot:
-            // the D-pad has no deflection to measure. Global
-            // (follow the Settings switch), On, or Off — the
-            // same three-way pattern as the left-control row.
-            // The label shows the value in effect and
-            // "(Global)" while it follows the switch.
-            if (showSteeringChoice && leftControlPreview == LeftControl.STICK) {
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    EditorPillLabel(
-                        "Steering " + (if (steeringPreview) "on" else "off") +
-                            (if (steeringDraft == null) " (Global)" else ""),
-                        "editor-steering-value",
-                    )
-                    EditorChoicePill("Global", steeringDraft == null, "editor-steering-global") {
-                        steeringDraft = null
-                    }
-                    EditorChoicePill("On", steeringDraft == true, "editor-steering-on") {
-                        steeringDraft = true
-                    }
-                    EditorChoicePill("Off", steeringDraft == false, "editor-steering-off") {
-                        steeringDraft = false
-                    }
-                }
-            }
-            // Opacity, over the whole layout (Mariner's
-            // per-console alpha, here per game): 0–100% in
-            // steps of 5.
+            // Alpha.19 — the collapse toggle: a slim bar under
+            // the action row. Collapsed, the settings rows below
+            // hide and only this bar stays, so the panel stops
+            // covering the screen while the controls stay
+            // draggable; the action row above never hides.
             Row(
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                EditorPill("−", "editor-opacity-minus") {
-                    draft = draft.withOpacity(draft.opacity - 5)
-                }
-                EditorPillLabel("Opacity ${draft.opacity}%", "editor-opacity-value")
-                EditorPill("+", "editor-opacity-plus") {
-                    draft = draft.withOpacity(draft.opacity + 5)
-                }
+                EditorPill(
+                    if (settingsCollapsed) "Show settings" else "Hide settings",
+                    "editor-settings-collapse",
+                ) { settingsCollapsed = !settingsCollapsed }
             }
-            // Size stepper, only while a control is selected:
-            // 1dp at a time, Mariner's 36–220dp range, grouped
-            // resize when Together is on.
-            if (selected != null) {
+            if (!settingsCollapsed) {
+                // Alpha.10 — the left-control choice for this game:
+                // the D-pad cross, the joystick, or Global (follow
+                // the Settings default). The preview below switches
+                // with the draft, so the choice is judged live.
+                if (showLeftControlChoice) {
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        EditorPillLabel("Left control", "editor-left-control-label")
+                        EditorChoicePill("Global", leftControlDraft == null, "editor-left-control-global") {
+                            leftControlDraft = null
+                        }
+                        EditorChoicePill("D-pad", leftControlDraft == LeftControl.DPAD, "editor-left-control-dpad") {
+                            leftControlDraft = LeftControl.DPAD
+                        }
+                        EditorChoicePill("Joystick", leftControlDraft == LeftControl.STICK, "editor-left-control-stick") {
+                            leftControlDraft = LeftControl.STICK
+                        }
+                    }
+                }
+                // Alpha.14 — the joystick dead zone for this game,
+                // only while the stick is the control in the slot:
+                // the D-pad has no dead zone to set. A stepper in
+                // 5% steps, like the opacity stepper, plus a Global
+                // pill that clears the override. Stepping while the
+                // game follows the global slider starts an override
+                // from that value; the label shows the value in
+                // effect and "(Global)" while it follows the slider.
+                if (showDeadZoneChoice && leftControlPreview == LeftControl.STICK) {
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        EditorPill("−", "editor-dead-zone-minus") {
+                            val base = deadZoneDraftPct ?: deadZoneDefaultPct
+                            deadZoneDraftPct = (base - StickInput.DEAD_ZONE_STEP_PCT)
+                                .coerceIn(StickInput.DEAD_ZONE_MIN_PCT, StickInput.DEAD_ZONE_MAX_PCT)
+                        }
+                        EditorPillLabel(
+                            "Dead zone $deadZonePreviewPct%" +
+                                if (deadZoneDraftPct == null) " (Global)" else "",
+                            "editor-dead-zone-value",
+                        )
+                        EditorPill("+", "editor-dead-zone-plus") {
+                            val base = deadZoneDraftPct ?: deadZoneDefaultPct
+                            deadZoneDraftPct = (base + StickInput.DEAD_ZONE_STEP_PCT)
+                                .coerceIn(StickInput.DEAD_ZONE_MIN_PCT, StickInput.DEAD_ZONE_MAX_PCT)
+                        }
+                        EditorChoicePill("Global", deadZoneDraftPct == null, "editor-dead-zone-global") {
+                            deadZoneDraftPct = null
+                        }
+                    }
+                }
+                // Alpha.16 — proportional steering for this game,
+                // only while the stick is the control in the slot:
+                // the D-pad has no deflection to measure. Global
+                // (follow the Settings switch), On, or Off — the
+                // same three-way pattern as the left-control row.
+                // The label shows the value in effect and
+                // "(Global)" while it follows the switch.
+                if (showSteeringChoice && leftControlPreview == LeftControl.STICK) {
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        EditorPillLabel(
+                            "Steering " + (if (steeringPreview) "on" else "off") +
+                                (if (steeringDraft == null) " (Global)" else ""),
+                            "editor-steering-value",
+                        )
+                        EditorChoicePill("Global", steeringDraft == null, "editor-steering-global") {
+                            steeringDraft = null
+                        }
+                        EditorChoicePill("On", steeringDraft == true, "editor-steering-on") {
+                            steeringDraft = true
+                        }
+                        EditorChoicePill("Off", steeringDraft == false, "editor-steering-off") {
+                            steeringDraft = false
+                        }
+                    }
+                }
+                // Opacity, over the whole layout (Mariner's
+                // per-console alpha, here per game): 0–100% in
+                // steps of 5.
                 Row(
                     horizontalArrangement = Arrangement.spacedBy(6.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    EditorPill("−", "editor-size-minus") {
-                        draft = draft.resized(selected.id, selected.sizeDp - 1, grouped)
+                    EditorPill("−", "editor-opacity-minus") {
+                        draft = draft.withOpacity(draft.opacity - 5)
                     }
-                    EditorPillLabel("${selected.sizeDp}dp", "editor-size-value")
-                    EditorPill("+", "editor-size-plus") {
-                        draft = draft.resized(selected.id, selected.sizeDp + 1, grouped)
+                    EditorPillLabel("Opacity ${draft.opacity}%", "editor-opacity-value")
+                    EditorPill("+", "editor-opacity-plus") {
+                        draft = draft.withOpacity(draft.opacity + 5)
+                    }
+                }
+                // Size stepper, only while a control is selected:
+                // 1dp at a time, Mariner's 36–220dp range, grouped
+                // resize when Together is on.
+                if (selected != null) {
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        EditorPill("−", "editor-size-minus") {
+                            draft = draft.resized(selected.id, selected.sizeDp - 1, grouped)
+                        }
+                        EditorPillLabel("${selected.sizeDp}dp", "editor-size-value")
+                        EditorPill("+", "editor-size-plus") {
+                            draft = draft.resized(selected.id, selected.sizeDp + 1, grouped)
+                        }
                     }
                 }
             }
