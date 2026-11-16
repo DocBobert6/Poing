@@ -31,6 +31,26 @@ import kotlin.math.roundToInt
  * as a notification buzz), and a release tick is never at
  * press strength.
  *
+ * Alpha.13 — envelope click (Robert, 2026-11-15): an
+ * alternative press click, built with
+ * [VibrationEffect.BasicEnvelopeBuilder] (API 36): instant
+ * attack, ~15ms total, sharpness placed at the actuator's
+ * resonant frequency from the FOAM frequency profile
+ * ([Vibrator.getFrequencyProfile]). It is a refinement of
+ * the press click only — the release tick, the roll tick,
+ * the shoulder click+thud, the strength slider and all the
+ * wiring are untouched. The device is probed at runtime
+ * ([Vibrator.areEnvelopeEffectsSupported]); where envelope
+ * effects are unsupported — which is unconfirmed on the
+ * Pixel 10a until probed on device — the press falls back
+ * to the current click, and if an envelope the device
+ * claims to support will not build, the plain click is the
+ * fallback there too. A button always clicks; nothing here
+ * claims the envelope feels better — that is a device A/B
+ * verdict, not something tests can settle. Never
+ * WaveformEnvelopeBuilder: it has no fallback, so on an
+ * unsupported device nothing would play.
+ *
  * [enabled] is the Settings toggle (on by default).
  * [strength] is the Settings slider, 0–100 (100 by default);
  * 0 means off, the same as the toggle off. A null vibrator —
@@ -79,14 +99,14 @@ class Haptics(
     /** A/B (and the old single-click path): the full click. */
     fun click() {
         val v = vibrator ?: return
-        play(v) { buildEffect(strength, Build.VERSION.SDK_INT, primitivesSupported(v)) }
+        play(v) { pressClickEffect(v, strength) }
     }
 
     /** Start/Select: the same click, lighter — a smaller pill. */
     fun lightClick() {
         val v = vibrator ?: return
         val effectiveStrength = (strength * START_SELECT_SCALE).roundToInt()
-        play(v) { buildEffect(effectiveStrength, Build.VERSION.SDK_INT, primitivesSupported(v)) }
+        play(v) { pressClickEffect(v, effectiveStrength) }
     }
 
     /**
@@ -114,6 +134,81 @@ class Haptics(
     fun shoulderClick() {
         val v = vibrator ?: return
         play(v) { buildShoulderEffect(strength, Build.VERSION.SDK_INT, primitivesSupported(v), thudSupported(v)) }
+    }
+
+    /**
+     * The press click: the envelope click where the device
+     * supports envelope effects (API 36+), else the current
+     * click. An envelope the device claims to support but
+     * will not build still falls back to the plain click —
+     * a button always clicks, never goes silent. Built
+     * lazily, inside [play]'s guard, like every effect.
+     */
+    private fun pressClickEffect(v: Vibrator, clickStrength: Int): VibrationEffect {
+        if (useEnvelopeClick(Build.VERSION.SDK_INT, envelopeSupported(v))) {
+            return try {
+                val (attackMs, decayMs) =
+                    envelopeClickDurations(minControlPointDurationMs(v))
+                buildEnvelopeClickEffect(clickStrength, envelopeSharpness(v), attackMs, decayMs)
+            } catch (_: Exception) {
+                buildEffect(clickStrength, Build.VERSION.SDK_INT, primitivesSupported(v))
+            }
+        }
+        return buildEffect(clickStrength, Build.VERSION.SDK_INT, primitivesSupported(v))
+    }
+
+    /**
+     * True when this vibrator can play envelope effects
+     * (API 36+). The SDK guard runs first: the probe method
+     * does not exist below API 36, and a vibrator that
+     * cannot answer falls back to the current click.
+     */
+    private fun envelopeSupported(vibrator: Vibrator): Boolean {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.BAKLAVA) return false
+        return try {
+            vibrator.areEnvelopeEffectsSupported()
+        } catch (_: Exception) {
+            false
+        }
+    }
+
+    /**
+     * The envelope sharpness for this vibrator: the resonant
+     * frequency's place in the profile's supported range, so
+     * the click lives in the actuator's resonant band. No
+     * profile (or a profile that cannot answer) takes the
+     * full sharpness — the documented snappiest value.
+     * Only ever called on the envelope path (API 36+).
+     */
+    private fun envelopeSharpness(vibrator: Vibrator): Float {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.BAKLAVA) {
+            return DEFAULT_ENVELOPE_SHARPNESS
+        }
+        return try {
+            val profile = vibrator.frequencyProfile ?: return DEFAULT_ENVELOPE_SHARPNESS
+            resonantSharpness(
+                profile.minFrequencyHz,
+                profile.maxFrequencyHz,
+                vibrator.resonantFrequency,
+            )
+        } catch (_: Exception) {
+            DEFAULT_ENVELOPE_SHARPNESS
+        }
+    }
+
+    /**
+     * The fastest step this vibrator's envelope effects can
+     * take, from its own effect info — the attack duration.
+     * 1ms where the info is unavailable. Only ever called
+     * on the envelope path (API 36+).
+     */
+    private fun minControlPointDurationMs(vibrator: Vibrator): Long {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.BAKLAVA) return 1L
+        return try {
+            vibrator.envelopeEffectInfo?.minControlPointDurationMillis?.coerceAtLeast(1L) ?: 1L
+        } catch (_: Exception) {
+            1L
+        }
     }
 
     /**
@@ -155,6 +250,17 @@ class Haptics(
         /** L/R thud delay: 15–25ms after the click starts, one thunk. */
         const val SHOULDER_THUD_DELAY_MS = 20
 
+        /**
+         * The envelope click's total length, attack + decay:
+         * ~15ms, inside the 10–20ms a crisp click wants.
+         * The attack is the device's fastest envelope step;
+         * the decay takes the rest.
+         */
+        const val ENVELOPE_CLICK_TOTAL_MS = 15L
+
+        /** Envelope sharpness with no frequency profile: the full sharpness, the snappiest value. */
+        const val DEFAULT_ENVELOPE_SHARPNESS = 1.0f
+
         fun effectKind(strength: Int, sdkInt: Int, primitivesSupported: Boolean): EffectKind =
             when {
                 sdkInt >= Build.VERSION_CODES.R && primitivesSupported ->
@@ -187,6 +293,73 @@ class Haptics(
                 EffectKind.ONE_SHOT ->
                     VibrationEffect.createOneShot(CLICK_MS, scaledAmplitude(strength))
             }
+
+        /**
+         * The envelope click or the current click: the
+         * envelope only where the device is API 36+ and
+         * reports envelope effects supported. A pure
+         * function, so the choice pins in the tests; the
+         * envelope effect itself can only be proven on a
+         * real API 36 device, never under Robolectric's
+         * SDK-35 harness (BasicEnvelopeBuilder does not
+         * exist there).
+         */
+        fun useEnvelopeClick(sdkInt: Int, envelopeSupported: Boolean): Boolean =
+            sdkInt >= Build.VERSION_CODES.BAKLAVA && envelopeSupported
+
+        /**
+         * The sharpness that puts the click at the
+         * actuator's resonant frequency: the resonant
+         * frequency's place in the profile's supported
+         * range. The platform maps sharpness across that
+         * range, so the fraction lands the click in the
+         * resonant band rather than at an arbitrary
+         * extreme. An unknown resonant frequency, or a
+         * profile with no range, takes the full sharpness.
+         */
+        fun resonantSharpness(minHz: Float, maxHz: Float, resonantHz: Float): Float {
+            if (resonantHz <= 0f || maxHz <= minHz) return DEFAULT_ENVELOPE_SHARPNESS
+            return ((resonantHz - minHz) / (maxHz - minHz)).coerceIn(0f, 1f)
+        }
+
+        /**
+         * The envelope click's two steps from the device's
+         * fastest envelope step: the attack is that step,
+         * the decay takes the rest of the ~15ms total —
+         * never shorter than the attack, since a step
+         * shorter than the device's minimum would be
+         * rejected.
+         */
+        fun envelopeClickDurations(minStepMs: Long): Pair<Long, Long> {
+            val attackMs = minStepMs.coerceAtLeast(1L)
+            val decayMs = (ENVELOPE_CLICK_TOTAL_MS - attackMs).coerceAtLeast(attackMs)
+            return attackMs to decayMs
+        }
+
+        /**
+         * The envelope press click: instant attack to the
+         * strength-scaled intensity at the resonant
+         * sharpness, then a fast decay to silence — the
+         * whole effect ~15ms. The builder starts at 0
+         * intensity, so the attack is the rise from
+         * nothing; the initial sharpness is the resonant
+         * one, so the click never sweeps frequency. The
+         * effect ends at zero intensity, as the builder
+         * requires. Strength scales the intensity exactly
+         * like the primitive click, so the slider behaves
+         * the same.
+         */
+        fun buildEnvelopeClickEffect(
+            strength: Int,
+            sharpness: Float,
+            attackMs: Long,
+            decayMs: Long,
+        ): VibrationEffect =
+            VibrationEffect.BasicEnvelopeBuilder()
+                .setInitialSharpness(sharpness)
+                .addControlPoint(primitiveScale(strength), sharpness, attackMs)
+                .addControlPoint(0f, sharpness, decayMs)
+                .build()
 
         /**
          * A tick at [scale] of the user's strength: the tick

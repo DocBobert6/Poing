@@ -260,4 +260,57 @@ class HapticsTest {
         assertTrue(Haptics.SHOULDER_THUD_SCALE < Haptics.DIRECTION_TICK_SCALE)
         assertTrue(Haptics.SHOULDER_THUD_DELAY_MS in 15..25)
     }
+
+    // Alpha.13 — envelope click: the decision is a pure
+    // function, so the matrix pins here. The envelope effect
+    // itself cannot be built under Robolectric's SDK-35
+    // harness (BasicEnvelopeBuilder does not exist there),
+    // so it is proven on a real API 36 device instead — and
+    // the behaviour tests above prove the pre-36 path still
+    // clicks, since at SDK 35 the envelope is never taken.
+    @Test
+    fun useEnvelopeClickNeedsApi36AndSupport() {
+        assertTrue(Haptics.useEnvelopeClick(36, envelopeSupported = true))
+        assertFalse(Haptics.useEnvelopeClick(36, envelopeSupported = false))
+        assertFalse(Haptics.useEnvelopeClick(35, envelopeSupported = true))
+        assertFalse(Haptics.useEnvelopeClick(24, envelopeSupported = true))
+    }
+
+    @Test
+    fun resonantSharpnessPlacesTheResonantFrequency() {
+        // A resonant frequency a third of the way up the
+        // supported range takes a sharpness a third of the
+        // way up — the click lands in the resonant band,
+        // not at an arbitrary extreme.
+        assertEquals(140f / 460f, Haptics.resonantSharpness(40f, 500f, 180f), 0.001f)
+        assertEquals(0f, Haptics.resonantSharpness(40f, 500f, 40f), 0.001f)
+        assertEquals(1f, Haptics.resonantSharpness(40f, 500f, 500f), 0.001f)
+        // Outside the range clamps instead of escaping it.
+        assertEquals(1f, Haptics.resonantSharpness(40f, 500f, 600f), 0.001f)
+        // An unknown resonant frequency, or a profile with
+        // no range, takes the full sharpness.
+        assertEquals(1f, Haptics.resonantSharpness(40f, 500f, 0f), 0.001f)
+        assertEquals(1f, Haptics.resonantSharpness(40f, 500f, -10f), 0.001f)
+        assertEquals(1f, Haptics.resonantSharpness(100f, 100f, 150f), 0.001f)
+    }
+
+    @Test
+    fun envelopeClickDurationsStayInTheClickWindow() {
+        // The attack is the device's fastest envelope step
+        // and the decay takes the rest of the ~15ms total;
+        // the decay is never shorter than the attack, since
+        // a step shorter than the device's minimum would be
+        // rejected.
+        assertEquals(1L to 14L, Haptics.envelopeClickDurations(1L))
+        assertEquals(5L to 10L, Haptics.envelopeClickDurations(5L))
+        assertEquals(10L to 10L, Haptics.envelopeClickDurations(10L))
+        assertEquals(1L to 14L, Haptics.envelopeClickDurations(0L))
+    }
+
+    @Test
+    fun envelopeClickTotalIsARealClickLength() {
+        // ~15ms, inside the 10–20ms a crisp click wants —
+        // the same order as the 12ms click it refines.
+        assertTrue(Haptics.ENVELOPE_CLICK_TOTAL_MS in 10L..20L)
+    }
 }
