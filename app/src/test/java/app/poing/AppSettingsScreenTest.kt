@@ -192,6 +192,46 @@ class AppSettingsScreenTest {
         assertEquals(100, AppSettingsStore(temp.root).hapticsStrength())
     }
 
+    // Alpha.10 — the Worm Light coverage slider, in Display
+    // beside the colour row: 75–175% in steps of 5, 100 by
+    // default. Always shown (no toggle gates it — the lamp
+    // itself is toggled per handheld, the coverage is one
+    // global lamp setting like the colour).
+    @Test
+    fun wormLightCoverageSliderShowsTheDefault() {
+        val s = store()
+        composeRule.setContent {
+            PoingTheme {
+                AppSettingsScreen(store = s, onCoreOptions = {}, onBack = { })
+            }
+        }
+        composeRule.onNodeWithTag("settings-list")
+            .performScrollToNode(hasTestTag("worm-light-coverage-slider"))
+        composeRule.onNodeWithText("Worm Light coverage").assertIsDisplayed()
+        composeRule.onNodeWithText("100%").assertIsDisplayed()
+        assertEquals(100, AppSettingsStore(temp.root).wormLightCoveragePct())
+    }
+
+    @Test
+    fun movingWormLightCoverageSliderPersists() {
+        // Setting the slider to 150 writes 150 to the store
+        // (steps of 5: 150 is a valid stop). SetProgress takes
+        // the TARGET VALUE in the slider's range (75..175
+        // here), not a fraction.
+        val s = store()
+        composeRule.setContent {
+            PoingTheme {
+                AppSettingsScreen(store = s, onCoreOptions = {}, onBack = { })
+            }
+        }
+        composeRule.onNodeWithTag("settings-list")
+            .performScrollToNode(hasTestTag("worm-light-coverage-slider"))
+        composeRule.onNodeWithTag("worm-light-coverage-slider")
+            .performSemanticsAction(SemanticsActions.SetProgress) { it(150f) }
+        assertEquals(150, AppSettingsStore(temp.root).wormLightCoveragePct())
+        composeRule.onNodeWithText("150%").assertIsDisplayed()
+    }
+
     @Test
     fun hapticsStrengthSliderHiddenWhileHapticsOff() {
         // Same pattern as the fast-forward speed and the edge

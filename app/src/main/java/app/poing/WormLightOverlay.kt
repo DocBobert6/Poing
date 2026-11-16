@@ -194,6 +194,33 @@ const val WORM_LIGHT_POOL_CENTER_Y = 0.20f
 const val WORM_LIGHT_POOL_CENTER_Y_MAX = 0.80f
 const val WORM_LIGHT_POOL_RX = 0.55f
 const val WORM_LIGHT_POOL_RY = 0.42f
+// Coverage (Robert, 2026-11-15 — alpha.10): the pool radii
+// are no longer fixed. A persisted slider scales them,
+// 0.75x–1.75x, 1x by default (the current look, unchanged
+// on install). Global — one lamp, not per-system — stored
+// as an int percent (see AppSettingsStore).
+const val WORM_LIGHT_COVERAGE_MIN_PCT = 75
+const val WORM_LIGHT_COVERAGE_MAX_PCT = 175
+const val WORM_LIGHT_COVERAGE_DEFAULT_PCT = 100
+// Aim tilt (Robert, 2026-11-15 — alpha.10): in aim mode
+// the finger's DISTANCE from the lens centre is the second
+// degree of freedom — further out tilts the head forward,
+// so the pool reaches further along the bearing. The
+// bearing still spins the pool; the distance stretches its
+// long axis along that bearing, up to half again as long at
+// a wide orbit. A finger just outside the lens (32dp) does
+// not tilt at all; a wide orbit (160dp) tilts fully;
+// between them it is linear and clamped. The centre never
+// moves with the tilt — it stays head-anchored (the pool
+// centre still follows the head, pinned by
+// tapOnTheHeadTogglesAimMode) — so the pool reaches further
+// out and pulls back without wandering off the picture.
+// The tilt numbers are a first mapping, not device-proven:
+// if the tilt feels dead or hair-trigger on device, the
+// min/max are the knobs, not the mechanism.
+const val WORM_LIGHT_TILT_MIN_DP = 32f
+const val WORM_LIGHT_TILT_MAX_DP = 160f
+const val WORM_LIGHT_TILT_ELONGATION = 0.5f
 const val WORM_LIGHT_POOL_CENTER_X_MIN = 0.15f
 const val WORM_LIGHT_POOL_CENTER_X_MAX = 0.85f
 const val WORM_LIGHT_POOL_ROTATION_PER_OFFSET = 0.6f
@@ -341,6 +368,16 @@ private fun lensHalfExtents(rotationRad: Float, density: Float): Pair<Float, Flo
 }
 
 /**
+ * The aim tilt for a finger distance from the lens centre
+ * (in dp): 0 inside a close orbit, 1 at a wide one, linear
+ * and clamped between. Pure, so the geometry test pins it
+ * exactly.
+ */
+internal fun tiltForDistance(distDp: Float): Float =
+    ((distDp - WORM_LIGHT_TILT_MIN_DP) / (WORM_LIGHT_TILT_MAX_DP - WORM_LIGHT_TILT_MIN_DP))
+        .coerceIn(0f, 1f)
+
+/**
  * The pool for a head position: its centre is the head's
  * position projected onto the game, clamped so the pool
  * stays on the picture, and its long axis tilts toward the
@@ -349,12 +386,17 @@ private fun lensHalfExtents(rotationRad: Float, density: Float): Pair<Float, Flo
  * round; the blend is 1 while the head is clearly above
  * the centre, -1 clearly below, 0 level with it. In aim
  * mode the tilt follows the aim angle instead of the
- * position — the centre still follows the head.
+ * position — the centre still follows the head. Coverage
+ * scales both radii; the aim tilt stretches the long axis
+ * along the bearing (see above) and is ignored while no
+ * aim angle is set.
  */
 private fun poolForHead(
     headPx: Offset,
     gameRect: Rect,
     aimAngleRad: Float?,
+    coverage: Float = 1f,
+    aimTilt: Float = 0f,
 ): WormLightPool {
     val gameCenterX = gameRect.center.x
     val poolCenterX = ((headPx.x - gameRect.left) / gameRect.width)
@@ -370,9 +412,17 @@ private fun poolForHead(
         (gameCenterX - headPx.x) / gameRect.width *
             WORM_LIGHT_POOL_ROTATION_PER_OFFSET * tiltBlend
     }
+    val radii = if (aimAngleRad != null) {
+        Offset(
+            WORM_LIGHT_POOL_RX * coverage * (1f + WORM_LIGHT_TILT_ELONGATION * aimTilt),
+            WORM_LIGHT_POOL_RY * coverage,
+        )
+    } else {
+        Offset(WORM_LIGHT_POOL_RX * coverage, WORM_LIGHT_POOL_RY * coverage)
+    }
     return WormLightPool(
         center = Offset(poolCenterX, poolCenterY),
-        radii = Offset(WORM_LIGHT_POOL_RX, WORM_LIGHT_POOL_RY),
+        radii = radii,
         rotationRad = rotationRad,
         intensity = 1f,
     )
@@ -443,6 +493,8 @@ fun wormLightGeometry(
     stripDp: Float,
     swayPx: Float,
     aimAngleRad: Float? = null,
+    coverage: Float = 1f,
+    aimTilt: Float = 0f,
 ): WormLightGeometry {
     val stripPx = stripDp * density
     // The game rect: the largest aspect box in the row below
@@ -476,7 +528,7 @@ fun wormLightGeometry(
     // The lens rotation follows the pool's tilt (see
     // poolForHead): the head and its light always agree.
     // In aim mode both follow the aim angle instead.
-    val pool = poolForHead(headPx, gameRect, aimAngleRad)
+    val pool = poolForHead(headPx, gameRect, aimAngleRad, coverage, aimTilt)
     val rot = pool.rotationRad
     val lensRx = WORM_LIGHT_LENS_RX_DP * density
     val lensRy = WORM_LIGHT_LENS_RY_DP * density
@@ -974,6 +1026,10 @@ fun WormLightOverlay(
     // rect the pool is measured against (the frame is the
     // largest aspect box in the row below the strip).
     gameAspect: Float = 1.5f,
+    // Alpha.10 — the coverage: how wide the pool spreads,
+    // 0.75x–1.75x, 1x by default. Global and persisted (see
+    // AppSettingsStore); GameScreen reads it once per game.
+    coverage: Float = 1f,
     // The fallback path (no GL view): the overlay draws the
     // pool itself with BlendMode.Screen. On the GL path the
     // shader adds the pool, and the overlay must not draw
@@ -1000,7 +1056,24 @@ fun WormLightOverlay(
     // the pool instead of moving the head. The aim angle is
     // the direction from the head to the finger.
     var aimMode by remember { mutableStateOf(false) }
-    var aimAngleRad by remember { mutableStateOf(0f) }
+    // Alpha.10 — the saved aim angle: null until the player
+    // aims for the first time (the pool then follows the
+    // position, as before), non-null once set — and it STAYS
+    // set. Leaving aim mode no longer snaps the rotation
+    // back to the position-derived value, and re-entering
+    // aim mode starts from the angle as left, never a fresh
+    // recompute (the reset bug, Robert 2026-11-15). Session
+    // state, like the head position: it resets on relaunch,
+    // deliberately — the angle belongs to the game and lamp
+    // position it was set against, and a stale angle from
+    // another session would point the pool oddly on a
+    // different game.
+    var aimAngleRad by remember { mutableStateOf<Float?>(null) }
+    // Alpha.10 — the aim tilt (see above): the finger's
+    // distance from the lens centre, 0..1, set by the aim
+    // drag alongside the angle. It persists with the angle
+    // while one is set, and is ignored while none is.
+    var aimTilt by remember { mutableStateOf(0f) }
     var pressOnHead by remember { mutableStateOf(false) }
     var dragDistancePx by remember { mutableStateOf(0f) }
     val scope = rememberCoroutineScope()
@@ -1015,7 +1088,9 @@ fun WormLightOverlay(
         val g = wormLightGeometry(
             width, height, position, density, gameAspect,
             WORM_LIGHT_STRIP_DP, sway,
-            aimAngleRad = if (aimMode) aimAngleRad else null,
+            aimAngleRad = aimAngleRad,
+            coverage = coverage,
+            aimTilt = aimTilt,
         )
         // Performance fix 9 — the coil Paths, cached per
         // geometry (see coilPathsFor): the Canvas used to
@@ -1076,18 +1151,16 @@ fun WormLightOverlay(
                         if (pressOnHead &&
                             dragDistancePx <= WORM_LIGHT_TAP_MAX_DP * density
                         ) {
-                            if (!aimMode) {
-                                // Entering aim mode: start from
-                                // where the lens already points,
-                                // so it does not jump — computed
-                                // fresh from the live position,
-                                // never the g captured by this
-                                // closure.
-                                aimAngleRad = wormLightGeometry(
-                                    width, height, position, density,
-                                    gameAspect, WORM_LIGHT_STRIP_DP, 0f,
-                                ).pool.rotationRad
-                            }
+                            // Entering aim mode starts from the
+                            // CURRENT rotation — the saved angle
+                            // if one was set, else the
+                            // position-derived one the geometry
+                            // already shows — so the pool does
+                            // not jump. The old code overwrote
+                            // the angle with a fresh
+                            // position-derived value on every
+                            // entry, which is what reset the
+                            // aim; the overwrite is gone.
                             aimMode = !aimMode
                         }
                     }
@@ -1116,16 +1189,30 @@ fun WormLightOverlay(
                             // fresh from the live position
                             // — never the g captured by
                             // this closure, which is stale.
+                            // Alpha.10 — the second degree
+                            // of freedom: the finger's
+                            // DISTANCE from the lens centre
+                            // tilts the head forward (see
+                            // tiltForDistance) — further out
+                            // stretches the pool further
+                            // along the bearing, closer in
+                            // pulls it back. The bearing
+                            // still spins the pool; the
+                            // distance is the forward/back.
                             val geom = wormLightGeometry(
                                 width, height, position, density,
                                 gameAspect, WORM_LIGHT_STRIP_DP, sway,
                                 aimAngleRad = aimAngleRad,
+                                coverage = coverage,
+                                aimTilt = aimTilt,
                             )
                             val finger = change.position
                             val dx = finger.x - geom.lensCenter.x
                             val dy = finger.y - geom.lensCenter.y
-                            if (sqrt(dx * dx + dy * dy) >= 1f) {
+                            val dist = sqrt(dx * dx + dy * dy)
+                            if (dist >= 1f) {
                                 aimAngleRad = atan2(dy, dx)
+                                aimTilt = tiltForDistance(dist / density)
                             }
                         } else {
                             // The raw position is only
@@ -1144,7 +1231,9 @@ fun WormLightOverlay(
                         val geom = wormLightGeometry(
                             width, height, position, density,
                             gameAspect, WORM_LIGHT_STRIP_DP, sway,
-                            aimAngleRad = if (aimMode) aimAngleRad else null,
+                            aimAngleRad = aimAngleRad,
+                            coverage = coverage,
+                            aimTilt = aimTilt,
                         )
                         onDragHeadChange(
                             wormLightDragHead(geom, density, hardwareColor, aimMode),
@@ -1205,7 +1294,9 @@ fun WormLightOverlay(
                         val pressGeom = wormLightGeometry(
                             width, height, position, density,
                             gameAspect, WORM_LIGHT_STRIP_DP, 0f,
-                            aimAngleRad = if (aimMode) aimAngleRad else null,
+                            aimAngleRad = aimAngleRad,
+                            coverage = coverage,
+                            aimTilt = aimTilt,
                         )
                         val (halfW, halfH) = lensHalfExtents(
                             pressGeom.lensRotationDeg * PI.toFloat() / 180f,

@@ -369,6 +369,38 @@ class AppSettingsStoreTest {
     }
 
     @Test
+    fun wormLightCoverageDefaultsFullAndRoundTripsOnlyOfferedValues() {
+        // Alpha.10 — the coverage slider, 75–175%, 100 by
+        // default (the current look, unchanged on install).
+        val s = store()
+        assertEquals(100, s.wormLightCoveragePct())
+        assertEquals(1f, s.wormLightCoverage(), 0f)
+        assertTrue(s.setWormLightCoveragePct(150))
+        assertEquals(150, s.wormLightCoveragePct())
+        assertEquals(1.5f, s.wormLightCoverage(), 0f)
+        assertEquals(150, AppSettingsStore(temp.root).wormLightCoveragePct())
+        assertTrue(s.setWormLightCoveragePct(75))
+        assertEquals(0.75f, s.wormLightCoverage(), 0f)
+        // 74, 176 and anything else are rejected and change nothing.
+        assertFalse(s.setWormLightCoveragePct(74))
+        assertFalse(s.setWormLightCoveragePct(176))
+        assertEquals(75, s.wormLightCoveragePct())
+    }
+
+    @Test
+    fun wormLightCoverageClampsStaleValues() {
+        // A hand-edited value outside 75–175 reads clamped,
+        // never out of range.
+        val s = store()
+        java.io.File(temp.root, "app-settings.properties")
+            .writeText("display_worm_light_coverage=250\n")
+        assertEquals(175, AppSettingsStore(temp.root).wormLightCoveragePct())
+        java.io.File(temp.root, "app-settings.properties")
+            .writeText("display_worm_light_coverage=-40\n")
+        assertEquals(75, AppSettingsStore(temp.root).wormLightCoveragePct())
+    }
+
+    @Test
     fun edgeSmoothingDefaultsOffAndRoundTrips() {
         // Phase 9 — off by default: edge smoothing is an
         // alternative to the chains, never the default look.

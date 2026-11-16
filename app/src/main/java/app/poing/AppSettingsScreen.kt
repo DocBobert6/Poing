@@ -115,6 +115,9 @@ fun AppSettingsScreen(
     // the lamp's hardware — dark medium gray by default. The
     // light itself stays warm white and is never a setting.
     var wormLightColor by remember { mutableStateOf(store.wormLightColor()) }
+    // Alpha.10 — the Worm Light coverage: how wide the pool
+    // spreads, 75–175%, 100 by default. Global, one lamp.
+    var wormLightCoverage by remember { mutableStateOf(store.wormLightCoveragePct()) }
     // Cover art (Robert, 2026-11-14): let covers fetch over
     // mobile data when the user turns it on. Off by default —
     // covers download on unmetered Wi-Fi only.
@@ -581,6 +584,47 @@ fun AppSettingsScreen(
                                 )
                             }
                         }
+                    }
+                }
+            }
+            // Alpha.10 — the Worm Light coverage slider, in
+            // Display beside the colour row (same pattern as
+            // the haptics strength slider): 75–175% in steps
+            // of 5, 100 by default. Global, one lamp. The
+            // value writes when the drag ends, not on every
+            // step.
+            item {
+                Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
+                    Text(
+                        "Worm Light coverage",
+                        style = MaterialTheme.typography.titleMedium,
+                    )
+                    Text(
+                        "How wide the lamp's pool of light spreads, from 75% to 175%. 100% is the current look.",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                    Row(
+                        modifier = Modifier.padding(top = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Slider(
+                            value = wormLightCoverage.toFloat(),
+                            onValueChange = { wormLightCoverage = it.toInt() },
+                            onValueChangeFinished = {
+                                store.setWormLightCoveragePct(wormLightCoverage)
+                            },
+                            valueRange = WORM_LIGHT_COVERAGE_MIN_PCT.toFloat()..
+                                WORM_LIGHT_COVERAGE_MAX_PCT.toFloat(),
+                            steps = 19,
+                            modifier = Modifier
+                                .weight(1f)
+                                .testTag("worm-light-coverage-slider"),
+                        )
+                        Text(
+                            "$wormLightCoverage%",
+                            style = MaterialTheme.typography.bodyMedium,
+                            modifier = Modifier.padding(start = 12.dp),
+                        )
                     }
                 }
             }

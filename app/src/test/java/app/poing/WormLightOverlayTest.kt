@@ -282,4 +282,109 @@ class WormLightOverlayTest {
             abs(pool.rotationRad) < 1.0f,
         )
     }
+
+    // Alpha.10 (Part E) — the reset bug: set an angle in aim
+    // mode, tap to leave, move the head, tap to re-enter —
+    // the angle is exactly where it was left; the pool does
+    // not jump on entry or exit. On the old code the geometry
+    // used the aim angle only while aimMode was true, and
+    // entering aim mode overwrote it with the fresh
+    // position-derived rotation — so leaving snapped the
+    // rotation back, and re-entering snapped it again.
+    // The head point is anchored to the scope's own centre
+    // (see wormLightSize): the default head sits at (0.5,
+    // 0.06) of the node, i.e. centre + (0, -0.44h).
+    @Test
+    fun aimAngleStaysSetWhenLeavingAndReEnteringAimMode() {
+        var reported: WormLightPool? = null
+        composeRule.setContent {
+            PoingTheme {
+                Box(Modifier.size(300.dp, 200.dp)) {
+                    WormLightOverlay(
+                        enabled = true,
+                        onPoolChange = { reported = it },
+                    )
+                }
+            }
+        }
+        composeRule.waitForIdle()
+        val size = wormLightSize()
+        // Enter aim mode and drag straight down: the pool
+        // rotates toward straight down (~1.57 rad).
+        composeRule.onNodeWithTag("worm-light").performTouchInput {
+            click(center + Offset(0f, -0.44f * size.second))
+        }
+        composeRule.onNodeWithTag("worm-light").performTouchInput {
+            val head = center + Offset(0f, -0.44f * size.second)
+            swipe(head, head + Offset(0f, 90f))
+        }
+        composeRule.waitForIdle()
+        assertEquals(1.57f, reported!!.rotationRad, 0.15f)
+        // Tap to leave aim mode: the angle stays.
+        composeRule.onNodeWithTag("worm-light").performTouchInput {
+            click(center + Offset(0f, -0.44f * size.second))
+        }
+        composeRule.waitForIdle()
+        assertEquals(1.57f, reported!!.rotationRad, 0.15f)
+        // Move the head: the pool centre follows the head,
+        // the rotation stays the saved angle.
+        composeRule.onNodeWithTag("worm-light").performTouchInput {
+            val head = center + Offset(0f, -0.44f * size.second)
+            swipe(head, head + Offset(50f, 0f))
+        }
+        composeRule.waitForIdle()
+        assertTrue("the pool centre should follow the head right", reported!!.center.x > 0.5f)
+        assertEquals(1.57f, reported!!.rotationRad, 0.15f)
+        // Tap the moved head to re-enter aim mode: the angle
+        // is exactly where it was left, no jump on entry.
+        composeRule.onNodeWithTag("worm-light").performTouchInput {
+            click(center + Offset(50f, -0.44f * size.second))
+        }
+        composeRule.waitForIdle()
+        assertEquals(1.57f, reported!!.rotationRad, 0.15f)
+    }
+
+    // Alpha.10 (Part E) — the aim tilt: dragging the finger
+    // out along a bearing stretches the pool further along
+    // that bearing; dragging it back in pulls the pool back.
+    // The centre stays head-anchored and the rotation stays
+    // the bearing throughout.
+    @Test
+    fun aimDragDistanceTiltsThePoolForwardAndBack() {
+        var reported: WormLightPool? = null
+        composeRule.setContent {
+            PoingTheme {
+                Box(Modifier.size(300.dp, 200.dp)) {
+                    WormLightOverlay(
+                        enabled = true,
+                        onPoolChange = { reported = it },
+                    )
+                }
+            }
+        }
+        composeRule.waitForIdle()
+        val size = wormLightSize()
+        composeRule.onNodeWithTag("worm-light").performTouchInput {
+            click(center + Offset(0f, -0.44f * size.second))
+        }
+        // Drag far out straight down: the pool stretches
+        // along the bearing.
+        composeRule.onNodeWithTag("worm-light").performTouchInput {
+            val head = center + Offset(0f, -0.44f * size.second)
+            swipe(head, head + Offset(0f, 150f))
+        }
+        composeRule.waitForIdle()
+        assertTrue("a far aim drag should stretch the pool", reported!!.radii.x > WORM_LIGHT_POOL_RX * 1.05f)
+        assertEquals(1.57f, reported!!.rotationRad, 0.15f)
+        assertEquals(0.5f, reported!!.center.x, 0.01f)
+        assertEquals(0.20f, reported!!.center.y, 0.01f)
+        // Drag back in close to the lens: the pool pulls back.
+        composeRule.onNodeWithTag("worm-light").performTouchInput {
+            val head = center + Offset(0f, -0.44f * size.second)
+            swipe(head + Offset(0f, 150f), head + Offset(0f, 30f))
+        }
+        composeRule.waitForIdle()
+        assertEquals(WORM_LIGHT_POOL_RX, reported!!.radii.x, 0.03f)
+        assertEquals(1.57f, reported!!.rotationRad, 0.15f)
+    }
 }

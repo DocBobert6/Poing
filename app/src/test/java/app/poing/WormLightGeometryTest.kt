@@ -36,9 +36,13 @@ class WormLightGeometryTest {
         aspect: Float = gameAspect,
         swayPx: Float = 0f,
         aimAngleRad: Float? = null,
+        coverage: Float = 1f,
+        aimTilt: Float = 0f,
     ) = wormLightGeometry(
         width, height, head, density, aspect, WORM_LIGHT_STRIP_DP, swayPx,
         aimAngleRad = aimAngleRad,
+        coverage = coverage,
+        aimTilt = aimTilt,
     )
 
     @Test
@@ -593,5 +597,60 @@ class WormLightGeometryTest {
         assertEquals(408.5f, g.coilP2.x, 0.01f)
         assertEquals(148.5f, g.coilP1.y, 0.01f)
         assertEquals(298.5f, g.coilP2.y, 0.01f)
+    }
+
+    // Alpha.10 (Part E) — the coverage slider scales both
+    // radii, 1x by default.
+    @Test
+    fun coverageScalesBothPoolRadii() {
+        val wide = geometry(coverage = 1.5f)
+        assertEquals(WORM_LIGHT_POOL_RX * 1.5f, wide.pool.radii.x, 0.001f)
+        assertEquals(WORM_LIGHT_POOL_RY * 1.5f, wide.pool.radii.y, 0.001f)
+        val narrow = geometry(coverage = 0.75f)
+        assertEquals(WORM_LIGHT_POOL_RX * 0.75f, narrow.pool.radii.x, 0.001f)
+        assertEquals(WORM_LIGHT_POOL_RY * 0.75f, narrow.pool.radii.y, 0.001f)
+        val def = geometry()
+        assertEquals(WORM_LIGHT_POOL_RX, def.pool.radii.x, 0.001f)
+        assertEquals(WORM_LIGHT_POOL_RY, def.pool.radii.y, 0.001f)
+    }
+
+    // Alpha.10 (Part E) — the aim tilt: the finger's
+    // distance stretches the pool's long axis along the
+    // bearing. Full tilt is half again as long; the centre
+    // stays head-anchored and the rotation stays the
+    // bearing, so the pool reaches further out and pulls
+    // back without wandering.
+    @Test
+    fun aimTiltStretchesTheLongAxisAlongTheBearing() {
+        val flat = geometry(aimAngleRad = -0.5f, aimTilt = 0f)
+        assertEquals(WORM_LIGHT_POOL_RX, flat.pool.radii.x, 0.001f)
+        assertEquals(WORM_LIGHT_POOL_RY, flat.pool.radii.y, 0.001f)
+        val tilted = geometry(aimAngleRad = -0.5f, aimTilt = 1f)
+        assertEquals(WORM_LIGHT_POOL_RX * 1.5f, tilted.pool.radii.x, 0.001f)
+        assertEquals(WORM_LIGHT_POOL_RY, tilted.pool.radii.y, 0.001f)
+        assertEquals(-0.5f, tilted.pool.rotationRad, 0.001f)
+        assertEquals(flat.pool.center, tilted.pool.center)
+        // The tilt is ignored while no aim angle is set.
+        val noAim = geometry(aimTilt = 1f)
+        assertEquals(WORM_LIGHT_POOL_RX, noAim.pool.radii.x, 0.001f)
+        // Coverage and tilt compose: both scale the long axis.
+        val both = geometry(coverage = 1.5f, aimAngleRad = -0.5f, aimTilt = 1f)
+        assertEquals(WORM_LIGHT_POOL_RX * 1.5f * 1.5f, both.pool.radii.x, 0.001f)
+        assertEquals(WORM_LIGHT_POOL_RY * 1.5f, both.pool.radii.y, 0.001f)
+    }
+
+    @Test
+    fun tiltForDistanceIsZeroInsideACloseOrbitAndOneAtAWideOne() {
+        assertEquals(0f, tiltForDistance(0f), 0f)
+        assertEquals(0f, tiltForDistance(WORM_LIGHT_TILT_MIN_DP), 0f)
+        assertEquals(1f, tiltForDistance(WORM_LIGHT_TILT_MAX_DP), 0f)
+        assertEquals(1f, tiltForDistance(WORM_LIGHT_TILT_MAX_DP + 100f), 0f)
+        assertEquals(
+            0.5f,
+            tiltForDistance(
+                (WORM_LIGHT_TILT_MIN_DP + WORM_LIGHT_TILT_MAX_DP) / 2f,
+            ),
+            0.001f,
+        )
     }
 }

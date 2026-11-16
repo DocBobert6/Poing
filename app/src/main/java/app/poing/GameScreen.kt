@@ -292,6 +292,10 @@ fun GameScreen(
     // the lamp's hardware — dark medium gray by default. The
     // light itself is always warm white.
     val wormLightColor = remember { appSettings.wormLightColor() }
+    // Alpha.10 — the coverage: how wide the pool spreads,
+    // 0.75x–1.75x, 1x by default. Global and persisted, read
+    // once per game like the colour.
+    val wormLightCoverage = remember { appSettings.wormLightCoverage() }
     // Worm Light improvements (Robert, 2026-11-13): while a
     // drag is in progress the overlay reports its head, and
     // the player draws it above the controls — a dragged
@@ -834,6 +838,7 @@ fun GameScreen(
                     paused = paused,
                     wormLight = wormLight,
                     wormLightColor = wormLightColor,
+                    wormLightCoverage = wormLightCoverage,
                     onWormLightDragHeadChange = onWormLightDragHeadChange,
                     // Top bar / back swipe (Robert, 2026-11-12):
                     // no tap hook — a tap on the game area

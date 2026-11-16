@@ -67,6 +67,9 @@ fun GameDisplayView(
     // medium gray by default; the light itself stays warm
     // white and is never a setting.
     wormLightColor: WormLightColor = WormLightColor.DEFAULT,
+    // Alpha.10 — the coverage: how wide the pool spreads,
+    // 0.75x–1.75x, 1x by default. Global and persisted.
+    wormLightCoverage: Float = 1f,
     // Worm Light improvements (Robert, 2026-11-13): while a
     // drag is in progress the overlay reports its head, so
     // the player can draw it above the controls — a dragged
@@ -206,6 +209,7 @@ fun GameDisplayView(
                 enabled = wormLight,
                 hardwareColor = wormLightColor,
                 gameAspect = aspect,
+                coverage = wormLightCoverage,
                 drawPool = glView == null,
                 onPoolChange = { pool -> glView?.setWormLight(pool) },
                 onDragHeadChange = onWormLightDragHeadChange,

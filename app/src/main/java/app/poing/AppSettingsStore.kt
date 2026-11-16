@@ -39,6 +39,7 @@ class AppSettingsStore(private val root: File) {
         const val KEY_EDGE_GRID = "display_edge_grid"
         const val KEY_WORM_LIGHT = "display_worm_light"
         const val KEY_WORM_LIGHT_COLOR = "display_worm_light_color"
+        const val KEY_WORM_LIGHT_COVERAGE = "display_worm_light_coverage"
         const val KEY_OPTICS_DIMMING = "display_optics_dimming"
         const val KEY_DEV_STATS = "dev_stats_visible"
         const val KEY_LIBRARY_VIEW = "library_view"
@@ -197,6 +198,30 @@ class AppSettingsStore(private val root: File) {
 
     fun setWormLightColor(color: WormLightColor) =
         write(KEY_WORM_LIGHT_COLOR, color.name)
+
+    /**
+     * Alpha.10 — the Worm Light coverage: the Settings
+     * slider, 75–175%, 100 by default (the current look,
+     * unchanged on install). Global, not per-system: one
+     * lamp, one pool — the same reasoning as the hardware
+     * colour above. A stale or hand-edited value is
+     * clamped into range. Stored as an int percent; the
+     * scale the overlay reads is pct / 100.
+     */
+    fun wormLightCoveragePct(): Int {
+        val raw = readAll()[KEY_WORM_LIGHT_COVERAGE]?.toIntOrNull()
+            ?: return WORM_LIGHT_COVERAGE_DEFAULT_PCT
+        return raw.coerceIn(WORM_LIGHT_COVERAGE_MIN_PCT, WORM_LIGHT_COVERAGE_MAX_PCT)
+    }
+
+    fun wormLightCoverage(): Float = wormLightCoveragePct() / 100f
+
+    /** False (and nothing stored) when the coverage is not one the slider offers. */
+    fun setWormLightCoveragePct(pct: Int): Boolean {
+        if (pct !in WORM_LIGHT_COVERAGE_MIN_PCT..WORM_LIGHT_COVERAGE_MAX_PCT) return false
+        write(KEY_WORM_LIGHT_COVERAGE, pct.toString())
+        return true
+    }
 
     /**
      * Phase 8 — Screen Optics: whether a dark room may dim
