@@ -658,6 +658,13 @@ fun GameScreen(
         // Phase 8 — the GL thread lives only while a game is
         // playing, with the session.
         glView?.onResume()
+        // Black screen on launch (Robert, 2026-11-15): when
+        // the surface is created with a frame already
+        // pending, the view asks for the session's latest
+        // frame again — its first render request was dropped
+        // before the GL thread existed. Bound to this
+        // session, cleared below with the other handlers.
+        glView?.onSurfaceReady = { session.replayLatestFrame() }
         // Phase 6 (item 10a) — the cartridge sensors: the phone's
         // motion/light sensors feed the core while a game is
         // playing (started and stopped with the session, and
@@ -694,6 +701,7 @@ fun GameScreen(
             Bridge.onCameraStopHandler = null
             gbCamera.stop()
             Bridge.onRumbleHandler = null
+            glView?.onSurfaceReady = null
             cartridgeRumble.stop()
             cartridgeSensors.onLux = null
             cartridgeSensors.stop()

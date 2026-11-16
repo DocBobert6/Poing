@@ -28,11 +28,27 @@ class GameGlView @JvmOverloads constructor(
 
     private val renderer = DisplayRenderer()
 
+    /**
+     * Black screen on launch (Robert, 2026-11-15): the
+     * renderer calls back when a frame is already pending
+     * as its surface is created. The view answers with a
+     * render request — requestRender is thread-safe and
+     * callable from the GL thread — and forwards to the
+     * screen, which replays the session's latest frame, so
+     * the picture appears with no input. Set by GameScreen
+     * with the session's lifetime; null otherwise.
+     */
+    var onSurfaceReady: (() -> Unit)? = null
+
     init {
         setEGLContextClientVersion(2)
         setRenderer(renderer)
         renderMode = RENDERMODE_WHEN_DIRTY
         setPreserveEGLContextOnPause(true)
+        renderer.onSurfaceReady = {
+            requestRender()
+            onSurfaceReady?.invoke()
+        }
     }
 
     /** Present a new frame Bitmap (called from PlayerSession's onFrame, on the main thread). */

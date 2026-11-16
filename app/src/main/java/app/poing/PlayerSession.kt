@@ -209,6 +209,22 @@ class PlayerSession(
     fun latestFrameBitmap(): Bitmap? = latestFrame
 
     /**
+     * Black screen on launch (Robert, 2026-11-15): the
+     * surface-ready half of the fix. Re-delivers the latest
+     * frame through the normal onFrame path (setFrame +
+     * requestRender, now that the GL thread exists), so a
+     * first frame whose render request was dropped before
+     * the surface existed still draws. Null-safe: before
+     * the first frame there is nothing to replay. A second
+     * post racing a fresh frame only re-delivers the newest
+     * one — a drop, never a stale one (see framePostRunnable).
+     * Safe to call from any thread (Handler.post).
+     */
+    fun replayLatestFrame() {
+        mainHandler.post(framePostRunnable)
+    }
+
+    /**
      * Phase 6 (item 11) — video recording: the game's frames into
      * an H.264 MP4 (see VideoRecorder — video only, no audio).
      * The recorder is created by [startRecording] and fed one

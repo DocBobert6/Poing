@@ -245,6 +245,28 @@ class DisplayRenderer : GLSurfaceView.Renderer {
     var frameConsumed: Boolean = true
         private set
 
+    /**
+     * Black screen on launch (Robert, 2026-11-15, still
+     * happening on alpha.9): the session starts before the
+     * GL view is attached, so the first frame's
+     * requestRender() is DROPPED — GLSurfaceView no-ops it
+     * while the GL thread does not exist yet — and the
+     * dirty check then blocks every later frame, because
+     * frameConsumed stays false until a draw consumes a
+     * pending frame. The game runs (audio plays) but
+     * nothing ever draws. The render request must survive
+     * surface creation: when a frame is already pending
+     * as the surface is created, this fires — on the GL
+     * thread, which is where onSurfaceCreated runs — and
+     * the view answers with a requestRender() that now
+     * lands, plus a replay of the session's latest frame.
+     * Null when nothing is listening (tests, and the
+     * no-GL fallback path, which has no surface to wait
+     * on). The dirty-check semantics are unchanged: the
+     * steady state still skips copies for static screens.
+     */
+    var onSurfaceReady: (() -> Unit)? = null
+
     fun setFrame(bitmap: Bitmap) {
         pendingBitmap = bitmap
         frameConsumed = false
@@ -406,6 +428,12 @@ class DisplayRenderer : GLSurfaceView.Renderer {
         reconH = 0
         frameW = 0
         frameH = 0
+        // Black screen on launch (see onSurfaceReady): a
+        // frame that arrived before the GL thread existed
+        // is still pending here, and its render request was
+        // dropped — tell the view now, while the thread
+        // exists, so the frame draws with no input.
+        if (pendingBitmap != null) onSurfaceReady?.invoke()
     }
 
     override fun onSurfaceChanged(gl: GL10?, w: Int, h: Int) {

@@ -213,4 +213,56 @@ class DisplayRendererTest {
         renderer.onDrawFrame(null)
         assertEquals(DrawPath.EDGE, renderer.lastDrawPath)
     }
+
+    /**
+     * Black screen on launch (Robert, 2026-11-15, still
+     * happening on alpha.9): the cold-launch order is
+     * setFrame BEFORE the GL thread exists — the first
+     * frame's requestRender is dropped, and the dirty
+     * check then blocks every later frame because
+     * frameConsumed stays false. Surface creation must
+     * notify the view when a frame is already pending, so
+     * the render request lands now that the thread exists
+     * and the next draw consumes the frame with no input.
+     * This pins the new onSurfaceReady contract: on the
+     * old code the property does not exist, so this test
+     * does not compile — that is the failure. Robolectric's
+     * GLES20 stubs succeed, so the surface/draw path runs
+     * here (see the edge-fallback test above).
+     */
+    @Test
+    fun frameSetBeforeSurfaceCreationDrawsOnceTheSurfaceExists() {
+        val renderer = DisplayRenderer()
+        var readyCalls = 0
+        renderer.onSurfaceReady = { readyCalls++ }
+        renderer.setDisplay(
+            DisplayChain.CLEAN,
+            JadeMode.FSTN,
+            EdgeMode.OFF,
+            GameSystem.GB,
+        )
+        // The cold-launch order: the first frame arrives
+        // before the GL thread exists.
+        renderer.setFrame(Bitmap.createBitmap(160, 144, Bitmap.Config.ARGB_8888))
+        assertFalse(renderer.frameConsumed)
+        // Surface creation notifies the view that a frame
+        // is pending; the view's requestRender (and the
+        // session's replay) deliver it, and the next draw
+        // consumes it — the deadlock is broken.
+        renderer.onSurfaceCreated(null, null)
+        assertEquals(1, readyCalls)
+        renderer.onSurfaceChanged(null, 800, 600)
+        renderer.onDrawFrame(null)
+        assertTrue(renderer.frameConsumed)
+        assertEquals(DrawPath.PLAIN, renderer.lastDrawPath)
+    }
+
+    @Test
+    fun surfaceCreatedWithNoPendingFrameDoesNotNotifyReady() {
+        val renderer = DisplayRenderer()
+        var readyCalls = 0
+        renderer.onSurfaceReady = { readyCalls++ }
+        renderer.onSurfaceCreated(null, null)
+        assertEquals(0, readyCalls)
+    }
 }
