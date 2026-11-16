@@ -118,6 +118,18 @@ class Haptics(
         PLAIN_CLICK,
     }
 
+    /** Which route the shoulder click takes. */
+    enum class ShoulderClickRoute {
+        /** Envelope click now, thud scheduled 20ms later. */
+        ENVELOPE_THEN_THUD,
+
+        /** Envelope click alone (no thud primitive). */
+        ENVELOPE_ONLY,
+
+        /** The current composition: click + thud, click alone, or plain click. */
+        COMPOSITION,
+    }
+
     /**
      * A/B: the full click — the alpha.12 press, no envelope.
      * Robert's device verdict on alpha.13 was that the
@@ -623,18 +635,6 @@ class Haptics(
                     ShoulderEffectKind.CLICK_ONLY
                 else -> ShoulderEffectKind.PLAIN_CLICK
             }
-
-        /** Which route the shoulder click takes. */
-        enum class ShoulderClickRoute {
-            /** Envelope click now, thud scheduled 20ms later. */
-            ENVELOPE_THEN_THUD,
-
-            /** Envelope click alone (no thud primitive). */
-            ENVELOPE_ONLY,
-
-            /** The current composition: click + thud, click alone, or plain click. */
-            COMPOSITION,
-        }
 
         /**
          * The shoulder's route: the envelope where the device
