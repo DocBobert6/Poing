@@ -379,4 +379,77 @@ class HapticsTest {
         // from — the pull-down never leaves the value alone.
         assertTrue(Haptics.directionEnvelopeSharpness(0.8f) < 0.8f)
     }
+
+    // Alpha.15 fold-in (Robert, 2026-11-16 00:36): L/R take
+    // the envelope too — only the CLICK part; the thud stays
+    // exactly as it is (PRIMITIVE_THUD 0.3x at 20ms). The
+    // routing is a pure function, so the matrix pins here.
+    // The delayed thud firing itself cannot be observed
+    // under Robolectric's SDK-35 harness (the envelope
+    // branch is never taken there) — it is proven on a real
+    // API 36 device, like the envelope itself. What pins
+    // here is the route, the thud's scale, and its timing.
+    @Test
+    fun shoulderClickRouteMatrix() {
+        assertEquals(
+            Haptics.ShoulderClickRoute.ENVELOPE_THEN_THUD,
+            Haptics.shoulderClickRoute(
+                36,
+                envelopeSupported = true,
+                Haptics.ShoulderEffectKind.CLICK_THUD,
+            ),
+        )
+        assertEquals(
+            Haptics.ShoulderClickRoute.ENVELOPE_ONLY,
+            Haptics.shoulderClickRoute(
+                36,
+                envelopeSupported = true,
+                Haptics.ShoulderEffectKind.CLICK_ONLY,
+            ),
+        )
+        assertEquals(
+            Haptics.ShoulderClickRoute.ENVELOPE_ONLY,
+            Haptics.shoulderClickRoute(
+                36,
+                envelopeSupported = true,
+                Haptics.ShoulderEffectKind.PLAIN_CLICK,
+            ),
+        )
+        assertEquals(
+            Haptics.ShoulderClickRoute.COMPOSITION,
+            Haptics.shoulderClickRoute(
+                36,
+                envelopeSupported = false,
+                Haptics.ShoulderEffectKind.CLICK_THUD,
+            ),
+        )
+        assertEquals(
+            Haptics.ShoulderClickRoute.COMPOSITION,
+            Haptics.shoulderClickRoute(
+                35,
+                envelopeSupported = true,
+                Haptics.ShoulderEffectKind.CLICK_THUD,
+            ),
+        )
+        assertEquals(
+            Haptics.ShoulderClickRoute.COMPOSITION,
+            Haptics.shoulderClickRoute(
+                24,
+                envelopeSupported = true,
+                Haptics.ShoulderEffectKind.CLICK_THUD,
+            ),
+        )
+    }
+
+    @Test
+    fun shoulderThudScaleAndTimingAreUnchanged() {
+        // The thud is 0.3x of the user's strength in both the
+        // composed path and the posted path — one function,
+        // so the fold-in cannot drift it — and it still fires
+        // exactly 20ms after the click starts.
+        assertEquals(0.3f, Haptics.shoulderThudScale(100), 0.001f)
+        assertEquals(0.15f, Haptics.shoulderThudScale(50), 0.001f)
+        assertEquals(0f, Haptics.shoulderThudScale(0), 0.001f)
+        assertEquals(20, Haptics.SHOULDER_THUD_DELAY_MS)
+    }
 }

@@ -1,6 +1,8 @@
 package app.poing
 
 import android.os.Build
+import android.os.Handler
+import android.os.Looper
 import android.os.VibrationEffect
 import android.os.Vibrator
 import kotlin.math.roundToInt
@@ -63,7 +65,13 @@ import kotlin.math.roundToInt
  * falls back to the tick, whose scale rose 0.5 to 0.6 —
  * clearly present, still obviously below A/B's full click.
  * Whether the envelope suits the rocker is Robert's device
- * verdict, not something tests can settle.
+ * verdict, not something tests can settle. Fold-in
+ * (Robert, 2026-11-16 00:36): L/R take the envelope too —
+ * only the CLICK part of the shoulder; the thud stays
+ * exactly as it is (PRIMITIVE_THUD 0.3x at 20ms), fired
+ * 20ms after the envelope click starts, once the ~15ms
+ * click has finished, so the second vibrate() never cuts
+ * it off.
  *
  * [enabled] is the Settings toggle (on by default).
  * [strength] is the Settings slider, 0–100 (100 by default);
@@ -151,12 +159,73 @@ class Haptics(
 
     /**
      * GBA L/R: the shoulder's longer travel — a click plus a
-     * low thud 20ms later, one thunk. Without the thud
-     * primitive it is just the click.
+     * low thud 20ms later, one thunk. Alpha.15 fold-in: the
+     * CLICK is the envelope where the device supports it
+     * (the same envelope press Start/Select use); the thud
+     * follows 20ms later, once the ~15ms click has
+     * finished. Without the thud primitive it is just the
+     * (envelope) click; without primitives at all it is the
+     * plain click effect. The thud's timing, scale and
+     * fallbacks are exactly as before.
      */
     fun shoulderClick() {
         val v = vibrator ?: return
-        play(v) { buildShoulderEffect(strength, Build.VERSION.SDK_INT, primitivesSupported(v), thudSupported(v)) }
+        val kind = shoulderEffectKind(
+            Build.VERSION.SDK_INT,
+            primitivesSupported(v),
+            thudSupported(v),
+        )
+        when (shoulderClickRoute(Build.VERSION.SDK_INT, envelopeSupported(v), kind)) {
+            ShoulderClickRoute.ENVELOPE_THEN_THUD -> {
+                if (!play(v) { pressClickEffect(v, strength) }) return
+                postShoulderThud(v)
+            }
+            ShoulderClickRoute.ENVELOPE_ONLY -> {
+                play(v) { pressClickEffect(v, strength) }
+            }
+            ShoulderClickRoute.COMPOSITION -> {
+                play(v) { buildShoulderEffect(strength, Build.VERSION.SDK_INT, primitivesSupported(v), thudSupported(v)) }
+            }
+        }
+    }
+
+    /**
+     * The shoulder's thud, fired 20ms after the envelope
+     * click starts. The click is ~15ms, so it has finished
+     * by then and this second vibrate() never cuts it off.
+     * The thud is a composition with a single thud primitive
+     * at the same 0.3x scale — the 20ms gap is the post
+     * delay, not a composition offset, so the thud's timing
+     * and scale are exactly as before. The guard is
+     * re-checked at fire time: if haptics was turned off in
+     * those 20ms, the thud stays silent.
+     */
+    private fun postShoulderThud(v: Vibrator) {
+        val thud = try {
+            VibrationEffect.startComposition()
+                .addPrimitive(
+                    VibrationEffect.Composition.PRIMITIVE_THUD,
+                    shoulderThudScale(strength),
+                )
+                .compose()
+        } catch (_: Exception) {
+            return
+        }
+        try {
+            Handler(Looper.getMainLooper()).postDelayed(
+                {
+                    if (!enabled || strength <= 0) return@postDelayed
+                    try {
+                        v.vibrate(thud)
+                    } catch (_: Exception) {
+                        // Silent, like every haptics failure.
+                    }
+                },
+                SHOULDER_THUD_DELAY_MS.toLong(),
+            )
+        } catch (_: Exception) {
+            // No looper to post on: the click already played.
+        }
     }
 
     /**
@@ -271,14 +340,18 @@ class Haptics(
      * guard — createOneShot rejects amplitude 0, so building
      * it first would throw at strength 0 before the guard
      * ever ran (the strength-0 tests caught exactly that).
+     * Returns true when an effect was actually played, so
+     * the shoulder knows whether to schedule its thud.
      */
-    private fun play(v: Vibrator, effect: () -> VibrationEffect) {
-        if (!enabled || strength <= 0) return
-        if (!v.hasVibrator()) return
-        try {
+    private fun play(v: Vibrator, effect: () -> VibrationEffect): Boolean {
+        if (!enabled || strength <= 0) return false
+        if (!v.hasVibrator()) return false
+        return try {
             v.vibrate(effect())
+            true
         } catch (_: Exception) {
             // A vibrator that rejects the effect: silent, never a crash.
+            false
         }
     }
 
@@ -508,7 +581,7 @@ class Haptics(
                             VibrationEffect.Composition.PRIMITIVE_CLICK,
                             primitiveScale(strength),
                         )
-                    val thudScale = (primitiveScale(strength) * SHOULDER_THUD_SCALE).coerceIn(0f, 1f)
+                    val thudScale = shoulderThudScale(strength)
                     // The 4-arg form (delay type) is API 34+;
                     // below that the 3-arg form carries the
                     // same delay. The delay-type constant lives
@@ -550,6 +623,50 @@ class Haptics(
                     ShoulderEffectKind.CLICK_ONLY
                 else -> ShoulderEffectKind.PLAIN_CLICK
             }
+
+        /** Which route the shoulder click takes. */
+        enum class ShoulderClickRoute {
+            /** Envelope click now, thud scheduled 20ms later. */
+            ENVELOPE_THEN_THUD,
+
+            /** Envelope click alone (no thud primitive). */
+            ENVELOPE_ONLY,
+
+            /** The current composition: click + thud, click alone, or plain click. */
+            COMPOSITION,
+        }
+
+        /**
+         * The shoulder's route: the envelope where the device
+         * is API 36+ and reports envelope effects supported,
+         * with the thud scheduled after it only where the
+         * thud primitive exists; otherwise the current
+         * composition. A pure function, so the matrix pins in
+         * the tests — the envelope effect itself can only be
+         * proven on a real API 36 device, never under
+         * Robolectric's SDK-35 harness.
+         */
+        fun shoulderClickRoute(
+            sdkInt: Int,
+            envelopeSupported: Boolean,
+            kind: ShoulderEffectKind,
+        ): ShoulderClickRoute =
+            when {
+                useEnvelopeClick(sdkInt, envelopeSupported) && kind == ShoulderEffectKind.CLICK_THUD ->
+                    ShoulderClickRoute.ENVELOPE_THEN_THUD
+                useEnvelopeClick(sdkInt, envelopeSupported) ->
+                    ShoulderClickRoute.ENVELOPE_ONLY
+                else -> ShoulderClickRoute.COMPOSITION
+            }
+
+        /**
+         * The shoulder thud's amplitude: the user's strength
+         * times the 0.3x thud scale. One source of truth for
+         * both the composed thud and the posted thud, so the
+         * fold-in cannot drift the thud's scale.
+         */
+        fun shoulderThudScale(strength: Int): Float =
+            (primitiveScale(strength) * SHOULDER_THUD_SCALE).coerceIn(0f, 1f)
 
         /**
          * True when this vibrator can play the scaled click
