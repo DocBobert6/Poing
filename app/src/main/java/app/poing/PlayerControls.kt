@@ -115,6 +115,12 @@ fun HoldButton(
     // lands. Every button passes one; the D-pad fires on a
     // direction change instead (see DpadControl).
     onDown: (() -> Unit)? = null,
+    // Alpha.11 — the release hook: fires once when the last
+    // finger lifts, after the joypad bit clears. A dome switch
+    // is press-snap + spring-back; this is the spring-back.
+    // A pause restart abandons the loop, so it never fires on
+    // pause — the same rule as the D-pad's empty hook.
+    onUp: (() -> Unit)? = null,
 ) {
     var pressed by remember { mutableStateOf(false) }
     val shape = when {
@@ -158,6 +164,7 @@ fun HoldButton(
                     pressed = false
                     held.setBit(bit, false)
                     onInputChanged()
+                    onUp?.invoke()
                 }
             },
         contentAlignment = Alignment.Center,
@@ -280,6 +287,12 @@ fun DpadControl(
     // per direction change while held, never on release and never
     // on a pointer event that leaves the directions unchanged.
     onDirectionChange: (() -> Unit)? = null,
+    // Alpha.11 — the release hook: fires once when the
+    // direction set empties — the last finger lifts. Holding
+    // one direction steady fires nothing; only the emptying
+    // ticks. A pause restart drops the loop with a fresh
+    // lastDirs, so it never fires on pause.
+    onDirectionsEmpty: (() -> Unit)? = null,
     // Per-system style (ControlThemes): the cross and the well.
     // Defaults are the Phase 5 silver cross on a dark well.
     crossColor: Color = PoingSilver,
@@ -323,8 +336,12 @@ fun DpadControl(
                         val newDirs = active.values.fold(0) { acc, pos ->
                             acc or DpadInput.directionFromPress(pos.x, pos.y, sizePx)
                         }
-                        if (newDirs != lastDirs && newDirs != 0) {
-                            onDirectionChange?.invoke()
+                        if (newDirs != lastDirs) {
+                            if (newDirs != 0) {
+                                onDirectionChange?.invoke()
+                            } else {
+                                onDirectionsEmpty?.invoke()
+                            }
                         }
                         lastDirs = newDirs
                         dirs = newDirs

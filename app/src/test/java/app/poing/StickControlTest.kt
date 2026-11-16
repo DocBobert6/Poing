@@ -35,13 +35,17 @@ class StickControlTest {
 
     private lateinit var held: HeldInput
     private var clicks = 0
+    private var empties = 0
 
     private fun setContent() {
         held = HeldInput()
         clicks = 0
+        empties = 0
         composeRule.setContent {
             PoingTheme {
-                StickControl(held, false, {}, onDirectionChange = { clicks++ })
+                StickControl(held, false, {},
+                    onDirectionChange = { clicks++ },
+                    onDirectionsEmpty = { empties++ })
             }
         }
     }
@@ -133,6 +137,29 @@ class StickControlTest {
             up()
         }
         assertEquals(3, clicks)
+        assertEquals(0, held.mask)
+    }
+
+    // Alpha.11 — the release hook: returning to neutral fires
+    // the empty hook once, and the actuation click stays
+    // silent on the release.
+    @Test
+    fun stickDirectionsEmptyFiresOnReleaseToNeutral() {
+        setContent()
+        val c = stickCenter()
+        // Down at the centre: neutral, nothing fires.
+        composeRule.onNodeWithTag("stick").performTouchInput {
+            down(c)
+            moveTo(c + Offset(60f, 0f))
+        }
+        assertEquals(1, clicks)
+        assertEquals(0, empties)
+        // Release back to neutral: no fourth click, one empty.
+        composeRule.onNodeWithTag("stick").performTouchInput {
+            up()
+        }
+        assertEquals(1, clicks)
+        assertEquals(1, empties)
         assertEquals(0, held.mask)
     }
 

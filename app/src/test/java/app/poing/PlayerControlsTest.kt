@@ -8,6 +8,7 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.unit.dp
+import org.junit.Assert.assertEquals
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -164,5 +165,72 @@ class PlayerControlsTest {
         composeRule.onNodeWithTag("dpad").performTouchInput {
             up()
         }
+    }
+
+    // Alpha.11 — the release hook: onUp fires once when the
+    // finger lifts, after onDown, and never without a press.
+    @Test
+    fun holdButtonOnUpFiresOnLiftAfterOnDown() {
+        val events = mutableListOf<String>()
+        composeRule.setContent {
+            PoingTheme {
+                HoldButton("A", InputMask.JOY_A, HeldInput(), false, {},
+                    onDown = { events += "down" },
+                    onUp = { events += "up" })
+            }
+        }
+        composeRule.onNodeWithTag("hold-A").performTouchInput {
+            down(center)
+            up()
+        }
+        assertEquals(listOf("down", "up"), events)
+    }
+
+    // Alpha.11 — the release hook: the empty hook fires once
+    // when the last finger lifts, and never while a direction
+    // is still held.
+    @Test
+    fun dpadDirectionsEmptyFiresWhenAllLift() {
+        var empties = 0
+        var changes = 0
+        composeRule.setContent {
+            PoingTheme {
+                DpadControl(HeldInput(), false, {},
+                    onDirectionChange = { changes++ },
+                    onDirectionsEmpty = { empties++ })
+            }
+        }
+        composeRule.onNodeWithTag("dpad").performTouchInput {
+            down(Offset(center.x, 8f))
+        }
+        assertEquals(1, changes)
+        assertEquals(0, empties)
+        composeRule.onNodeWithTag("dpad").performTouchInput {
+            up()
+        }
+        assertEquals(1, empties)
+    }
+
+    @Test
+    fun dpadDirectionsEmptyDoesNotFireOnDirectionChange() {
+        // Rolling from up to up-right changes the direction
+        // set but never empties it: no release tick.
+        var empties = 0
+        composeRule.setContent {
+            PoingTheme {
+                DpadControl(HeldInput(), false, {},
+                    onDirectionsEmpty = { empties++ })
+            }
+        }
+        val size = composeRule.onNodeWithTag("dpad").fetchSemanticsNode().size
+        composeRule.onNodeWithTag("dpad").performTouchInput {
+            down(Offset(center.x, 8f))
+            moveTo(Offset(size.width - 8f, 8f))
+        }
+        assertEquals(0, empties)
+        composeRule.onNodeWithTag("dpad").performTouchInput {
+            up()
+        }
+        assertEquals(1, empties)
     }
 }

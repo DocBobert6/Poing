@@ -56,7 +56,8 @@ import kotlin.math.sqrt
  * follows HowlingDog's ActuationDetector — it fires only
  * when the stick crosses an actuation threshold (neutral ->
  * a direction, or one direction -> another). A release back
- * to neutral stays silent.
+ * to neutral fires [onDirectionsEmpty] instead (Alpha.11 —
+ * the spring-back tick, the same hook the D-pad has).
  *
  * HowlingDog's DragTracker is deliberately not ported: the
  * single-pointer awaitFirstDown loop below gives the same
@@ -80,6 +81,15 @@ fun StickControl(
     // never on release. The D-pad's onDirectionChange has the
     // same meaning; the caller passes the same click.
     onDirectionChange: (() -> Unit)? = null,
+    // Alpha.11 — the release hook: fires once when the stick
+    // returns to neutral (the nub snaps back). Mutually
+    // exclusive with the actuation click — the detector
+    // returns false for a mask of 0, so a transition fires
+    // one hook or the other, never both. The finally block
+    // also fires it on a pause restart (the nub snaps back);
+    // a single light tick as the game pauses is the
+    // spring-back, not a bug.
+    onDirectionsEmpty: (() -> Unit)? = null,
     // Per-system style (ControlThemes): the base is the well
     // colour, the nub is the cross colour, the hairline is the
     // pressed colour. Defaults are the Phase 5 silver-on-dark
@@ -130,7 +140,9 @@ fun StickControl(
                             lastMask = mask
                             held.setDirections(mask)
                             onInputChanged()
-                            if (ActuationDetector.isActuation(previous, mask)) {
+                            if (previous != 0 && mask == 0) {
+                                onDirectionsEmpty?.invoke()
+                            } else if (ActuationDetector.isActuation(previous, mask)) {
                                 onDirectionChange?.invoke()
                             }
                         }
