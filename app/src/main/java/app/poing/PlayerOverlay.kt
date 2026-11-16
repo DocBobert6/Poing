@@ -46,6 +46,14 @@ fun BoxScope.ControlOverlay(
     // Haptics click for every overlay button, gated by the
     // caller (a running cartridge rumble wins over the click).
     onControlDown: () -> Unit,
+    // Alpha.11 — per-button character: the release tick, the
+    // D-pad / stick roll tick, the Start/Select light click,
+    // the L/R shoulder click. Defaults keep every existing
+    // caller on the single press click.
+    onControlUp: () -> Unit = {},
+    onDirectionTick: () -> Unit = onControlDown,
+    onLightDown: () -> Unit = onControlDown,
+    onShoulderDown: () -> Unit = onControlDown,
     // Alpha.10 — which control lives in the left-hand slot:
     // the D-pad cross, or a joystick. One slot holds EITHER,
     // never both; the caller resolves the global default +
@@ -102,6 +110,10 @@ fun BoxScope.ControlOverlay(
         ) {
             ControlButton(
                 spec, theme, held, paused, onInputChanged, onControlDown, leftControl,
+                onControlUp = onControlUp,
+                onDirectionTick = onDirectionTick,
+                onLightDown = onLightDown,
+                onShoulderDown = onShoulderDown,
                 slowOn = slowOn,
                 onFfDown = onFfDown, onFfUp = onFfUp, onSlowToggle = onSlowToggle,
                 onRwDown = onRwDown, onRwUp = onRwUp,
@@ -129,6 +141,14 @@ fun ControlButton(
     paused: Boolean,
     onInputChanged: () -> Unit,
     onControlDown: () -> Unit,
+    // Alpha.11 — per-button character (see ControlOverlay):
+    // the release tick, the roll tick, the light click, the
+    // shoulder click. Defaults keep every existing caller on
+    // the single press click.
+    onControlUp: () -> Unit = {},
+    onDirectionTick: () -> Unit = onControlDown,
+    onLightDown: () -> Unit = onControlDown,
+    onShoulderDown: () -> Unit = onControlDown,
     // Alpha.10 — which control lives in the left-hand slot.
     // The D-pad is the default, so existing callers (the
     // editor's tests, the Settings default editor) keep the
@@ -150,7 +170,8 @@ fun ControlButton(
     when (spec.id) {
         ControlId.DPAD -> when (leftControl) {
             LeftControl.DPAD -> DpadControl(
-                held, paused, onInputChanged, onDirectionChange = onControlDown,
+                held, paused, onInputChanged, onDirectionChange = onDirectionTick,
+                onDirectionsEmpty = onControlUp,
                 crossColor = Color(theme.dpadCross), wellColor = Color(theme.dpadWell),
                 pressedColor = pressed,
                 sizeDp = spec.sizeDp.dp,
@@ -161,49 +182,50 @@ fun ControlButton(
             // tuned spot, and the editor moves and resizes it
             // exactly like the D-pad.
             LeftControl.STICK -> StickControl(
-                held, paused, onInputChanged, onDirectionChange = onControlDown,
+                held, paused, onInputChanged, onDirectionChange = onDirectionTick,
+                onDirectionsEmpty = onControlUp,
                 baseColor = Color(theme.dpadWell), nubColor = Color(theme.dpadCross),
                 accentColor = pressed,
                 sizeDp = spec.sizeDp.dp,
             )
         }
         ControlId.A -> HoldButton(
-            "A", InputMask.JOY_A, held, paused, onInputChanged, onDown = onControlDown,
+            "A", InputMask.JOY_A, held, paused, onInputChanged, onDown = onControlDown, onUp = onControlUp,
             sizeDp = spec.sizeDp.dp,
             unpressedBackground = Color(theme.buttonA.background),
             unpressedLabel = Color(theme.buttonA.label),
             pressedBackground = pressed,
         )
         ControlId.B -> HoldButton(
-            "B", InputMask.JOY_B, held, paused, onInputChanged, onDown = onControlDown,
+            "B", InputMask.JOY_B, held, paused, onInputChanged, onDown = onControlDown, onUp = onControlUp,
             sizeDp = spec.sizeDp.dp,
             unpressedBackground = Color(theme.buttonB.background),
             unpressedLabel = Color(theme.buttonB.label),
             pressedBackground = pressed,
         )
         ControlId.L -> HoldButton(
-            "L", InputMask.JOY_L, held, paused, onInputChanged, onDown = onControlDown, shoulder = true,
+            "L", InputMask.JOY_L, held, paused, onInputChanged, onDown = onShoulderDown, onUp = onControlUp, shoulder = true,
             sizeDp = spec.sizeDp.dp,
             unpressedBackground = Color(theme.shoulder.background),
             unpressedLabel = Color(theme.shoulder.label),
             pressedBackground = pressed,
         )
         ControlId.R -> HoldButton(
-            "R", InputMask.JOY_R, held, paused, onInputChanged, onDown = onControlDown, shoulder = true,
+            "R", InputMask.JOY_R, held, paused, onInputChanged, onDown = onShoulderDown, onUp = onControlUp, shoulder = true,
             sizeDp = spec.sizeDp.dp,
             unpressedBackground = Color(theme.shoulder.background),
             unpressedLabel = Color(theme.shoulder.label),
             pressedBackground = pressed,
         )
         ControlId.START -> HoldButton(
-            "Start", InputMask.JOY_START, held, paused, onInputChanged, onDown = onControlDown, pill = true,
+            "Start", InputMask.JOY_START, held, paused, onInputChanged, onDown = onLightDown, onUp = onControlUp, pill = true,
             sizeDp = spec.sizeDp.dp,
             unpressedBackground = Color(theme.startSelect.background),
             unpressedLabel = Color(theme.startSelect.label),
             pressedBackground = pressed,
         )
         ControlId.SELECT -> HoldButton(
-            "Select", InputMask.JOY_SELECT, held, paused, onInputChanged, onDown = onControlDown, pill = true,
+            "Select", InputMask.JOY_SELECT, held, paused, onInputChanged, onDown = onLightDown, onUp = onControlUp, pill = true,
             sizeDp = spec.sizeDp.dp,
             unpressedBackground = Color(theme.startSelect.background),
             unpressedLabel = Color(theme.startSelect.label),

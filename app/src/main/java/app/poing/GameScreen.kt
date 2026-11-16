@@ -756,6 +756,23 @@ fun GameScreen(
             if (cartridgeRumble.currentStrength == 0) hapticsImpl.click()
         }
     }
+    // Alpha.11 — per-button character: the same rumble gate
+    // as the press click, one remembered lambda per feel.
+    // The release tick fires on lift; the roll tick on a
+    // D-pad / stick direction change; the light click for
+    // Start/Select; the shoulder click + thud for L/R.
+    val onControlUp: () -> Unit = remember {
+        { if (cartridgeRumble.currentStrength == 0) hapticsImpl.releaseTick() }
+    }
+    val onDirectionTick: () -> Unit = remember {
+        { if (cartridgeRumble.currentStrength == 0) hapticsImpl.directionTick() }
+    }
+    val onLightDown: () -> Unit = remember {
+        { if (cartridgeRumble.currentStrength == 0) hapticsImpl.lightClick() }
+    }
+    val onShoulderDown: () -> Unit = remember {
+        { if (cartridgeRumble.currentStrength == 0) hapticsImpl.shoulderClick() }
+    }
     val onWormLightDragHeadChange: (WormLightDragHead?) -> Unit = remember {
         { head -> wormLightDragHead = head }
     }
@@ -864,6 +881,10 @@ fun GameScreen(
             paused = paused,
             onInputChanged = onInputChanged,
             onControlDown = onControlDown,
+            onControlUp = onControlUp,
+            onDirectionTick = onDirectionTick,
+            onLightDown = onLightDown,
+            onShoulderDown = onShoulderDown,
             leftControl = leftControl,
             // Alpha.10 (Part D) — FF / 0.5x / RW live in the
             // overlay now (see ControlOverlay): the same
@@ -1172,6 +1193,10 @@ fun GameScreen(
                 onControlDown = {
                     if (cartridgeRumble.currentStrength == 0) hapticsImpl.click()
                 },
+                onControlUp = onControlUp,
+                onDirectionTick = onDirectionTick,
+                onLightDown = onLightDown,
+                onShoulderDown = onShoulderDown,
                 // Alpha.10 — the per-game left-control choice:
                 // the editor shows the D-pad / Joystick toggle
                 // for this game, and Done commits the choice

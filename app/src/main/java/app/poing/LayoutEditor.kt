@@ -60,6 +60,14 @@ fun LayoutEditor(
     held: HeldInput,
     onInputChanged: () -> Unit,
     onControlDown: () -> Unit,
+    // Alpha.11 — per-button character (see ControlButton):
+    // the release tick, the roll tick, the light click, the
+    // shoulder click. Defaults keep the editor preview on
+    // the single press click unless the caller passes them.
+    onControlUp: () -> Unit = {},
+    onDirectionTick: () -> Unit = onControlDown,
+    onLightDown: () -> Unit = onControlDown,
+    onShoulderDown: () -> Unit = onControlDown,
     // Alpha.10 — the left-control choice for the game being
     // edited. [leftControlDefault] is the global default (what
     // "Global" previews to); [leftControlOverride] is this
@@ -121,6 +129,10 @@ fun LayoutEditor(
                     held = held,
                     onInputChanged = onInputChanged,
                     onControlDown = onControlDown,
+                    onControlUp = onControlUp,
+                    onDirectionTick = onDirectionTick,
+                    onLightDown = onLightDown,
+                    onShoulderDown = onShoulderDown,
                     // Alpha.10 — the editor previews the draft
                     // choice, so switching D-pad / Joystick
                     // shows the live control in its slot.
@@ -312,6 +324,11 @@ private fun EditorControl(
     held: HeldInput,
     onInputChanged: () -> Unit,
     onControlDown: () -> Unit,
+    // Alpha.11 — per-button character (see ControlButton).
+    onControlUp: () -> Unit = {},
+    onDirectionTick: () -> Unit = onControlDown,
+    onLightDown: () -> Unit = onControlDown,
+    onShoulderDown: () -> Unit = onControlDown,
     // Alpha.10 — which control the editor previews in the
     // left-hand slot (the draft choice, or the global default
     // while the game follows it).
@@ -373,7 +390,13 @@ private fun EditorControl(
             },
         contentAlignment = Alignment.Center,
     ) {
-        ControlButton(spec, theme, held, true, onInputChanged, onControlDown, leftControl)
+        ControlButton(
+            spec, theme, held, true, onInputChanged, onControlDown, leftControl,
+            onControlUp = onControlUp,
+            onDirectionTick = onDirectionTick,
+            onLightDown = onLightDown,
+            onShoulderDown = onShoulderDown,
+        )
         // A selected control shows its exact size in dp inside
         // itself, Mariner's model — a small gold label at its
         // bottom edge, inside the control.

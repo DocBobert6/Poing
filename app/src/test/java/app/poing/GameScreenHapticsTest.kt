@@ -22,8 +22,13 @@ import org.robolectric.annotation.Config
  * Phase 6 (item 7) — haptics through the player: pressing A or
  * the D-pad clicks once. Alpha.8 — every overlay button clicks:
  * L, R, Start and Select click too, and a strength of 0 silences
- * them all. The Haptics is injected with the test's own Vibrator,
- * so the shadow records what the player vibrated.
+ * them all. Alpha.11 — per-button character: Start/Select click
+ * light, L/R click + thud, D-pad rolls tick, every button ticks
+ * on release; the tests below pin the wiring (the shadow cannot
+ * tell which effect played, so the effects themselves are pinned
+ * by HapticsTest and the hooks by PlayerControlsTest /
+ * StickControlTest). The Haptics is injected with the test's own
+ * Vibrator, so the shadow records what the player vibrated.
  *
  * The session is never started (no native code under Robolectric),
  * so the game itself never runs — the test pins the wiring, not
@@ -132,6 +137,23 @@ class GameScreenHapticsTest {
         setContent()
         val v = vibrator()
         composeRule.onNodeWithTag("hold-Select").performTouchInput {
+            down(center)
+            up()
+        }
+        assertTrue(shadowOf(v).isVibrating)
+    }
+
+    @Test
+    fun releasingAVibrates() {
+        // Alpha.11 — the release tick: lifting A vibrates on
+        // its own path. The shadow cannot tell which effect
+        // played, so this pins the wiring: the release runs
+        // without crashing or silencing. The hook itself is
+        // pinned by PlayerControlsTest, the tick by
+        // HapticsTest.
+        setContent()
+        val v = vibrator()
+        composeRule.onNodeWithTag("hold-A").performTouchInput {
             down(center)
             up()
         }
