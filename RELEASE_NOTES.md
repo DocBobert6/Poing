@@ -1,21 +1,19 @@
-## Poing! v0.1.0-alpha.16 — Proportional steering
+## Poing! v0.1.0-alpha.17 — The haptics pair
 
-The sixteenth signed alpha of Poing!, the standalone Game Boy / Game Boy Color / Game Boy Advance emulator for Android (mGBA core, one app, arm64-v8a only).
+The seventeenth signed alpha of Poing!, the standalone Game Boy / Game Boy Color / Game Boy Advance emulator for Android (mGBA core, one app, arm64-v8a only).
 
-**Install first — read this:** this alpha is signed with the same release key as alpha.1 through alpha.15, so it installs straight over alpha.15 — no uninstall needed, saves and settings carry over. It will **not** install over the debug builds (different key). Uninstall the debug build first. Uninstalling wipes local saves (battery saves + save states); RetroAchievements progress is server-side and safe.
+**Install first — read this:** this alpha is signed with the same release key as alpha.1 through alpha.16, so it installs straight over alpha.16 — no uninstall needed, saves and settings carry over. It will **not** install over the debug builds (different key). Uninstall the debug build first. Uninstalling wipes local saves (battery saves + save states); RetroAchievements progress is server-side and safe.
 
 ## Download
 
-The signed APK is attached to this release: `poing-v0.1.0-alpha.16.apk` (size + SHA-256 in the Build section below).
+The signed APK is attached to this release: `poing-v0.1.0-alpha.17.apk` (size + SHA-256 in the Build section below).
 
-## What changed in alpha.16
+## What changed in alpha.17
 
-- Proportional steering for the joystick. The stick's output was digital — on or off past the dead zone — so in a racing game you got full lock the moment you steered, and even a 50% dead zone only moved where full lock engaged. Now how far you push controls how much steering the game gets: a slight push pulses the direction in rapid gentle taps, like tapping the D-pad on real hardware, and a full push holds it continuously.
-- The pulse is a fixed 6-frame period (100 ms at 60 fps), with the direction on for a share of the period set by how far past the dead zone you are — linear, no curve, no extra setting. Full deflection is held exactly as before. The dead zone still applies first: below it, nothing.
-- It is off by default, and it should be: it changes what holding a direction means everywhere. In a menu a held direction taps repeatedly instead of scrolling, and in a platformer holding to run stutters. Racing games are the use case, so turn it on where you want it: Settings → Player has a "Proportional steering" switch beside the dead-zone slider, and the layout editor has a per-game Global / On / Off row (shown only while the joystick is in the slot), the same pattern as the dead zone. Per-game wins over global.
-- The pulse lives in the session, below the controls: the haptics and the input display read the raw direction, so a pulsing direction never buzzes the tick or flickers the display. The D-pad is untouched — it has no deflection to measure, so the switch does nothing while the D-pad is in the slot. Fast-forward keeps the steering consistent in game time (the pulse advances once per emulated step, not per displayed frame), and pausing restarts the pulse cleanly on resume.
-- What you should try: with the switch on (globally, or per game for a racer), steer gently through a corner — a slight push should steer slightly, a full push should lock it. With the switch off, everything behaves exactly as alpha.15 did.
-- Nothing else changed: the dead-zone slider, the haptics retune from alpha.15, and all the wiring are untouched.
+- The rocker is back on normal haptics. A D-pad or joystick direction change while held is the plain tick at 0.6 again — the envelope is off the rocker entirely, not kept as a fallback. The envelope code for the direction change is gone.
+- The release tick is slightly stronger: 0.4 to 0.5. Lifting off a button should give a slightly more present tick — still clearly below the roll tick and the full press click.
+- Nothing else changed: the A/B click, the Start/Select envelope, the L/R envelope + thud, proportional steering, the dead zone, and all the wiring are untouched.
+- What you should feel: rolling the D-pad or the stick should feel like the normal tick again, not the envelope's smoother roll; lifting off a button should tick a touch more clearly than it did.
 
 ## What is in it
 
