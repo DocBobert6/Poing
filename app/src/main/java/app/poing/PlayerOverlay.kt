@@ -60,6 +60,12 @@ fun BoxScope.ControlOverlay(
     onDirectionTick: () -> Unit = onControlDown,
     onLightDown: () -> Unit = onControlDown,
     onShoulderDown: () -> Unit = onControlDown,
+    // Alpha.14 — the joystick dead zone in effect for this
+    // game, in units of full travel: the per-game override
+    // when it has one, otherwise the global slider value.
+    // The default is the shipped 0.22. It reaches only the
+    // stick — the D-pad keeps its own fixed dead zone.
+    deadZone: Float = StickInput.DEAD_ZONE,
     // Alpha.10 (Part D) — the FF / 0.5x / RW buttons live in
     // the overlay now: they render from the layout like every
     // other control, and only when their Settings toggle is on
@@ -115,6 +121,7 @@ fun BoxScope.ControlOverlay(
                 onDirectionTick = onDirectionTick,
                 onLightDown = onLightDown,
                 onShoulderDown = onShoulderDown,
+                deadZone = deadZone,
                 slowOn = slowOn,
                 onFfDown = onFfDown, onFfUp = onFfUp, onSlowToggle = onSlowToggle,
                 onRwDown = onRwDown, onRwUp = onRwUp,
@@ -156,6 +163,10 @@ fun ControlButton(
     onDirectionTick: () -> Unit = onControlDown,
     onLightDown: () -> Unit = onControlDown,
     onShoulderDown: () -> Unit = onControlDown,
+    // Alpha.14 — the joystick dead zone (see ControlOverlay):
+    // the per-game override when it has one, otherwise the
+    // global slider value. The D-pad never reads it.
+    deadZone: Float = StickInput.DEAD_ZONE,
     // Alpha.10 (Part D) — the FF / 0.5x / RW actions. The
     // editor previews with the defaults (no-ops): a press
     // there is inert, the game is paused. Visibility is the
@@ -189,6 +200,7 @@ fun ControlButton(
                 baseColor = Color(theme.dpadWell), nubColor = Color(theme.dpadCross),
                 accentColor = pressed,
                 sizeDp = spec.sizeDp.dp,
+                deadZone = deadZone,
             )
         }
         ControlId.A -> HoldButton(

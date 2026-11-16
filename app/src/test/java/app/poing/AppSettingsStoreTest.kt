@@ -401,6 +401,41 @@ class AppSettingsStoreTest {
     }
 
     @Test
+    fun stickDeadZoneDefaultsTwentyTwoAndRoundTripsOnlyOfferedValues() {
+        // Alpha.14 — the joystick dead-zone slider, 0–50%,
+        // 22 by default (the fixed 0.22 that shipped in
+        // alpha.10, unchanged on install).
+        val s = store()
+        assertEquals(22, s.stickDeadZonePct())
+        assertEquals(0.22f, s.stickDeadZone(), 0f)
+        assertTrue(s.setStickDeadZonePct(30))
+        assertEquals(30, s.stickDeadZonePct())
+        assertEquals(0.3f, s.stickDeadZone(), 0f)
+        assertEquals(30, AppSettingsStore(temp.root).stickDeadZonePct())
+        assertTrue(s.setStickDeadZonePct(0))
+        assertEquals(0f, s.stickDeadZone(), 0f)
+        assertTrue(s.setStickDeadZonePct(50))
+        assertEquals(0.5f, s.stickDeadZone(), 0f)
+        // -1, 51 and anything else are rejected and change nothing.
+        assertFalse(s.setStickDeadZonePct(-1))
+        assertFalse(s.setStickDeadZonePct(51))
+        assertEquals(50, s.stickDeadZonePct())
+    }
+
+    @Test
+    fun stickDeadZoneClampsStaleValues() {
+        // A hand-edited value outside 0–50 reads clamped,
+        // never out of range.
+        val s = store()
+        java.io.File(temp.root, "app-settings.properties")
+            .writeText("controls.stickDeadZone=99\n")
+        assertEquals(50, AppSettingsStore(temp.root).stickDeadZonePct())
+        java.io.File(temp.root, "app-settings.properties")
+            .writeText("controls.stickDeadZone=-10\n")
+        assertEquals(0, AppSettingsStore(temp.root).stickDeadZonePct())
+    }
+
+    @Test
     fun edgeSmoothingDefaultsOffAndRoundTrips() {
         // Phase 9 — off by default: edge smoothing is an
         // alternative to the chains, never the default look.

@@ -32,6 +32,7 @@ class AppSettingsStore(private val root: File) {
         const val KEY_HAPTICS_STRENGTH = "haptics_strength"
         const val KEY_REWIND_CONTROL = "rewind_control_visible"
         const val KEY_LEFT_CONTROL = "controls.leftControl"
+        const val KEY_STICK_DEAD_ZONE = "controls.stickDeadZone"
         const val KEY_JADE_CHAIN = "display_jade"
         const val KEY_PRISM_CHAIN = "display_prism"
         const val KEY_DUSK_CHAIN = "display_dusk"
@@ -97,6 +98,32 @@ class AppSettingsStore(private val root: File) {
     fun leftControl(): LeftControl = leftControlFromName(readAll()[KEY_LEFT_CONTROL])
     fun setLeftControl(control: LeftControl) =
         write(KEY_LEFT_CONTROL, control.name.lowercase())
+
+    /**
+     * Alpha.14 — the joystick dead zone: the Settings slider,
+     * 0–50%, 22 by default (the fixed 0.22 that shipped in
+     * alpha.10, unchanged on install). Global, not per-system:
+     * it is about the player's thumb and the stick, not the
+     * handheld — the same reasoning as the haptic strength.
+     * A game can override it in the layout editor (see
+     * ControlLayoutStore). A stale or hand-edited value is
+     * clamped into range. Stored as an int percent; the scale
+     * the stick reads is pct / 100.
+     */
+    fun stickDeadZonePct(): Int {
+        val raw = readAll()[KEY_STICK_DEAD_ZONE]?.toIntOrNull()
+            ?: return StickInput.DEAD_ZONE_DEFAULT_PCT
+        return raw.coerceIn(StickInput.DEAD_ZONE_MIN_PCT, StickInput.DEAD_ZONE_MAX_PCT)
+    }
+
+    fun stickDeadZone(): Float = stickDeadZonePct() / 100f
+
+    /** False (and nothing stored) when the zone is not one the slider offers. */
+    fun setStickDeadZonePct(pct: Int): Boolean {
+        if (pct !in StickInput.DEAD_ZONE_MIN_PCT..StickInput.DEAD_ZONE_MAX_PCT) return false
+        write(KEY_STICK_DEAD_ZONE, pct.toString())
+        return true
+    }
 
     /** The rewind control (hold to step back through the last 30 seconds): off by default (the standing overlay rule). */
     fun rewindControlVisible(): Boolean = readBoolean(KEY_REWIND_CONTROL, false)

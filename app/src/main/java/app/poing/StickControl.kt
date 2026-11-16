@@ -99,6 +99,14 @@ fun StickControl(
     accentColor: Color = PoingPurple,
     sizeDp: Dp = 144.dp,
     grabMarginDp: Dp = 8.dp,
+    // Alpha.14 — the dead zone in effect for this game, in
+    // units of full travel: the per-game override when it has
+    // one, otherwise the global slider value. The default is
+    // the shipped 0.22, so every existing caller keeps the
+    // old behaviour unless it passes a value. The nub still
+    // tracks the finger inside the zone — only the direction
+    // is gated, never the visual.
+    deadZone: Float = StickInput.DEAD_ZONE,
 ) {
     var sizePx by remember { mutableStateOf(0f) }
     var sizePy by remember { mutableStateOf(0f) }
@@ -184,7 +192,7 @@ fun StickControl(
                             raw
                         }
                         knob = clamped * 0.45f
-                        setDirection(StickInput.direction(cx, cy))
+                        setDirection(StickInput.direction(cx, cy, deadZone))
                     }
                     try {
                         updateKnob(down.position)

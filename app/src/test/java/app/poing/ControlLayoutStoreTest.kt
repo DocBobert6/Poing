@@ -325,4 +325,61 @@ class ControlLayoutStoreTest {
         java.io.File(dir, "abc123.leftcontrol").writeText("banana")
         assertEquals(null, store.leftControlOverride("abc123"))
     }
+
+    // Alpha.14 — the per-game joystick dead-zone override, in
+    // its own small file beside the layout file: the layout's
+    // save/clear rules must never wipe it, or be wiped by it.
+    @Test
+    fun `stick dead-zone override is null by default`() {
+        assertEquals(null, store.stickDeadZoneOverridePct("abc123"))
+    }
+
+    @Test
+    fun `stick dead-zone override round-trips and clears`() {
+        store.setStickDeadZoneOverridePct("abc123", 30)
+        assertEquals(30, store.stickDeadZoneOverridePct("abc123"))
+        assertEquals(30, ControlLayoutStore(dir).stickDeadZoneOverridePct("abc123"))
+        store.setStickDeadZoneOverridePct("abc123", 0)
+        assertEquals(0, store.stickDeadZoneOverridePct("abc123"))
+        store.setStickDeadZoneOverridePct("abc123", null)
+        assertEquals(null, store.stickDeadZoneOverridePct("abc123"))
+        // Clearing deletes the file: a later load must not
+        // resurrect the override.
+        assertFalse(java.io.File(dir, "abc123.stickdeadzone").exists())
+    }
+
+    @Test
+    fun `stick dead-zone override survives a layout save and clear`() {
+        store.setStickDeadZoneOverridePct("abc123", 35)
+        store.save("abc123", ControlLayout.DEFAULT.moved(ControlId.A, 0.9f, 0.4f, grouped = false))
+        assertEquals(35, store.stickDeadZoneOverridePct("abc123"))
+        store.clearOverride("abc123")
+        assertEquals(35, store.stickDeadZoneOverridePct("abc123"))
+    }
+
+    @Test
+    fun `stick dead-zone override does not leak between games`() {
+        store.setStickDeadZoneOverridePct("abc123", 30)
+        assertEquals(null, store.stickDeadZoneOverridePct("def456"))
+    }
+
+    @Test
+    fun `an unreadable stick dead-zone override reads as no override`() {
+        java.io.File(dir, "abc123.stickdeadzone").writeText("banana")
+        assertEquals(null, store.stickDeadZoneOverridePct("abc123"))
+        java.io.File(dir, "abc123.stickdeadzone").writeText("99")
+        assertEquals(null, store.stickDeadZoneOverridePct("abc123"))
+    }
+
+    @Test
+    fun `resolved dead zone prefers the override over the global value`() {
+        // No override: the global value wins.
+        assertEquals(22, store.resolvedStickDeadZonePct("abc123", 22))
+        // An override wins over the global value.
+        store.setStickDeadZoneOverridePct("abc123", 35)
+        assertEquals(35, store.resolvedStickDeadZonePct("abc123", 22))
+        // Clearing the override falls back to the global value.
+        store.setStickDeadZoneOverridePct("abc123", null)
+        assertEquals(30, store.resolvedStickDeadZonePct("abc123", 30))
+    }
 }

@@ -107,6 +107,56 @@ class ControlLayoutStore(private val layoutsDir: File) {
     }
 
     /**
+     * Alpha.14 — a game's joystick dead-zone override, in its
+     * own small file beside the layout file (`<base>.stickdeadzone`,
+     * holding an int percent). It lives apart from the layout
+     * on purpose, for the same reason the left-control choice
+     * does: the layout file's save/clear rules must never be
+     * able to wipe — or be wiped by — the override. A missing
+     * file (or an unreadable or out-of-range one) means no
+     * override: the game follows the global default.
+     */
+    private fun stickDeadZoneFile(base: String): File = File(layoutsDir, "$base.stickdeadzone")
+
+    /** This game's dead-zone override in percent, or null when it follows the global default. */
+    fun stickDeadZoneOverridePct(base: String): Int? {
+        val f = stickDeadZoneFile(base)
+        if (!f.exists()) return null
+        val raw = try {
+            f.readText().trim().toIntOrNull()
+        } catch (_: Exception) {
+            return null
+        } ?: return null
+        return raw.takeIf { it in StickInput.DEAD_ZONE_MIN_PCT..StickInput.DEAD_ZONE_MAX_PCT }
+    }
+
+    /** Store (or clear, with null) this game's dead-zone override. An out-of-range value is ignored. */
+    fun setStickDeadZoneOverridePct(base: String, pct: Int?) {
+        if (pct != null && pct !in StickInput.DEAD_ZONE_MIN_PCT..StickInput.DEAD_ZONE_MAX_PCT) return
+        try {
+            val f = stickDeadZoneFile(base)
+            if (pct == null) {
+                f.delete()
+            } else {
+                f.parentFile?.mkdirs()
+                f.writeText(pct.toString())
+            }
+        } catch (_: Exception) {
+            // A failed write leaves the previous choice in place.
+        }
+    }
+
+    /**
+     * Alpha.14 — the dead zone in effect for a game, in
+     * percent: the game's own override when it has one,
+     * otherwise the global value the caller passes in.
+     * The resolution order, pinned in ControlLayoutStoreTest:
+     * per-game override wins over the global default.
+     */
+    fun resolvedStickDeadZonePct(base: String, globalPct: Int): Int =
+        stickDeadZoneOverridePct(base) ?: globalPct
+
+    /**
      * The resolution order, pinned in ControlLayoutStoreTest:
      * a game's own file wins; otherwise its handheld's
      * default; otherwise ControlLayout.DEFAULT.

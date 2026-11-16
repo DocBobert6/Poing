@@ -80,7 +80,20 @@ fun LayoutEditor(
     leftControlDefault: LeftControl = LeftControl.DPAD,
     leftControlOverride: LeftControl? = null,
     showLeftControlChoice: Boolean = false,
-    onDone: (ControlLayout, LeftControl?) -> Unit,
+    // Alpha.14 — the joystick dead zone for the game being
+    // edited, in percent. [deadZoneDefaultPct] is the global
+    // slider value (what "Global" previews to);
+    // [deadZoneOverridePct] is this game's stored override,
+    // null when it follows the global default.
+    // [showDeadZoneChoice] shows the stepper row — the
+    // per-game editor only, and only while the stick is the
+    // control in the slot (the dead zone is the stick's, the
+    // D-pad keeps its own fixed one). [onDone] commits the
+    // layout AND both draft overrides (null = follow global).
+    deadZoneDefaultPct: Int = StickInput.DEAD_ZONE_DEFAULT_PCT,
+    deadZoneOverridePct: Int? = null,
+    showDeadZoneChoice: Boolean = false,
+    onDone: (ControlLayout, LeftControl?, Int?) -> Unit,
     onBack: () -> Unit,
     // Overlay defaults (Robert, 2026-11-14): what Reset
     // restores. The player passes the game's handheld
@@ -98,6 +111,14 @@ fun LayoutEditor(
     // The control the editor previews: the draft override,
     // or the global default while the game follows it.
     val leftControlPreview = leftControlDraft ?: leftControlDefault
+    // Alpha.14 — the dead-zone draft: the override until Done,
+    // like the left-control draft. Null means this game
+    // follows the global slider. Reset is layout-only (see
+    // the Reset pill): it never touches this draft either.
+    var deadZoneDraftPct by remember { mutableStateOf(deadZoneOverridePct) }
+    // The dead zone the editor previews: the draft override,
+    // or the global slider value while the game follows it.
+    val deadZonePreviewPct = deadZoneDraftPct ?: deadZoneDefaultPct
     var selectedId by remember { mutableStateOf<ControlId?>(null) }
     var snapOn by remember { mutableStateOf(true) }
     var grouped by remember { mutableStateOf(true) }
@@ -137,6 +158,10 @@ fun LayoutEditor(
                     // choice, so switching D-pad / Joystick
                     // shows the live control in its slot.
                     leftControl = leftControlPreview,
+                    // Alpha.14 — the editor previews the draft
+                    // dead zone, so stepping it shows the live
+                    // stick with that zone in its slot.
+                    deadZone = deadZonePreviewPct / 100f,
                     onSelect = { selectedId = spec.id },
                     onMove = { cx, cy ->
                         draft = draft.moved(spec.id, cx, cy, grouped)
@@ -160,7 +185,7 @@ fun LayoutEditor(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 EditorPill("Back", "editor-back") { onBack() }
-                EditorPill("Done", "editor-done") { onDone(draft, leftControlDraft) }
+                EditorPill("Done", "editor-done") { onDone(draft, leftControlDraft, deadZoneDraftPct) }
                 EditorPill("Reset", "editor-reset") {
                     draft = resetLayout
                     selectedId = null
@@ -186,6 +211,39 @@ fun LayoutEditor(
                     }
                     EditorChoicePill("Joystick", leftControlDraft == LeftControl.STICK, "editor-left-control-stick") {
                         leftControlDraft = LeftControl.STICK
+                    }
+                }
+            }
+            // Alpha.14 — the joystick dead zone for this game,
+            // only while the stick is the control in the slot:
+            // the D-pad has no dead zone to set. A stepper in
+            // 5% steps, like the opacity stepper, plus a Global
+            // pill that clears the override. Stepping while the
+            // game follows the global slider starts an override
+            // from that value; the label shows the value in
+            // effect and "(Global)" while it follows the slider.
+            if (showDeadZoneChoice && leftControlPreview == LeftControl.STICK) {
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    EditorPill("−", "editor-dead-zone-minus") {
+                        val base = deadZoneDraftPct ?: deadZoneDefaultPct
+                        deadZoneDraftPct = (base - StickInput.DEAD_ZONE_STEP_PCT)
+                            .coerceIn(StickInput.DEAD_ZONE_MIN_PCT, StickInput.DEAD_ZONE_MAX_PCT)
+                    }
+                    EditorPillLabel(
+                        "Dead zone $deadZonePreviewPct%" +
+                            if (deadZoneDraftPct == null) " (Global)" else "",
+                        "editor-dead-zone-value",
+                    )
+                    EditorPill("+", "editor-dead-zone-plus") {
+                        val base = deadZoneDraftPct ?: deadZoneDefaultPct
+                        deadZoneDraftPct = (base + StickInput.DEAD_ZONE_STEP_PCT)
+                            .coerceIn(StickInput.DEAD_ZONE_MIN_PCT, StickInput.DEAD_ZONE_MAX_PCT)
+                    }
+                    EditorChoicePill("Global", deadZoneDraftPct == null, "editor-dead-zone-global") {
+                        deadZoneDraftPct = null
                     }
                 }
             }
@@ -333,6 +391,10 @@ private fun EditorControl(
     // left-hand slot (the draft choice, or the global default
     // while the game follows it).
     leftControl: LeftControl = LeftControl.DPAD,
+    // Alpha.14 — the dead zone the editor previews in the
+    // stick (the draft override, or the global slider value
+    // while the game follows it).
+    deadZone: Float = StickInput.DEAD_ZONE,
     onSelect: () -> Unit,
     onMove: (Float, Float) -> Unit,
 ) {
@@ -396,6 +458,7 @@ private fun EditorControl(
             onDirectionTick = onDirectionTick,
             onLightDown = onLightDown,
             onShoulderDown = onShoulderDown,
+            deadZone = deadZone,
         )
         // A selected control shows its exact size in dp inside
         // itself, Mariner's model — a small gold label at its

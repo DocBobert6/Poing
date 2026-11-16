@@ -97,6 +97,11 @@ fun AppSettingsScreen(
     // cross, or a joystick. Global default, D-pad; a game can
     // override it in the layout editor.
     var leftControl by remember { mutableStateOf(store.leftControl()) }
+    // Alpha.14 — the joystick dead zone: the slider, 0–50%,
+    // 22 by default. Global, not per-system: it is about the
+    // player's thumb, not the handheld; a game can override
+    // it in the layout editor.
+    var stickDeadZone by remember { mutableStateOf(store.stickDeadZonePct()) }
     var rewindControl by remember { mutableStateOf(store.rewindControlVisible()) }
     // Player chrome (Robert, 2026-11-12) — the dev stats:
     // when on, the top bar stays visible during gameplay;
@@ -403,6 +408,53 @@ fun AppSettingsScreen(
                                 Text(label)
                             }
                         }
+                    }
+                }
+            }
+            // Alpha.14 — the joystick dead zone, beside the
+            // left-control row it belongs to: 0–50% in steps
+            // of 5, 22 by default (the feel that shipped in
+            // alpha.10). 0 is raw — no dead zone at all, like
+            // the real D-pad; a bigger zone means a wider
+            // neutral area in the middle of the stick, which
+            // is what steering in a racing game wants. The
+            // value writes when the drag ends, not on every
+            // step — same as the haptic strength slider. It
+            // shows always, not only while the joystick is the
+            // global left control: a game can use the stick
+            // through its own override while the global is the
+            // D-pad, and the zone applies there too.
+            item {
+                Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
+                    Text(
+                        "Joystick dead zone",
+                        style = MaterialTheme.typography.titleMedium,
+                    )
+                    Text(
+                        "How far you push the joystick before a direction engages, from 0 (no dead zone) to 50 percent. 22 by default — change it for one game in the layout editor.",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                    Row(
+                        modifier = Modifier.padding(top = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Slider(
+                            value = stickDeadZone.toFloat(),
+                            onValueChange = { stickDeadZone = it.toInt() },
+                            onValueChangeFinished = {
+                                store.setStickDeadZonePct(stickDeadZone)
+                            },
+                            valueRange = 0f..50f,
+                            steps = 9,
+                            modifier = Modifier
+                                .weight(1f)
+                                .testTag("stick-dead-zone-slider"),
+                        )
+                        Text(
+                            "$stickDeadZone%",
+                            style = MaterialTheme.typography.bodyMedium,
+                            modifier = Modifier.padding(start = 12.dp),
+                        )
                     }
                 }
             }
@@ -1014,7 +1066,7 @@ fun AppSettingsScreen(
             held = editorHeld,
             onInputChanged = {},
             onControlDown = {},
-            onDone = { draft, _ ->
+            onDone = { draft, _, _ ->
                 if (draft == ControlLayout.DEFAULT) layoutStore.clearDefault(editingSystem)
                 else layoutStore.saveDefault(editingSystem, draft)
                 defaultsNonce++

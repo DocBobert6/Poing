@@ -43,6 +43,7 @@ class LayoutEditorTest {
 
     private var committed: ControlLayout? = null
     private var committedChoice: LeftControl? = null
+    private var committedDeadZone: Int? = null
 
     private fun setContent(
         isGba: Boolean = false,
@@ -54,9 +55,16 @@ class LayoutEditorTest {
         showLeftControlChoice: Boolean = false,
         leftControlDefault: LeftControl = LeftControl.DPAD,
         leftControlOverride: LeftControl? = null,
+        // Alpha.14 — the per-game joystick dead zone: the
+        // stepper row shows only when showDeadZoneChoice is
+        // true and the stick is the control in the slot.
+        showDeadZoneChoice: Boolean = false,
+        deadZoneDefaultPct: Int = StickInput.DEAD_ZONE_DEFAULT_PCT,
+        deadZoneOverridePct: Int? = null,
     ) {
         committed = null
         committedChoice = null
+        committedDeadZone = null
         composeRule.setContent {
             PoingTheme {
                 LayoutEditor(
@@ -69,9 +77,13 @@ class LayoutEditorTest {
                     leftControlDefault = leftControlDefault,
                     leftControlOverride = leftControlOverride,
                     showLeftControlChoice = showLeftControlChoice,
-                    onDone = { layout, choice ->
+                    deadZoneDefaultPct = deadZoneDefaultPct,
+                    deadZoneOverridePct = deadZoneOverridePct,
+                    showDeadZoneChoice = showDeadZoneChoice,
+                    onDone = { layout, choice, deadZonePct ->
                         committed = layout
                         committedChoice = choice
+                        committedDeadZone = deadZonePct
                     },
                     onBack = {},
                     resetLayout = resetLayout,
@@ -310,5 +322,76 @@ class LayoutEditorTest {
         composeRule.onNodeWithTag("editor-reset").performClick()
         composeRule.onNodeWithTag("editor-done").performClick()
         assertEquals(LeftControl.STICK, committedChoice)
+    }
+
+    // Alpha.14 — the per-game joystick dead zone: the stepper
+    // row shows only in the per-game editor while the stick is
+    // the control in the slot, stepping creates an override
+    // from the global value, Global clears it, Done commits it
+    // with the layout, and Reset never touches the draft.
+    @Test
+    fun deadZoneRowHiddenWithoutTheChoiceOrWithTheDpad() {
+        setContent(leftControlOverride = LeftControl.STICK)
+        composeRule.onAllNodesWithTag("editor-dead-zone-value").assertCountEquals(0)
+        setContent(showDeadZoneChoice = true)
+        composeRule.onAllNodesWithTag("editor-dead-zone-value").assertCountEquals(0)
+    }
+
+    @Test
+    fun deadZoneRowShowsTheGlobalValueForTheStick() {
+        setContent(showDeadZoneChoice = true, leftControlOverride = LeftControl.STICK)
+        composeRule.onNodeWithText("Dead zone 22% (Global)").assertIsDisplayed()
+    }
+
+    @Test
+    fun deadZoneStepperCreatesAnOverrideAndDoneCommitsIt() {
+        setContent(showDeadZoneChoice = true, leftControlOverride = LeftControl.STICK)
+        composeRule.onNodeWithTag("editor-dead-zone-plus").performClick()
+        composeRule.onNodeWithText("Dead zone 27%").assertIsDisplayed()
+        composeRule.onNodeWithTag("editor-dead-zone-minus").performClick()
+        composeRule.onNodeWithText("Dead zone 22%").assertIsDisplayed()
+        composeRule.onNodeWithTag("editor-dead-zone-plus").performClick()
+        composeRule.onNodeWithTag("editor-done").performClick()
+        assertEquals(27, committedDeadZone)
+    }
+
+    @Test
+    fun deadZoneGlobalClearsTheOverride() {
+        setContent(
+            showDeadZoneChoice = true,
+            leftControlOverride = LeftControl.STICK,
+            deadZoneOverridePct = 30,
+        )
+        composeRule.onNodeWithText("Dead zone 30%").assertIsDisplayed()
+        composeRule.onNodeWithTag("editor-dead-zone-global").performClick()
+        composeRule.onNodeWithText("Dead zone 22% (Global)").assertIsDisplayed()
+        composeRule.onNodeWithTag("editor-done").performClick()
+        assertEquals(null, committedDeadZone)
+    }
+
+    @Test
+    fun deadZoneRowHidesWhenTheDpadIsChosenButTheOverrideSurvives() {
+        setContent(
+            showLeftControlChoice = true,
+            showDeadZoneChoice = true,
+            leftControlOverride = LeftControl.STICK,
+            deadZoneOverridePct = 30,
+        )
+        composeRule.onNodeWithText("Dead zone 30%").assertIsDisplayed()
+        composeRule.onNodeWithTag("editor-left-control-dpad").performClick()
+        composeRule.onAllNodesWithTag("editor-dead-zone-value").assertCountEquals(0)
+        // The hidden override is still committed: switching
+        // away from the stick does not wipe it.
+        composeRule.onNodeWithTag("editor-done").performClick()
+        assertEquals(30, committedDeadZone)
+    }
+
+    @Test
+    fun resetLeavesTheDeadZoneOverrideAlone() {
+        setContent(showDeadZoneChoice = true, leftControlOverride = LeftControl.STICK)
+        composeRule.onNodeWithTag("editor-dead-zone-plus").performClick()
+        composeRule.onNodeWithTag("editor-reset").performClick()
+        composeRule.onNodeWithTag("editor-done").performClick()
+        assertEquals(27, committedDeadZone)
     }
 }

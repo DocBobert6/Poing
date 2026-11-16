@@ -105,4 +105,38 @@ class StickInputTest {
         assertFalse(ActuationDetector.isActuation(right, right or a))
         assertTrue(ActuationDetector.isActuation(right or a, up))
     }
+
+    @Test
+    fun zeroDeadZoneIsRaw() {
+        // Alpha.14 — 0% is no dead zone at all, like the real
+        // D-pad: the smallest push already reports.
+        assertEquals(right, StickInput.direction(0.05f, 0f, 0f))
+    }
+
+    @Test
+    fun halfDeadZoneSwallowsHalfTheTravel() {
+        // Alpha.14 — 50% is the practical max: half the travel
+        // is neutral, and a push just past it reports.
+        assertEquals(0, StickInput.direction(0.49f, 0f, 0.5f))
+        assertEquals(right, StickInput.direction(0.51f, 0f, 0.5f))
+    }
+
+    @Test
+    fun defaultDeadZoneIsStillTwentyTwoPercent() {
+        // Alpha.14 — the default parameter is the shipped 0.22:
+        // the slider's 22 is the old fixed zone, unchanged.
+        assertEquals(0.22f, StickInput.DEAD_ZONE)
+        assertEquals(0, StickInput.direction(0.21f, 0f, StickInput.DEAD_ZONE))
+        assertEquals(right, StickInput.direction(0.23f, 0f, StickInput.DEAD_ZONE))
+    }
+
+    @Test
+    fun aboveTheZoneTheGateIsUnchanged() {
+        // Alpha.14 — the dead zone is a pure gate: above it the
+        // ratio rule is exactly as before, at any zone size.
+        val diagonal = StickInput.direction(1f, -0.35f, 0.5f)
+        assertTrue(diagonal and up != 0)
+        assertTrue(diagonal and right != 0)
+        assertEquals(right, StickInput.direction(1f, -0.2f, 0.5f))
+    }
 }

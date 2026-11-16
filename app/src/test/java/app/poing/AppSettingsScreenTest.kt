@@ -269,6 +269,46 @@ class AppSettingsScreenTest {
     }
 
     @Test
+    fun stickDeadZoneSliderShownWithTheDefault() {
+        // Alpha.14 — the joystick dead-zone slider lives
+        // under the Left control row, 22 by default. The
+        // list is a LazyColumn: scroll it to the slider
+        // first, or the row is not composed in the small
+        // test window (the item 5b lesson).
+        val s = store()
+        composeRule.setContent {
+            PoingTheme {
+                AppSettingsScreen(store = s, onCoreOptions = {}, onBack = { })
+            }
+        }
+        composeRule.onNodeWithTag("settings-list")
+            .performScrollToNode(hasTestTag("stick-dead-zone-slider"))
+        composeRule.onNodeWithText("Joystick dead zone").assertIsDisplayed()
+        composeRule.onNodeWithText("22%").assertIsDisplayed()
+        assertEquals(22, AppSettingsStore(temp.root).stickDeadZonePct())
+    }
+
+    @Test
+    fun movingStickDeadZoneSliderPersists() {
+        // Alpha.14 — setting the slider to 30 writes 30 to
+        // the store (steps of 5: 30 is a valid stop).
+        // SetProgress takes the TARGET VALUE in the slider's
+        // range (0..50 here), not a fraction.
+        val s = store()
+        composeRule.setContent {
+            PoingTheme {
+                AppSettingsScreen(store = s, onCoreOptions = {}, onBack = { })
+            }
+        }
+        composeRule.onNodeWithTag("settings-list")
+            .performScrollToNode(hasTestTag("stick-dead-zone-slider"))
+        composeRule.onNodeWithTag("stick-dead-zone-slider")
+            .performSemanticsAction(SemanticsActions.SetProgress) { it(30f) }
+        assertEquals(30, AppSettingsStore(temp.root).stickDeadZonePct())
+        composeRule.onNodeWithText("30%").assertIsDisplayed()
+    }
+
+    @Test
     fun devStatsOffByDefaultAndTogglingPersists() {
         val s = store()
         composeRule.setContent {
@@ -276,11 +316,12 @@ class AppSettingsScreenTest {
                 AppSettingsScreen(store = s, onCoreOptions = {}, onBack = { })
             }
         }
-        // The Dev stats row is index 9 (header, Player,
+        // The Dev stats row is index 11 (header, Player,
         // fast-forward, input display, haptics, haptics
-        // strength, RA title, RA, rewind, Dev stats) — the
-        // last Player row before the Display title.
-        composeRule.onNodeWithTag("settings-list").performScrollToIndex(9)
+        // strength, left control, dead zone, RA title, RA,
+        // rewind, Dev stats) — the last Player row before
+        // the Display title.
+        composeRule.onNodeWithTag("settings-list").performScrollToIndex(11)
         composeRule.onNodeWithText("Dev stats").assertIsDisplayed()
         assertFalse(AppSettingsStore(temp.root).devStatsEnabled())
         composeRule.onNodeWithTag("dev-stats-switch").performClick()
@@ -393,12 +434,12 @@ class AppSettingsScreenTest {
                 AppSettingsScreen(store = s, onCoreOptions = {}, onBack = { })
             }
         }
-        // The colour row is index 13 here (header, Player,
+        // The colour row is index 15 here (header, Player,
         // fast-forward, input display, haptics, haptics
-        // strength, RA title, RA, rewind, Dev stats,
-        // Handheld title, handheld rows, Display title,
-        // colour row).
-        composeRule.onNodeWithTag("settings-list").performScrollToIndex(13)
+        // strength, left control, dead zone, RA title, RA,
+        // rewind, Dev stats, Handheld title, handheld rows,
+        // Display title, colour row).
+        composeRule.onNodeWithTag("settings-list").performScrollToIndex(15)
         composeRule.onNodeWithText("Worm Light colour").assertIsDisplayed()
         assertEquals(WormLightColor.DEFAULT, AppSettingsStore(temp.root).wormLightColor())
         composeRule.onNodeWithTag("worm-light-color-ATOMIC_PURPLE").performClick()
@@ -441,12 +482,13 @@ class AppSettingsScreenTest {
                 AppSettingsScreen(store = s, onCoreOptions = {}, onBack = { })
             }
         }
-        // The row is index 15 here (header, Player,
+        // The row is index 17 here (header, Player,
         // fast-forward, input display, haptics, haptics
-        // strength, RA title, RA, rewind, Dev stats,
-        // Handheld title, handheld rows, Display title,
-        // colour row, Library title, cover-art row).
-        composeRule.onNodeWithTag("settings-list").performScrollToIndex(15)
+        // strength, left control, dead zone, RA title, RA,
+        // rewind, Dev stats, Handheld title, handheld rows,
+        // Display title, colour row, Library title,
+        // cover-art row).
+        composeRule.onNodeWithTag("settings-list").performScrollToIndex(17)
         composeRule.onNodeWithText("Download cover art over mobile data").assertIsDisplayed()
         assertFalse(AppSettingsStore(temp.root).coverArtMobileDataAllowed())
         composeRule.onNodeWithTag("cover-art-mobile-data-switch").performClick()

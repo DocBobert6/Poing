@@ -199,6 +199,18 @@ fun GameScreen(
     var leftControl by remember(gamePath) {
         mutableStateOf(layoutStore.leftControlOverride(saveBase) ?: appSettings.leftControl())
     }
+    // Alpha.14 — the joystick dead zone for this game, in
+    // units of full travel: the game's own override when it
+    // has one, otherwise the global slider value (22% by
+    // default). Resolved once per game, like the left
+    // control: it can only change in Settings or in the
+    // layout editor, never mid-game. Mutable so the editor's
+    // Done can commit a new zone for this game at once.
+    var deadZone by remember(gamePath) {
+        mutableStateOf(
+            layoutStore.resolvedStickDeadZonePct(saveBase, appSettings.stickDeadZonePct()) / 100f,
+        )
+    }
     // The handheld default, snapshotted with the game like the
     // other player settings: it is what the editor's Reset
     // restores, and what Done falls back to when the draft
@@ -892,6 +904,9 @@ fun GameScreen(
             onLightDown = onLightDown,
             onShoulderDown = onShoulderDown,
             leftControl = leftControl,
+            // Alpha.14 — the dead zone in effect for this game
+            // (per-game override, or the global slider value).
+            deadZone = deadZone,
             // Alpha.10 (Part D) — FF / 0.5x / RW live in the
             // overlay now (see ControlOverlay): the same
             // hold/toggle behaviour the fixed Row had, at the
@@ -1210,12 +1225,20 @@ fun GameScreen(
                 leftControlDefault = appSettings.leftControl(),
                 leftControlOverride = layoutStore.leftControlOverride(saveBase),
                 showLeftControlChoice = true,
-                onDone = { draft, choice ->
+                // Alpha.14 — the per-game dead zone: the editor
+                // shows the stepper for this game, and Done
+                // commits the override with the layout.
+                deadZoneDefaultPct = appSettings.stickDeadZonePct(),
+                deadZoneOverridePct = layoutStore.stickDeadZoneOverridePct(saveBase),
+                showDeadZoneChoice = true,
+                onDone = { draft, choice, deadZonePct ->
                     layout = draft
                     if (draft == handheldDefault) layoutStore.clearOverride(saveBase)
                     else layoutStore.save(saveBase, draft)
                     layoutStore.setLeftControlOverride(saveBase, choice)
                     leftControl = choice ?: appSettings.leftControl()
+                    layoutStore.setStickDeadZoneOverridePct(saveBase, deadZonePct)
+                    deadZone = (deadZonePct ?: appSettings.stickDeadZonePct()) / 100f
                     editingLayout = false
                 },
                 onBack = { editingLayout = false },

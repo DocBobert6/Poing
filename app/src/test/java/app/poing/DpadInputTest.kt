@@ -35,4 +35,14 @@ class DpadInputTest {
         assertEquals(0, DpadInput.directionFromPress(72f, 72f, 0f))
         assertEquals(0, DpadInput.directionFromPress(72f, 72f, -10f))
     }
+
+    @Test
+    fun deadZoneIsUnchangedAtTwentyTwoPercent() {
+        // Alpha.14 — the dead-zone slider is the stick only:
+        // the D-pad keeps its fixed 0.22, untouched. A press
+        // 10px off the centre of a 144dp pad (0.139 of full
+        // travel) stays inside it and reports nothing.
+        assertEquals(0.22f, DpadInput.DEAD_ZONE)
+        assertEquals(0, DpadInput.directionFromPress(82f, 72f, 144f))
+    }
 }

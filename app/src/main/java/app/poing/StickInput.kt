@@ -35,6 +35,20 @@ object StickInput {
     /** Inside this fraction of full travel, no direction is active (a thumb resting near the centre does nothing). */
     const val DEAD_ZONE = 0.22f
 
+    /**
+     * Alpha.14 — the adjustable dead zone, in percent of full
+     * travel: 0–50 in steps of 5, 22 by default — the fixed
+     * 0.22 that shipped in alpha.10, unchanged on install.
+     * 0 is raw (no dead zone at all, like the real D-pad);
+     * 50 is the practical max (half the travel neutral).
+     * The Settings slider offers the steps; the stores clamp
+     * any value into range.
+     */
+    const val DEAD_ZONE_MIN_PCT = 0
+    const val DEAD_ZONE_MAX_PCT = 50
+    const val DEAD_ZONE_DEFAULT_PCT = 22
+    const val DEAD_ZONE_STEP_PCT = 5
+
     /** Ratio of the smaller axis to the larger at which a push
         counts as a diagonal (both directions on). 0.35 gives a
         diagonal band of about 19 to 71 degrees off horizontal
@@ -42,12 +56,20 @@ object StickInput {
         cardinal (each cardinal keeps a ~19-degree band). */
     const val DIAGONAL_RATIO = 0.35f
 
-    /** Direction bits from the knob offset (dx, dy), each in units of full travel. */
-    fun direction(dx: Float, dy: Float): Int {
+    /**
+     * Direction bits from the knob offset (dx, dy), each in units of full travel.
+     * [deadZone] is the gate, in the same units — below it nothing,
+     * above it the exact same ratio rule as always. It is a pure
+     * gate: no rescaling, because the stick outputs directions,
+     * not an analog value, so there is nothing to rescale. The
+     * default is the shipped 0.22, so every existing caller
+     * keeps the old behaviour unless it passes a value.
+     */
+    fun direction(dx: Float, dy: Float, deadZone: Float = DEAD_ZONE): Int {
         val ax = abs(dx)
         val ay = abs(dy)
         val mag = sqrt(dx * dx + dy * dy)
-        if (mag < DEAD_ZONE) return 0
+        if (mag < deadZone) return 0
         // Diagonal when both axes are substantially engaged: the
         // smaller at least DIAGONAL_RATIO of the larger (about
         // 19-71 degrees off horizontal). Otherwise the dominant
