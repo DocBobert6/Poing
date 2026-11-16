@@ -1,20 +1,20 @@
-## Poing! v0.1.0-alpha.25 — Unlock popup slim + movable
+## Poing! v0.1.0-alpha.26 — Tree strip
 
-The twenty-fifth signed alpha of Poing!, the standalone Game Boy / Game Boy Color / Game Boy Advance emulator for Android (mGBA core, one app, arm64-v8a only).
+The twenty-sixth signed alpha of Poing!, the standalone Game Boy / Game Boy Color / Game Boy Advance emulator for Android (mGBA core, one app, arm64-v8a only).
 
-**Install first — read this:** this alpha is signed with the same release key as alpha.1 through alpha.24, so it installs straight over alpha.24 — no uninstall needed, saves and settings carry over. It will **not** install over the debug builds (different key). Uninstall the debug build first. Uninstalling wipes local saves (battery saves + save states); RetroAchievements progress is server-side and safe.
+**Install first — read this:** this alpha is signed with the same release key as alpha.1 through alpha.25, so it installs straight over alpha.25 — no uninstall needed, saves and settings carry over. It will **not** install over the debug builds (different key). Uninstall the debug build first. Uninstalling wipes local saves (battery saves + save states); RetroAchievements progress is server-side and safe.
 
 ## Download
 
-The signed APK is attached to this release: `poing-v0.1.0-alpha.25.apk` (size + SHA-256 in the Build section below).
+The signed APK is attached to this release: `poing-v0.1.0-alpha.26.apk` (size + SHA-256 in the Build section below).
 
-## What changed in alpha.25
+## What changed in alpha.26
 
-- The achievement unlock notify is slim now: one line only — badge + "Achievement Unlocked: \<title\> (+N pts)". The description line drops out of the popup entirely (it still lives in Pause → Achievements and the hub, where it belongs), and the chip is capped at 75% of the game width, so it never spans the full game and covers the HUD the way it did.
-- The popup is movable now: it is an overlay item, so you can drag it and resize it in the layout editor like any other control — per-system default plus per-game override, like the rest. A sample popup shows while editing so the position is visible. The default stays top-centre.
-- It floats over the game now, in the overlay layer, so while it is up it no longer pushes the game down or makes it smaller — the same rule as the alpha.24 chip fix.
-- Nothing else changed: the 4-second auto-clear, the badge, the gold chip style, the scoreboard note, the RA chip and the tracker line are untouched.
-- What you should see: unlock an achievement and the notify is a single slim chip, not a wide two-liner; move it in the editor and it stays where you put it.
+- The repo no longer carries mGBA's test-suite ROMs: the `cinema/` directory is gone — 1,116 files, about 36 MB of blargg and acid test ROMs, baselines and configs that nothing in Poing ever ran.
+- Upstream's own GitHub workflows are gone too (`.github/workflows/compilation.yml`, `crowdin_prep.yml`, `crowdin_translate.yml`). Poing's own CI workflow (`.github/workflows/android.yml`) stays — it is what builds and releases every alpha.
+- The mGBA pin is unchanged at `7a12d6d4`; the tree is simply no longer verbatim. The core builds from the library sources only, exactly as before.
+- Nothing else changed: no app code, no bridge code, no settings, no behaviour. The smaller repo is the whole change.
+- What you should see: nothing different in the app — this one is under the hood.
 
 ## What is in it
 
