@@ -43,6 +43,7 @@ class AppSettingsStore(private val root: File) {
         const val KEY_WORM_LIGHT_COLOR = "display_worm_light_color"
         const val KEY_WORM_LIGHT_COVERAGE = "display_worm_light_coverage"
         const val KEY_OPTICS_DIMMING = "display_optics_dimming"
+        const val KEY_DISPLAY_TRACE = "display_trace"
         const val KEY_DEV_STATS = "dev_stats_visible"
         const val KEY_LIBRARY_VIEW = "library_view"
         const val KEY_COVER_ART_MOBILE_DATA = "cover_art_mobile_data"
@@ -280,6 +281,20 @@ class AppSettingsStore(private val root: File) {
 
     fun setOpticsDimmingEnabled(system: GameSystem, enabled: Boolean) =
         write(systemKey(KEY_OPTICS_DIMMING, system), enabled.toString())
+
+    /**
+     * Alpha.28 — the black-screen trace (Robert, 2026-11-16):
+     * when on, the player records the display path with
+     * timestamps — session start, first frame, surface
+     * creation / change, surface ready, first draw, pause /
+     * resume, orientation — readable from the pause menu.
+     * Off by default: the trace is a diagnostic, not
+     * something a player needs running. Read once per game
+     * (GameScreen snapshots it at game start, like every
+     * other player setting).
+     */
+    fun displayTraceEnabled(): Boolean = readBoolean(KEY_DISPLAY_TRACE, false)
+    fun setDisplayTraceEnabled(enabled: Boolean) = write(KEY_DISPLAY_TRACE, enabled.toString())
 
     /**
      * Player chrome (Robert, 2026-11-12) — the dev stats:

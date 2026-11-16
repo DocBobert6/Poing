@@ -288,6 +288,109 @@ class DisplayRendererTest {
     }
 
     /**
+     * Alpha.28 — the black-screen trace: surface creation
+     * records with the dirty-check state the creation found
+     * (the alpha.20 hole was a recreation finding nothing
+     * pending), surface change records the new geometry,
+     * and the first draw after a creation records the frame
+     * that finally draws — once, not per frame. The hook is
+     * recording-only: with no listener set, the surface
+     * lifecycle is unchanged (the tests above already run
+     * it with no listener).
+     */
+    @Test
+    fun surfaceCreatedRecordsTraceWithDirtyCheckState() {
+        val renderer = DisplayRenderer()
+        val seen = mutableListOf<Pair<String, String>>()
+        renderer.onTrace = { label, detail -> seen.add(label to detail) }
+        renderer.onSurfaceCreated(null, null)
+        assertEquals(1, seen.size)
+        assertEquals("surface created", seen[0].first)
+        assertTrue(seen[0].second.contains("creation #1"))
+        assertTrue(seen[0].second.contains("pending frame: no"))
+        assertTrue(seen[0].second.contains("frameConsumed: true"))
+    }
+
+    @Test
+    fun surfaceCreatedWithPendingFrameRecordsIt() {
+        val renderer = DisplayRenderer()
+        val seen = mutableListOf<Pair<String, String>>()
+        renderer.onTrace = { label, detail -> seen.add(label to detail) }
+        renderer.setFrame(Bitmap.createBitmap(160, 144, Bitmap.Config.ARGB_8888))
+        renderer.onSurfaceCreated(null, null)
+        assertEquals(1, seen.size)
+        assertEquals("surface created", seen[0].first)
+        assertTrue(seen[0].second.contains("pending frame: yes"))
+        assertTrue(seen[0].second.contains("frameConsumed: false"))
+    }
+
+    @Test
+    fun surfaceChangedRecordsNewGeometry() {
+        val renderer = DisplayRenderer()
+        val seen = mutableListOf<Pair<String, String>>()
+        renderer.onTrace = { label, detail -> seen.add(label to detail) }
+        renderer.onSurfaceChanged(null, 800, 600)
+        assertEquals(listOf("surface changed" to "800x600"), seen)
+    }
+
+    @Test
+    fun firstDrawAfterSurfaceCreationRecordsOnce() {
+        val renderer = DisplayRenderer()
+        val seen = mutableListOf<Pair<String, String>>()
+        renderer.onTrace = { label, detail -> seen.add(label to detail) }
+        renderer.setDisplay(
+            DisplayChain.CLEAN,
+            JadeMode.FSTN,
+            EdgeMode.OFF,
+            GameSystem.GB,
+        )
+        renderer.setFrame(Bitmap.createBitmap(160, 144, Bitmap.Config.ARGB_8888))
+        renderer.onSurfaceCreated(null, null)
+        renderer.onSurfaceChanged(null, 800, 600)
+        renderer.onDrawFrame(null)
+        assertEquals(
+            listOf("surface created", "surface changed", "frame drawn"),
+            seen.map { it.first },
+        )
+        assertTrue(seen[2].second.contains("first draw after surface #1"))
+        // A second frame draws without recording again.
+        renderer.setFrame(Bitmap.createBitmap(160, 144, Bitmap.Config.ARGB_8888))
+        renderer.onDrawFrame(null)
+        assertEquals(3, seen.size)
+    }
+
+    @Test
+    fun recreationRecordsFirstDrawAgain() {
+        // The alpha.20 rotation case, traced: the recreation
+        // records its own creation, and the replayed frame's
+        // first draw after it records again.
+        val renderer = DisplayRenderer()
+        val seen = mutableListOf<String>()
+        renderer.onTrace = { label, _ -> seen.add(label) }
+        renderer.setDisplay(
+            DisplayChain.CLEAN,
+            JadeMode.FSTN,
+            EdgeMode.OFF,
+            GameSystem.GB,
+        )
+        renderer.setFrame(Bitmap.createBitmap(160, 144, Bitmap.Config.ARGB_8888))
+        renderer.onSurfaceCreated(null, null)
+        renderer.onSurfaceChanged(null, 800, 600)
+        renderer.onDrawFrame(null)
+        renderer.onSurfaceCreated(null, null)
+        renderer.onSurfaceChanged(null, 800, 600)
+        renderer.setFrame(Bitmap.createBitmap(160, 144, Bitmap.Config.ARGB_8888))
+        renderer.onDrawFrame(null)
+        assertEquals(
+            listOf(
+                "surface created", "surface changed", "frame drawn",
+                "surface created", "surface changed", "frame drawn",
+            ),
+            seen,
+        )
+    }
+
+    /**
      * The rotation case, end to end: the first creation
      * notifies and the first draw consumes the pending
      * frame; the window then rotates, the surface is

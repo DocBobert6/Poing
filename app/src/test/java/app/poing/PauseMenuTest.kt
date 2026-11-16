@@ -6,8 +6,10 @@ import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import java.io.File
+import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.TemporaryFolder
@@ -77,6 +79,30 @@ class PauseMenuTest {
         composeRule.onNodeWithText("Slot 3").performScrollTo().assertIsDisplayed()
         // Four empty slots + the empty auto-save row.
         composeRule.onAllNodesWithText("empty").assertCountEquals(5)
+    }
+
+    @Test
+    fun displayTraceButtonCallsBack() {
+        var called = false
+        composeRule.setContent {
+            PoingTheme {
+                PauseMenu(
+                    gameName = "TETRIS",
+                    session = session(),
+                    pauseMessage = null,
+                    onMessage = {},
+                    onResume = {},
+                    onQuit = {},
+                    onCoreOptions = {},
+                    onDisplayTrace = { called = true },
+                )
+            }
+        }
+        // The button sits near the bottom of the menu, below
+        // the fold in the test window — scroll it into view
+        // before clicking (same as Slot 3).
+        composeRule.onNodeWithText("Display trace").performScrollTo().performClick()
+        assertTrue(called)
     }
 
     @Test

@@ -215,6 +215,19 @@ class AppSettingsStoreTest {
         assertFalse(s.opticsDimmingEnabled())
     }
 
+    @Test
+    fun displayTraceDefaultsOffAndRoundTrips() {
+        // A diagnostic, not a look: the display path is
+        // recorded only when the player asks for it.
+        val s = store()
+        assertFalse(s.displayTraceEnabled())
+        s.setDisplayTraceEnabled(true)
+        assertTrue(s.displayTraceEnabled())
+        assertTrue(AppSettingsStore(temp.root).displayTraceEnabled())
+        s.setDisplayTraceEnabled(false)
+        assertFalse(s.displayTraceEnabled())
+    }
+
     // Alpha.8 — per-system settings: each system reads
     // and writes its own key, and a system never set
     // falls back to the current global value (migration

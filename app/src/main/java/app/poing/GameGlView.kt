@@ -40,6 +40,15 @@ class GameGlView @JvmOverloads constructor(
      */
     var onSurfaceReady: (() -> Unit)? = null
 
+    /**
+     * Alpha.28 — the black-screen trace: the renderer's
+     * recording-only hook, forwarded here. Set by GameScreen
+     * with the session's lifetime; null otherwise. The
+     * renderer calls it on the GL thread; the recorder it
+     * reaches is synchronized, so that is safe.
+     */
+    var onTrace: ((label: String, detail: String) -> Unit)? = null
+
     init {
         setEGLContextClientVersion(2)
         setRenderer(renderer)
@@ -49,6 +58,7 @@ class GameGlView @JvmOverloads constructor(
             requestRender()
             onSurfaceReady?.invoke()
         }
+        renderer.onTrace = { label, detail -> onTrace?.invoke(label, detail) }
     }
 
     /** Present a new frame Bitmap (called from PlayerSession's onFrame, on the main thread). */

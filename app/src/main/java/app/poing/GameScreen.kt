@@ -376,6 +376,7 @@ fun GameScreen(
     BackHandler {
         when {
             editingLayout -> editingLayout = false
+            showDisplayTrace -> showDisplayTrace = false
             showSettings -> showSettings = false
             showCheats -> showCheats = false
             showCartridge -> showCartridge = false
@@ -397,6 +398,21 @@ fun GameScreen(
             null
         }
     }
+
+    // Alpha.28 — the black-screen trace: one recorder per
+    // game session (remember keyed on the game path, like
+    // the session itself), so it survives pause/resume,
+    // rotation and surface recreation within the game, and
+    // starts empty with every game. Recording is gated on
+    // the Settings → Display toggle, snapshotted at game
+    // start like every other player setting — settings can
+    // only change on the Settings screen, never while the
+    // player is open.
+    val displayTrace = remember(gamePath) {
+        DisplayTrace().also { it.enabled = appSettings.displayTraceEnabled() }
+    }
+    var showDisplayTrace by remember { mutableStateOf(false) }
+    var firstFrameSeen by remember { mutableStateOf(false) }
 
     // Phase 8 — apply the chain whenever it or the palette
     // changes: at game start, and on resume after the palette
@@ -441,6 +457,14 @@ fun GameScreen(
                 optionsStore.all(), displayChain, edgeMode, reconMode,
             ),
             onFrame = { frame ->
+                // Alpha.28 — the first frame the core
+                // produces, once per game: the trace's proof
+                // that frames exist at all. Later frames are
+                // not recorded — 60 a second would flood it.
+                if (!firstFrameSeen) {
+                    firstFrameSeen = true
+                    displayTrace.record("first frame", "${frame.width}x${frame.height}")
+                }
                 val view = glView
                 if (view != null) {
                     view.setFrame(frame)
@@ -615,6 +639,11 @@ fun GameScreen(
         // paused flag onto the sensors, so in-flight events
         // landing after stop() are dropped.
         applySensors()
+        // Alpha.28 — the trace survives the pause: the
+        // record is not cleared, so the events before the
+        // pause stay readable from the pause menu — which
+        // is the whole point of reading it there.
+        displayTrace.record("paused")
     }
 
     fun doResume() {
@@ -629,6 +658,11 @@ fun GameScreen(
         paused = false
         applySensors()
         applySpeed()
+        // Alpha.28 — the resume that follows a pause (the
+        // trace already holds the pause; a resume with no
+        // surface creation after it says the GL thread was
+        // never torn down).
+        displayTrace.record("resumed")
     }
 
     // Auto-pause when the player loses focus (Home, lock, incoming
@@ -649,9 +683,18 @@ fun GameScreen(
             if (event == Lifecycle.Event.ON_PAUSE) {
                 doPause()
                 glView?.onPause()
+                // Alpha.28 — the GL thread stops with the
+                // activity pause; a surface recreation on
+                // the way back shows up as a new "surface
+                // created" after this.
+                displayTrace.record("GL view paused")
             }
             if (event == Lifecycle.Event.ON_RESUME) {
                 glView?.onResume()
+                // Alpha.28 — the GL thread restarts with the
+                // activity resume. This does NOT resume the
+                // session itself (see the comment above).
+                displayTrace.record("GL view resumed")
                 // The session stays paused until the player
                 // resumes it from the menu — applySensors is
                 // pause-aware, so this restarts the sensors only
@@ -696,6 +739,9 @@ fun GameScreen(
     ) { granted -> gbCamera.onPermissionResult(granted) }
 
     DisposableEffect(gamePath) {
+        // Alpha.28 — the trace starts with the session:
+        // everything after this is ordered against it.
+        displayTrace.record("session start", "$gameName (${system.name})")
         session.start()
         // Phase 8 — the GL thread lives only while a game is
         // playing, with the session.
@@ -706,7 +752,28 @@ fun GameScreen(
         // frame again — its first render request was dropped
         // before the GL thread existed. Bound to this
         // session, cleared below with the other handlers.
-        glView?.onSurfaceReady = { session.replayLatestFrame() }
+        //
+        // Alpha.28 — the surface-ready record: the view has
+        // already issued requestRender by the time this
+        // runs (GameGlView's callback does that first), so
+        // the detail is the request plus the replay — and
+        // whether there was a frame to replay at all. A
+        // "latest frame: none" here, after a first frame
+        // was already recorded, is the smoking gun.
+        glView?.onSurfaceReady = {
+            val hasFrame = session.latestFrameBitmap() != null
+            displayTrace.record(
+                "surface ready",
+                "requestRender issued; replay requested; " +
+                    "latest frame: ${if (hasFrame) "present" else "none"}",
+            )
+            session.replayLatestFrame()
+        }
+        // Alpha.28 — the renderer's trace hook, same
+        // lifetime as onSurfaceReady above: surface
+        // creation / change and the first draw after a
+        // creation reach the session's recorder through it.
+        glView?.onTrace = { label, detail -> displayTrace.record(label, detail) }
         // Phase 6 (item 10a) — the cartridge sensors: the phone's
         // motion/light sensors feed the core while a game is
         // playing (started and stopped with the session, and
@@ -744,6 +811,7 @@ fun GameScreen(
             gbCamera.stop()
             Bridge.onRumbleHandler = null
             glView?.onSurfaceReady = null
+            glView?.onTrace = null
             cartridgeRumble.stop()
             cartridgeSensors.onLux = null
             cartridgeSensors.stop()
@@ -772,9 +840,16 @@ fun GameScreen(
             ?: ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
         activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
         activity?.window?.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        // Alpha.28 — the game asks for landscape from a
+        // portrait library, so the window rotates and the
+        // surface is destroyed and recreated (the alpha.20
+        // hole). The rotation itself shows up as a surface
+        // change with the new geometry; this is the ask.
+        displayTrace.record("orientation requested", "landscape")
         onDispose {
             activity?.requestedOrientation = previousOrientation
             activity?.window?.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+            displayTrace.record("orientation restored", "previous request restored")
         }
     }
 
@@ -1036,7 +1111,7 @@ fun GameScreen(
         // Pause overlay: the Pocket screen dimmed — the game stays
         // visible behind the dim, and the menu is an Atomic panel
         // (see PauseMenu).
-        if (paused && !showSettings && !showCheats && !showAchievements && !showLeaderboards && !editingLayout) {
+        if (paused && !showSettings && !showCheats && !showAchievements && !showLeaderboards && !editingLayout && !showDisplayTrace) {
             Box(
                 modifier = Modifier
                     .fillMaxSize()
@@ -1057,6 +1132,9 @@ fun GameScreen(
                     onMoveControls = { editingLayout = true },
                     // Phase 6 (item 12) — Cartridge Surgery.
                     onCartridge = { showCartridge = true },
+                    // Alpha.28 — the black-screen trace viewer,
+                    // over the paused game like the other panels.
+                    onDisplayTrace = { showDisplayTrace = true },
                     // Phase 6 (item 11) — capture: a screenshot is
                     // the latest frame as a PNG in Pictures/Poing!;
                     // recording toggles the MP4 in Movies/Poing!
@@ -1337,6 +1415,23 @@ fun GameScreen(
                 // mode, so what is edited is what is played).
                 gameWidthDp = gameWidthDp,
             )
+        }
+        // Alpha.28 — the black-screen trace viewer over the
+        // paused game: the session's record, newest first,
+        // for Robert to screenshot. The game stays paused
+        // while it is open, so the record is stable; back
+        // closes it back to the pause menu.
+        if (showDisplayTrace) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.Black),
+            ) {
+                DisplayTraceView(
+                    trace = displayTrace,
+                    onClose = { showDisplayTrace = false },
+                )
+            }
         }
     }
 }

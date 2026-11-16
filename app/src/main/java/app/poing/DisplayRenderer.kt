@@ -291,6 +291,29 @@ class DisplayRenderer : GLSurfaceView.Renderer {
      */
     var onSurfaceReady: (() -> Unit)? = null
 
+    /**
+     * Alpha.28 — the black-screen trace: a recording-only
+     * hook for the display path. The view forwards it to
+     * the session's DisplayTrace (GameScreen owns the
+     * recorder); null when nothing is listening. The
+     * callback only appends to a synchronized list — no GL
+     * calls, no behaviour change — so it is safe to call
+     * from the GL thread, where onSurfaceCreated /
+     * onSurfaceChanged / onDrawFrame run. The renderer
+     * records the events only it can see: surface
+     * creation (with the dirty-check state at that
+     * moment — the alpha.20 hole was a recreation finding
+     * nothing pending), surface change, and the first draw
+     * after a surface creation (the frame that finally
+     * draws). The session start, first frame, surface
+     * ready, pause / resume and orientation are recorded
+     * by GameScreen, which owns them.
+     */
+    var onTrace: ((label: String, detail: String) -> Unit)? = null
+
+    private var surfaceCreationCount = 0
+    private var awaitingFirstDraw = false
+
     fun setFrame(bitmap: Bitmap) {
         pendingBitmap = bitmap
         frameConsumed = false
@@ -465,6 +488,22 @@ class DisplayRenderer : GLSurfaceView.Renderer {
         // silence. The replay is null-safe before the first
         // frame, so a creation with nothing to re-deliver
         // is a no-op, not a crash.
+        //
+        // Alpha.28 — the trace records the creation BEFORE
+        // the notify fires: the detail is the dirty-check
+        // state the creation found (pending frame? consumed?),
+        // and the notify's replay changes both, so recording
+        // after it would describe the replay, not the
+        // creation. The first draw after this creation is
+        // the frame that finally draws (see onDrawFrame).
+        surfaceCreationCount++
+        awaitingFirstDraw = true
+        onTrace?.invoke(
+            "surface created",
+            "creation #$surfaceCreationCount; " +
+                "pending frame: ${if (pendingBitmap != null) "yes" else "no"}; " +
+                "frameConsumed: $frameConsumed",
+        )
         onSurfaceReady?.invoke()
     }
 
@@ -472,6 +511,10 @@ class DisplayRenderer : GLSurfaceView.Renderer {
         viewW = w
         viewH = h
         GLES20.glViewport(0, 0, w, h)
+        // Alpha.28 — the size the surface changed to (the
+        // rotation on launch shows up here as the new
+        // geometry, before the first draw after it).
+        onTrace?.invoke("surface changed", "${w}x$h")
     }
 
     override fun onDrawFrame(gl: GL10?) {
@@ -495,6 +538,20 @@ class DisplayRenderer : GLSurfaceView.Renderer {
                     frameW = bmp.width
                     frameH = bmp.height
                 }
+            }
+            // Alpha.28 — the first draw after a surface
+            // creation: the frame that finally draws. Gated
+            // on the same early-return condition below, so
+            // the event means the GL thread took a frame and
+            // proceeded to draw it — not a frame consumed
+            // and then dropped for a missing texture or a
+            // zero-sized view.
+            if (awaitingFirstDraw && frameTextureId != 0 && frameW > 0 && viewW > 0 && viewH > 0) {
+                awaitingFirstDraw = false
+                onTrace?.invoke(
+                    "frame drawn",
+                    "first draw after surface #$surfaceCreationCount; ${bmp.width}x${bmp.height}",
+                )
             }
         }
         if (frameTextureId == 0 || frameW <= 0 || viewW <= 0 || viewH <= 0) return

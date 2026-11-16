@@ -156,6 +156,25 @@ class AppSettingsScreenTest {
     }
 
     @Test
+    fun displayTraceSwitchIsOffByDefaultAndTogglingPersists() {
+        val s = store()
+        composeRule.setContent {
+            PoingTheme {
+                AppSettingsScreen(store = s, onCoreOptions = {}, onBack = {})
+            }
+        }
+        // The trace row sits in Display, below the Worm Light
+        // rows: scroll it into view before asserting or
+        // clicking, or the click can miss a node below the
+        // fold (same as the haptics row).
+        composeRule.onNodeWithTag("display-trace-switch").performScrollTo()
+        composeRule.onNodeWithText("Display trace").assertIsDisplayed()
+        assertFalse(AppSettingsStore(temp.root).displayTraceEnabled())
+        composeRule.onNodeWithTag("display-trace-switch").performClick()
+        assertTrue(AppSettingsStore(temp.root).displayTraceEnabled())
+    }
+
+    @Test
     fun hapticsOnByDefaultAndTogglingPersists() {
         val s = store()
         composeRule.setContent {

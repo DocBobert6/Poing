@@ -64,6 +64,11 @@ fun PauseMenu(
     isRecording: Boolean = false,
     onScreenshot: () -> Unit = {},
     onToggleRecording: () -> Unit = {},
+    // Alpha.28 — the black-screen trace: the viewer over
+    // the paused game (same full-screen treatment as the
+    // other pause-menu panels). The game stays paused
+    // while it is open, so the record is stable to read.
+    onDisplayTrace: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val scope = rememberCoroutineScope()
@@ -237,6 +242,10 @@ fun PauseMenu(
                 Button(onClick = onToggleRecording) {
                     Text(if (isRecording) "Stop recording" else "Record")
                 }
+            }
+            Spacer(Modifier.height(12.dp))
+            Button(onClick = onDisplayTrace) {
+                Text("Display trace")
             }
             Spacer(Modifier.height(12.dp))
             Button(onClick = onQuit) {

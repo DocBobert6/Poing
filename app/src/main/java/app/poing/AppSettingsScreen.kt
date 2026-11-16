@@ -131,6 +131,10 @@ fun AppSettingsScreen(
     // Alpha.10 — the Worm Light coverage: how wide the pool
     // spreads, 75–175%, 100 by default. Global, one lamp.
     var wormLightCoverage by remember { mutableStateOf(store.wormLightCoveragePct()) }
+    // Alpha.28 — the black-screen trace: off by default.
+    // A diagnostic, not a look — it records the display
+    // path while a game plays, and the pause menu reads it.
+    var displayTrace by remember { mutableStateOf(store.displayTraceEnabled()) }
     // Cover art (Robert, 2026-11-14): let covers fetch over
     // mobile data when the user turns it on. Off by default —
     // covers download on unmetered Wi-Fi only.
@@ -794,6 +798,39 @@ fun AppSettingsScreen(
                             modifier = Modifier.padding(start = 12.dp),
                         )
                     }
+                }
+            }
+            // Alpha.28 — the black-screen trace switch, in
+            // Display beside the Worm Light rows (same
+            // pattern as the input-display switch): off by
+            // default. The player snapshots it at game
+            // start, so turn it on before starting the game
+            // whose black screen you want to catch.
+            item {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            "Display trace",
+                            style = MaterialTheme.typography.titleMedium,
+                        )
+                        Text(
+                            "Records the display path with timestamps — surface creation, first frame, pause and resume — for diagnosing a black screen. Read it from the pause menu while a game is paused. Off by default.",
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                    }
+                    Switch(
+                        checked = displayTrace,
+                        onCheckedChange = {
+                            store.setDisplayTraceEnabled(it)
+                            displayTrace = it
+                        },
+                        modifier = Modifier.testTag("display-trace-switch"),
+                    )
                 }
             }
             item {
