@@ -670,8 +670,9 @@ fun LibraryScreen(
                     pendingCoverGame = game
                     coverDialogGame = null
                     pickCover.launch(
-                        ActivityResultContracts.PickVisualMedia
-                            .ImageOnly,
+                        ActivityResultContracts.PickVisualMedia.PickVisualMediaRequest(
+                            ActivityResultContracts.PickVisualMedia.ImageOnly,
+                        ),
                     )
                 }) {
                     Text("Set cover")
