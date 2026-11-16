@@ -55,6 +55,27 @@ class Haptics(
         ONE_SHOT,
     }
 
+    /** Which effect a tick is, for this device. */
+    enum class TickEffectKind {
+        /** The scaled tick primitive (API 30+, vibrator plays primitives). */
+        PRIMITIVE_TICK,
+
+        /** The 8ms one-shot, amplitude scaled (no tick primitive). */
+        ONE_SHOT,
+    }
+
+    /** Which effect an L/R press is, for this device. */
+    enum class ShoulderEffectKind {
+        /** Click + low thud (API 30+, both primitives play). */
+        CLICK_THUD,
+
+        /** Click alone (thud primitive unsupported). */
+        CLICK_ONLY,
+
+        /** The plain click effect (no primitives at all). */
+        PLAIN_CLICK,
+    }
+
     /** A/B (and the old single-click path): the full click. */
     fun click() {
         val v = vibrator ?: return
@@ -184,15 +205,6 @@ class Haptics(
                 )
             }
 
-        /** Which effect a tick is, for this device. */
-        enum class TickEffectKind {
-            /** The scaled tick primitive (API 30+, vibrator plays primitives). */
-            PRIMITIVE_TICK,
-
-            /** The 8ms one-shot, amplitude scaled (no tick primitive). */
-            ONE_SHOT,
-        }
-
         fun tickEffectKind(sdkInt: Int, tickSupported: Boolean): TickEffectKind =
             if (sdkInt >= Build.VERSION_CODES.R && tickSupported) {
                 TickEffectKind.PRIMITIVE_TICK
@@ -250,18 +262,6 @@ class Haptics(
                     .compose()
                 ShoulderEffectKind.PLAIN_CLICK -> buildEffect(strength, sdkInt, primitivesSupported)
             }
-
-        /** Which effect an L/R press is, for this device. */
-        enum class ShoulderEffectKind {
-            /** Click + low thud (API 30+, both primitives play). */
-            CLICK_THUD,
-
-            /** Click alone (thud primitive unsupported). */
-            CLICK_ONLY,
-
-            /** The plain click effect (no primitives at all). */
-            PLAIN_CLICK,
-        }
 
         fun shoulderEffectKind(
             sdkInt: Int,
