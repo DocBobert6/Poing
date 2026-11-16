@@ -663,7 +663,14 @@ object RaClient {
         loginPending = false
         loggedIn = success
         if (success) {
-            username = Bridge.nativeRaLoggedInUsername() ?: ""
+            // The native reads are guarded on initialised: in
+            // production a login result only ever arrives after
+            // init (login() itself no-ops before it), so this
+            // changes nothing on device — but the callbacks are
+            // also the tests' entry point for driving the login
+            // state, and without the native libraries loaded
+            // an unguarded call throws UnsatisfiedLinkError.
+            username = if (initialised) Bridge.nativeRaLoggedInUsername() ?: "" else ""
             status = if (username.isNotEmpty()) "Logged in as $username." else "Logged in."
             // Keep the session token the server returned, so the
             // next launch re-logs in without the password. The
@@ -671,7 +678,9 @@ object RaClient {
             // stored with it (the caller stored it before the
             // login, but a token re-login has no caller — keep
             // both together here).
-            Bridge.nativeRaToken()?.takeIf { it.isNotEmpty() }?.let { session?.setToken(it) }
+            if (initialised) {
+                Bridge.nativeRaToken()?.takeIf { it.isNotEmpty() }?.let { session?.setToken(it) }
+            }
             if (username.isNotEmpty()) session?.setUsername(username)
             // The login response carries the account's total
             // softcore points — read it now, so the hub header
@@ -710,7 +719,11 @@ object RaClient {
         if (success) {
             gameLoadState = RaGameLoadState.Loaded
             gameLoadError = null
-            gameTitle = Bridge.nativeRaGameTitle()
+            // Guarded on initialised, like the login result's
+            // native reads above: in production a load result
+            // only ever arrives after init, and the tests drive
+            // this callback without the native libraries.
+            gameTitle = if (initialised) Bridge.nativeRaGameTitle() else null
             refreshAchievements()
             refreshLeaderboards()
             refreshRichPresence()
