@@ -437,8 +437,12 @@ class LibraryCoverFetchTest {
             // Past the 4s hide delay, the bar is gone. (No
             // single-node assertDoesNotExist on this classpath
             // — absence is asserted with a zero count, the
-            // project's own pattern.)
-            Shadows.shadowOf(Looper.getMainLooper()).idle(5000, TimeUnit.MILLISECONDS)
+            // project's own pattern.) The hide is a
+            // LaunchedEffect delay, so it advances on the
+            // Compose test clock — the shadow-looper idle that
+            // the watcher's Handler debounce uses does not
+            // move it.
+            composeRule.mainClock.advanceTimeBy(5000)
             composeRule.waitForIdle()
             composeRule.onAllNodesWithTag("cover-art-status").assertCountEquals(0)
         } finally {
@@ -474,8 +478,10 @@ class LibraryCoverFetchTest {
                 repository.covers.value.values.any { it is CoverState.Failed }
             }
             // Past the 4s hide delay, the bar — and Retry —
-            // are still there.
-            Shadows.shadowOf(Looper.getMainLooper()).idle(5000, TimeUnit.MILLISECONDS)
+            // are still there. (The Compose test clock, as
+            // above — the shadow-looper idle does not move a
+            // LaunchedEffect delay.)
+            composeRule.mainClock.advanceTimeBy(5000)
             composeRule.waitForIdle()
             composeRule.onNodeWithTag("cover-art-status").assertExists()
             composeRule.onNodeWithTag("cover-art-retry").assertExists()

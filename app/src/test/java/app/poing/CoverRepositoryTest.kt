@@ -1259,7 +1259,9 @@ class CoverRepositoryTest {
             calls.incrementAndGet()
             when {
                 url.contains("git/trees") -> treeHttpResult(url)
-                url.contains("Dr. Mario") -> HttpFetchResult.httpFailure(404)
+                // The art URL is URL-encoded (Thumbnails.artUrl):
+                // "Dr. Mario (World).png" travels as Dr.%20Mario.
+                url.contains("Dr.%20Mario") -> HttpFetchResult.httpFailure(404)
                 else -> HttpFetchResult.success(TINY_PNG)
             }
         }
