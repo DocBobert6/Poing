@@ -242,12 +242,15 @@ class ControlLayoutTest {
     fun `GB and GBC have no L and R controls`() {
         val gb = ControlLayout.DEFAULT.controlsFor(isGba = false)
         assertFalse(gb.any { it.id == ControlId.L || it.id == ControlId.R })
-        assertEquals(8, gb.size)
-        assertEquals(10, ControlLayout.DEFAULT.controlsFor(isGba = true).size)
+        // Alpha.25 — the popup is on every system, so GB has
+        // nine controls now and GBA eleven.
+        assertEquals(9, gb.size)
+        assertEquals(11, ControlLayout.DEFAULT.controlsFor(isGba = true).size)
         // The FF / 0.5x / RW trio is on every system.
         assertTrue(gb.any { it.id == ControlId.FF })
         assertTrue(gb.any { it.id == ControlId.SLOW })
         assertTrue(gb.any { it.id == ControlId.RW })
+        assertTrue(gb.any { it.id == ControlId.POPUP })
     }
 
     @Test

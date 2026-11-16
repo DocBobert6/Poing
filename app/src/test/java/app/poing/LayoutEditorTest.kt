@@ -202,17 +202,19 @@ class LayoutEditorTest {
         composeRule.onNodeWithText("Achievement Unlocked: Sample Achievement (+5 pts)").assertIsDisplayed()
     }
 
-    // Alpha.25 — the popup drags like any other overlay item:
-    // the drag starts on the popup's bottom-right strip, clear
-    // of the pills row at the top (the same overlap dodge as
-    // the A-drag), and Done commits the new spot.
+    // Alpha.25 — the popup drags like any other overlay item.
+    // The drag starts on the popup's lower-right strip, inside
+    // the handle and clear of the pills row at the top — the
+    // same overlap dodge as the A-drag, which starts on A's
+    // right strip — and Done commits the new spot. (The
+    // scope's own centre/width/height, like the FF-drag test:
+    // boundsInRoot values do not land inside the handle here.)
     @Test
     fun draggingPopupMovesItAndCommits() {
         setContent()
         val before = centreX("editor-popup")
-        val bounds = composeRule.onNodeWithTag("editor-popup").fetchSemanticsNode().boundsInRoot
-        val start = Offset(bounds.right - 4f, bounds.bottom - 4f)
         composeRule.onNodeWithTag("editor-popup").performTouchInput {
+            val start = center + Offset(width * 0.35f, height * 0.35f)
             swipe(start = start, end = start + Offset(200f, 0f), durationMillis = 300)
         }
         val after = centreX("editor-popup")
