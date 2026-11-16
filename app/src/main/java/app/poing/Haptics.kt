@@ -73,6 +73,18 @@ import kotlin.math.roundToInt
  * click has finished, so the second vibrate() never cuts
  * it off.
  *
+ * Alpha.17 — the haptics pair (Robert, 2026-11-16, device
+ * verdicts on alpha.15): the envelope is OFF the rocker —
+ * a direction change is back on the plain PRIMITIVE_TICK
+ * at 0.6, "normal haptics for that", and the direction
+ * envelope's strength and sharpness functions are gone
+ * entirely, not kept as a fallback. The release tick rose
+ * 0.4 to 0.5 (slightly too faint) — still clearly below
+ * the 0.6 roll tick and the full press click. A/B, the
+ * Start/Select envelope, the L/R envelope + thud, the
+ * steering, the dead zone, and all the wiring are
+ * untouched.
+ *
  * [enabled] is the Settings toggle (on by default).
  * [strength] is the Settings slider, 0–100 (100 by default);
  * 0 means off, the same as the toggle off. A null vibrator —
@@ -151,16 +163,17 @@ class Haptics(
 
     /**
      * A D-pad / joystick direction change while held: the
-     * rocker rolling onto a new dome. Alpha.15 tries the
-     * envelope here — softer than Start/Select's, landing
-     * slightly stronger than the old 0.5x tick — and falls
-     * back to the tick (now 0.6x) where the device has no
-     * envelopes. A tick, not a click: the dome is already
+     * rocker rolling onto a new dome. Alpha.17: the plain
+     * PRIMITIVE_TICK at 0.6 — Robert's device verdict on
+     * alpha.15 was that the envelope does not belong on
+     * the rocker ("use normal haptics for that"), so the
+     * envelope is gone here entirely, not kept as a
+     * fallback. A tick, not a click: the dome is already
      * half down, so the event is lighter than the press.
      */
     fun directionTick() {
         val v = vibrator ?: return
-        play(v) { directionTickEffect(v) }
+        play(v) { buildTickEffect(DIRECTION_TICK_SCALE, strength, Build.VERSION.SDK_INT, tickSupported(v)) }
     }
 
     /** A release: the dome springing back. Lighter than the press, always. */
@@ -264,35 +277,6 @@ class Haptics(
     }
 
     /**
-     * The direction change: the envelope where the device
-     * supports envelope effects (API 36+), at the direction
-     * strength and a softer sharpness than the press — a
-     * rocker onto a dome, not a button press. Where the
-     * device has no envelopes, or an envelope it claims to
-     * support will not build, the fallback is the tick at
-     * the raised 0.6x scale — the same amplitude the
-     * envelope lands at, so the choice is only about
-     * character, never about how hard the roll lands. Built
-     * lazily, inside [play]'s guard, like every effect.
-     */
-    private fun directionTickEffect(v: Vibrator): VibrationEffect {
-        if (useEnvelopeClick(Build.VERSION.SDK_INT, envelopeSupported(v))) {
-            return try {
-                val (attackMs, decayMs) =
-                    envelopeClickDurations(minControlPointDurationMs(v))
-                buildEnvelopeClickEffect(
-                    directionEnvelopeStrength(strength),
-                    directionEnvelopeSharpness(envelopeSharpness(v)),
-                    attackMs, decayMs,
-                )
-            } catch (_: Exception) {
-                buildTickEffect(DIRECTION_TICK_SCALE, strength, Build.VERSION.SDK_INT, tickSupported(v))
-            }
-        }
-        return buildTickEffect(DIRECTION_TICK_SCALE, strength, Build.VERSION.SDK_INT, tickSupported(v))
-    }
-
-    /**
      * True when this vibrator can play envelope effects
      * (API 36+). The SDK guard runs first: the probe method
      * does not exist below API 36, and a vibrator that
@@ -374,8 +358,8 @@ class Haptics(
         const val MIN_STRENGTH = 0
         const val MAX_STRENGTH = 100
 
-        /** Release tick scale: inside the 0.3–0.5 band, lighter than the roll tick. */
-        const val RELEASE_TICK_SCALE = 0.4f
+        /** Release tick scale: 0.5 — the top of the 0.3–0.5 band, raised 0.4 to 0.5 in alpha.17 (Robert: slightly too faint), still clearly below the 0.6 roll tick and the full press. */
+        const val RELEASE_TICK_SCALE = 0.5f
 
         /**
          * Direction-change tick scale: raised 0.5 to 0.6 in
@@ -383,23 +367,12 @@ class Haptics(
          * light). A roll is an actuation, so it ticks harder
          * than a release — and it now sits at the same scale
          * as Start/Select, which is fine: the tick is a
-         * softer primitive than the click, and the direction
-         * envelope's sharpness is pulled down a quarter, so
-         * the roll still lands clearly below a face button's
-         * full click.
+         * softer primitive than the click, so the roll still
+         * lands clearly below a face button's full click.
+         * Alpha.17: the envelope is gone from the rocker —
+         * this plain tick is the whole direction effect.
          */
         const val DIRECTION_TICK_SCALE = 0.6f
-
-        /**
-         * The direction envelope's sharpness scale: the
-         * resonant sharpness pulled down a quarter. A rocker
-         * rolling onto a dome is a softer, lower-frequency
-         * event than a button press, so the envelope keeps
-         * the resonant placement but reads softer than
-         * Start/Select's. A tuning constant — Robert's
-         * device verdict decides it, not a measurement.
-         */
-        const val DIRECTION_ENVELOPE_SHARPNESS_SCALE = 0.75f
 
         /** Start/Select click scale: a lighter click, still clearly a click. */
         const val START_SELECT_SCALE = 0.6f
@@ -466,27 +439,6 @@ class Haptics(
          */
         fun useEnvelopeClick(sdkInt: Int, envelopeSupported: Boolean): Boolean =
             sdkInt >= Build.VERSION_CODES.BAKLAVA && envelopeSupported
-
-        /**
-         * The direction envelope's strength: the tick scale
-         * applied to the user's strength — the envelope
-         * lands slightly stronger than the old 0.5x tick,
-         * and at exactly the fallback tick's amplitude, so
-         * the envelope-or-tick choice never changes how hard
-         * the roll lands, only its character.
-         */
-        fun directionEnvelopeStrength(strength: Int): Int =
-            (strength * DIRECTION_TICK_SCALE).roundToInt()
-
-        /**
-         * The direction envelope's sharpness: the resonant
-         * sharpness pulled down a quarter — softer than
-         * Start/Select's envelope, still in the resonant
-         * neighbourhood. A pure function, so it pins in the
-         * tests.
-         */
-        fun directionEnvelopeSharpness(resonantSharpness: Float): Float =
-            (resonantSharpness * DIRECTION_ENVELOPE_SHARPNESS_SCALE).coerceIn(0f, 1f)
 
         /**
          * The sharpness that puts the click at the
