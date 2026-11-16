@@ -1,18 +1,19 @@
-## Poing! v0.1.0-alpha.12 — Screen Optics everywhere, deeper dimming
+## Poing! v0.1.0-alpha.13 — Envelope click
 
-The twelfth signed alpha of Poing!, the standalone Game Boy / Game Boy Color / Game Boy Advance emulator for Android (mGBA core, one app, arm64-v8a only).
+The thirteenth signed alpha of Poing!, the standalone Game Boy / Game Boy Color / Game Boy Advance emulator for Android (mGBA core, one app, arm64-v8a only).
 
-**Install first — read this:** this alpha is signed with the same release key as alpha.1 through alpha.11, so it installs straight over alpha.11 — no uninstall needed, saves and settings carry over. It will **not** install over the debug builds (different key). Uninstall the debug build first. Uninstalling wipes local saves (battery saves + save states); RetroAchievements progress is server-side and safe.
+**Install first — read this:** this alpha is signed with the same release key as alpha.1 through alpha.12, so it installs straight over alpha.12 — no uninstall needed, saves and settings carry over. It will **not** install over the debug builds (different key). Uninstall the debug build first. Uninstalling wipes local saves (battery saves + save states); RetroAchievements progress is server-side and safe.
 
 ## Download
 
-The signed APK is attached to this release: `poing-v0.1.0-alpha.12.apk` (size + SHA-256 in the Build section below).
+The signed APK is attached to this release: `poing-v0.1.0-alpha.13.apk` (size + SHA-256 in the Build section below).
 
-## What changed in alpha.12
+## What changed in alpha.13
 
-- Screen Optics everywhere: the room light's brightness, contrast and gamma used to ride only on the chains and on edge smoothing with the grid. Edge smoothing without the grid, and plain with no chain at all, never got them — the final blit is the plain program, which carried the Worm Light pool but no optics. The plain program now applies the same optics as the grid passes, before the pool, so the lamp still sits on top of the room light instead of being cancelled by it. The chains and edge-with-grid are untouched.
-- Deeper dimming: in a dark room with the dimming toggle on, the picture now falls to about 0.35 brightness at pitch black, instead of 0.60. Same threshold and same ease-in as before — only the floor is deeper. The bright-room boost is unchanged.
-- What you should see now: with edge smoothing on and the grid off, the picture brightens in a bright room and dims in a dark room (with the toggle on) just like it already did on the chains; and in a dark room with dimming on, the picture gets properly dark.
+- Envelope click: the press click (A/B and Start/Select) is now built with Android 16's envelope API where the device supports it — an instant attack of about 15ms total, with the sharpness placed at the actuator's own resonant frequency from the device's frequency profile. It is an alternative press click, not a claim of a better one: whether it feels better than the current click is for your device to judge, and this build is the way to judge it.
+- Graceful fallback: the device is probed at runtime. Where envelope effects are not supported, the press falls back to the current click, exactly as before. And if an envelope the device claims to support will not build, the plain click is the fallback there too — a button always clicks, never goes silent.
+- Nothing else about haptics changed: the release tick, the roll tick, the shoulder click+thud, the strength slider and all the wiring are untouched. The envelope click is the press only.
+- What you should try: press the buttons as usual and compare the feel against alpha.12. If the envelope click feels better, it stays; if not, it goes.
 
 ## What is in it
 
@@ -27,5 +28,3 @@ The signed APK is attached to this release: `poing-v0.1.0-alpha.12.apk` (size + 
 
 - Link cable (Phase 7 — deferred until after beta).
 - No ROMs, BIOS files, or download links, ever. Poing! is not affiliated with or endorsed by Nintendo.
-
-## Build
