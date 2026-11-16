@@ -349,6 +349,14 @@ class WormLightOverlayTest {
     // that bearing; dragging it back in pulls the pool back.
     // The centre stays head-anchored and the rotation stays
     // the bearing throughout.
+    // The drag distances are driven in dp, converted to px
+    // through the test's own density — the overlay divides
+    // by density before the mapping, so a raw px distance
+    // reads differently on every density and a test that
+    // passes at one density can be dead on a phone (the
+    // old 150px drag read as 150dp under Robolectric and
+    // as 57dp on Robert's Pixel 10a). A 50dp orbit is a
+    // comfortable thumb orbit; 8dp is on the lens.
     @Test
     fun aimDragDistanceTiltsThePoolForwardAndBack() {
         var reported: WormLightPool? = null
@@ -363,25 +371,26 @@ class WormLightOverlayTest {
             }
         }
         composeRule.waitForIdle()
+        val density = composeRule.density.density
         val size = wormLightSize()
         composeRule.onNodeWithTag("worm-light").performTouchInput {
             click(center + Offset(0f, -0.44f * size.second))
         }
-        // Drag far out straight down: the pool stretches
-        // along the bearing.
+        // Drag out to a 50dp orbit straight down: the pool
+        // stretches along the bearing.
         composeRule.onNodeWithTag("worm-light").performTouchInput {
             val head = center + Offset(0f, -0.44f * size.second)
-            swipe(head, head + Offset(0f, 150f))
+            swipe(head, head + Offset(0f, 50f * density))
         }
         composeRule.waitForIdle()
-        assertTrue("a far aim drag should stretch the pool", reported!!.radii.x > WORM_LIGHT_POOL_RX * 1.05f)
+        assertTrue("a 50dp aim orbit should stretch the pool", reported!!.radii.x > WORM_LIGHT_POOL_RX * 1.05f)
         assertEquals(1.57f, reported!!.rotationRad, 0.15f)
         assertEquals(0.5f, reported!!.center.x, 0.01f)
         assertEquals(0.20f, reported!!.center.y, 0.01f)
         // Drag back in close to the lens: the pool pulls back.
         composeRule.onNodeWithTag("worm-light").performTouchInput {
             val head = center + Offset(0f, -0.44f * size.second)
-            swipe(head + Offset(0f, 150f), head + Offset(0f, 30f))
+            swipe(head + Offset(0f, 50f * density), head + Offset(0f, 8f * density))
         }
         composeRule.waitForIdle()
         assertEquals(WORM_LIGHT_POOL_RX, reported!!.radii.x, 0.03f)

@@ -653,4 +653,20 @@ class WormLightGeometryTest {
             0.001f,
         )
     }
+
+    // Regression (Robert, 2026-11-15): the old 32–160dp
+    // range needed a 420px sweep from the lens centre on
+    // his Pixel 10a, so a natural thumb orbit never tilted
+    // and the pool only spun. A 50dp orbit — a comfortable
+    // thumb orbit — must tilt clearly, and full tilt must
+    // be reachable inside a thumb's reach, so the max is
+    // pinned here and cannot silently drift back out.
+    @Test
+    fun aFiftyDpOrbitTiltsClearly() {
+        assertTrue(WORM_LIGHT_TILT_MAX_DP <= 80f)
+        assertTrue(tiltForDistance(50f) > 0.5f)
+        val tilted = geometry(aimAngleRad = -0.5f, aimTilt = tiltForDistance(50f))
+        assertTrue(tilted.pool.radii.x > WORM_LIGHT_POOL_RX * 1.2f)
+        assertEquals(WORM_LIGHT_POOL_RY, tilted.pool.radii.y, 0.001f)
+    }
 }
