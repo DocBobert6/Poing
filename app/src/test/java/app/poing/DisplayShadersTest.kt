@@ -272,6 +272,31 @@ class DisplayShadersTest {
     }
 
     @Test
+    fun plainPassHasTheScreenOpticsUniforms() {
+        // Alpha.12 — the optics gap (Robert, 2026-11-15):
+        // edge-without-grid and plain never had the room's
+        // brightness / contrast / gamma — the final blit is
+        // the plain program, which carried the Worm Light
+        // pool but no optics uniforms. The plain final step
+        // now applies the same three lines as the grid pass,
+        // before the pool add, so the room dim never cancels
+        // the lamp.
+        val src = DisplayShaders.PLAIN_FRAGMENT
+        assertTrue(src.contains("uBrightness"))
+        assertTrue(src.contains("uContrast"))
+        assertTrue(src.contains("uGamma"))
+        assertTrue(src.contains("col *= uBrightness"))
+        assertTrue(src.contains("(col - 0.5) * uContrast + 0.5"))
+        assertTrue(src.contains("pow(max(col, vec3(0.0)), vec3(uGamma))"))
+        assertTrue(src.contains("if (uGamma != 1.0)"))
+        // The pool comes after the optics: the dim is
+        // applied first, the lamp added on top of it.
+        val optics = src.indexOf("pow(max(col, vec3(0.0)), vec3(uGamma))")
+        val pool = src.indexOf("uWlIntensity * (wlFall")
+        assertTrue("the pool should be added after the optics", optics >= 0 && pool > optics)
+    }
+
+    @Test
     fun plainFallbackIsABareSample() {
         val src = DisplayShaders.PLAIN_FRAGMENT
         assertTrue(src.contains("texture2D(uTex, vTex)"))

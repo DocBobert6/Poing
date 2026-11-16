@@ -1080,6 +1080,13 @@ class DisplayRenderer : GLSurfaceView.Renderer {
         GLES20.glUniform1f(uniform(plainProgram, "uFlipV"), flipV)
         GLES20.glUniform1i(uniform(plainProgram, "uTex"), 0)
         GLES20.glUniform1f(uniform(plainProgram, "uWlFlip"), wlFlip)
+        // Alpha.12 — Screen Optics rides on the plain final
+        // step too, so edge-without-grid (and plain) get the
+        // bright-room boost and dimming like the grid passes.
+        // The pool still goes on after the optics.
+        GLES20.glUniform1f(uniform(plainProgram, "uBrightness"), optics.brightness)
+        GLES20.glUniform1f(uniform(plainProgram, "uContrast"), optics.contrast)
+        GLES20.glUniform1f(uniform(plainProgram, "uGamma"), optics.gamma)
         // Worm Light realism: the pool rides on the plain
         // program too, so the lamp works with the chain off.
         setWormLightUniforms(plainProgram)

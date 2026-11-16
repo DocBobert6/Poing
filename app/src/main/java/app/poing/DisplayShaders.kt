@@ -1500,8 +1500,28 @@ object DisplayShaders {
         uniform float uWlRot;
         uniform float uWlIntensity;
         uniform float uWlFlip;
+        uniform float uBrightness;
+        uniform float uContrast;
+        uniform float uGamma;
         void main() {
           vec3 col = texture2D(uTex, vTex).rgb;
+          // Alpha.12 — Screen Optics (Robert, 2026-11-15):
+          // the ambient light's brightness / contrast /
+          // gamma, the same three lines as the grid pass
+          // (see GRID_FRAGMENT) — applied BEFORE the pool
+          // add, so the room dim never cancels the lamp.
+          // This is the plain final step: it carries the
+          // edge pass's blit (edge without the grid) and
+          // the chain-off picture, which never had the
+          // optics before.
+          col *= uBrightness;
+          col = (col - 0.5) * uContrast + 0.5;
+          // Performance fix 8 — the gamma pow is a no-op at
+          // the neutral 1.0, so skip it there; a uniform
+          // branch costs nothing against a pow per fragment.
+          if (uGamma != 1.0) {
+            col = pow(max(col, vec3(0.0)), vec3(uGamma));
+          }
           // Worm Light realism: the lamp's pool, the same
           // add as the grid pass (see GRID_FRAGMENT) — the
           // lamp works with the chain off too. Intensity 0

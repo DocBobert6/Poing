@@ -519,16 +519,22 @@ fun GameScreen(
     // (see CartridgeSensors.cartridgeSensorNeed) — the same
     // bytes the core's own detection uses. Light is needed
     // when the solar sensor drives the game (option "sensor")
-    // or when Screen Optics is live: the chain pass and the
-    // edge combined mode apply the lux-driven uniforms; plain
-    // and plain edge never set them.
+    // or when Screen Optics is live: every draw path applies
+    // the lux-driven uniforms now (the chain and edge grid
+    // passes, and the plain final step, which carries
+    // edge-without-grid and plain) — only the reconstruction
+    // path never sets them.
     val cartSensorNeed = remember(gamePath) {
         cartridgeSensorNeed(java.io.File(gamePath), system)
     }
 
     fun sensorNeed(): SensorNeed {
         val cart = cartSensorNeed ?: SensorNeed.ALL
-        val opticsLive = displayChain != DisplayChain.CLEAN || edgeMode == EdgeMode.EDGE_GRID
+        // Alpha.12 — the optics gate follows the draw paths:
+        // optics is live everywhere except reconstruction, so
+        // the light sensor is registered whenever a game is
+        // playing (unless the reconstruction experiment is on).
+        val opticsLive = reconMode == ReconMode.OFF
         return cart.copy(light = solarLevel == "sensor" || opticsLive)
     }
 
