@@ -44,11 +44,13 @@ object ScreenOptics {
 
     /**
      * The dim's depth at pitch black: brightness falls to
-     * 1 - DIM_DEPTH of its bright-room base (0.60 at 0 lux),
+     * 1 - DIM_DEPTH of its bright-room base (0.35 at 0 lux),
      * so the dim is clearly visible instead of the old flat
-     * 0.85 that read as no difference.
+     * 0.85 that read as no difference. Robert, 2026-11-15:
+     * deeper than the 0.60 the 0.40 depth gave — a pitch
+     * black room should read as properly dark.
      */
-    private const val DIM_DEPTH = 0.40f
+    private const val DIM_DEPTH = 0.65f
 
     /** The gamma rise at pitch black, on top of the bright-room gamma. */
     private const val DIM_GAMMA_RISE = 0.15f

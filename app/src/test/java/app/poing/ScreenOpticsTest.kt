@@ -46,7 +46,7 @@ class ScreenOpticsTest {
         // no difference, and the old ~15 lux threshold meant a
         // normal dark room never dimmed at all).
         val dimmed = ScreenOptics.paramsFor(10f, true)
-        assertEquals(0.731f, dimmed.brightness, 0.001f)
+        assertEquals(0.543f, dimmed.brightness, 0.001f)
         assertEquals(1.014f, dimmed.contrast, 0.001f)
         assertEquals(1.089f, dimmed.gamma, 0.001f)
         // The same room without the toggle: no dimming.
@@ -81,12 +81,12 @@ class ScreenOpticsTest {
             assertTrue(at[i].brightness < at[i + 1].brightness)
             assertTrue(at[i].gamma > at[i + 1].gamma)
         }
-        assertEquals(0.600f, at[0].brightness, 0.001f)
+        assertEquals(0.350f, at[0].brightness, 0.001f)
         assertEquals(1.000f, at[0].contrast, 0.001f)
         assertEquals(1.150f, at[0].gamma, 0.001f)
-        assertEquals(0.615f, at[1].brightness, 0.001f)
-        assertEquals(0.806f, at[3].brightness, 0.001f)
-        assertEquals(0.937f, at[4].brightness, 0.001f)
+        assertEquals(0.368f, at[1].brightness, 0.001f)
+        assertEquals(0.659f, at[3].brightness, 0.001f)
+        assertEquals(0.866f, at[4].brightness, 0.001f)
     }
 
     @Test
