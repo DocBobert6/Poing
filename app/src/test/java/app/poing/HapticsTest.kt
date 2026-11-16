@@ -131,6 +131,22 @@ class HapticsTest {
         assertFalse(shadowOf(v).isVibrating)
     }
 
+    @Test
+    fun strengthZeroSilencesEveryEffect() {
+        // Regression: the effect used to be built before
+        // the guard ran, and createOneShot rejects amplitude
+        // 0 — so strength 0 threw instead of staying silent.
+        // Every method must stay silent, never throw.
+        val v = vibrator()
+        val haptics = Haptics(v, strength = 0)
+        haptics.click()
+        haptics.lightClick()
+        haptics.directionTick()
+        haptics.releaseTick()
+        haptics.shoulderClick()
+        assertFalse(shadowOf(v).isVibrating)
+    }
+
     // Alpha.11 — per-button character: every new effect
     // vibrates through the same guard as the click.
     @Test

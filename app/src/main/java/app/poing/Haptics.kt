@@ -79,14 +79,14 @@ class Haptics(
     /** A/B (and the old single-click path): the full click. */
     fun click() {
         val v = vibrator ?: return
-        play(v, buildEffect(strength, Build.VERSION.SDK_INT, primitivesSupported(v)))
+        play(v) { buildEffect(strength, Build.VERSION.SDK_INT, primitivesSupported(v)) }
     }
 
     /** Start/Select: the same click, lighter — a smaller pill. */
     fun lightClick() {
         val v = vibrator ?: return
         val effectiveStrength = (strength * START_SELECT_SCALE).roundToInt()
-        play(v, buildEffect(effectiveStrength, Build.VERSION.SDK_INT, primitivesSupported(v)))
+        play(v) { buildEffect(effectiveStrength, Build.VERSION.SDK_INT, primitivesSupported(v)) }
     }
 
     /**
@@ -97,13 +97,13 @@ class Haptics(
      */
     fun directionTick() {
         val v = vibrator ?: return
-        play(v, buildTickEffect(DIRECTION_TICK_SCALE, strength, Build.VERSION.SDK_INT, tickSupported(v)))
+        play(v) { buildTickEffect(DIRECTION_TICK_SCALE, strength, Build.VERSION.SDK_INT, tickSupported(v)) }
     }
 
     /** A release: the dome springing back. Lighter than the press, always. */
     fun releaseTick() {
         val v = vibrator ?: return
-        play(v, buildTickEffect(RELEASE_TICK_SCALE, strength, Build.VERSION.SDK_INT, tickSupported(v)))
+        play(v) { buildTickEffect(RELEASE_TICK_SCALE, strength, Build.VERSION.SDK_INT, tickSupported(v)) }
     }
 
     /**
@@ -113,15 +113,21 @@ class Haptics(
      */
     fun shoulderClick() {
         val v = vibrator ?: return
-        play(v, buildShoulderEffect(strength, Build.VERSION.SDK_INT, primitivesSupported(v), thudSupported(v)))
+        play(v) { buildShoulderEffect(strength, Build.VERSION.SDK_INT, primitivesSupported(v), thudSupported(v)) }
     }
 
-    /** The one guard: enabled, strength, a real vibrator, never a crash. */
-    private fun play(v: Vibrator, effect: VibrationEffect) {
+    /**
+     * The one guard: enabled, strength, a real vibrator,
+     * never a crash. The effect is built lazily, after the
+     * guard — createOneShot rejects amplitude 0, so building
+     * it first would throw at strength 0 before the guard
+     * ever ran (the strength-0 tests caught exactly that).
+     */
+    private fun play(v: Vibrator, effect: () -> VibrationEffect) {
         if (!enabled || strength <= 0) return
         if (!v.hasVibrator()) return
         try {
-            v.vibrate(effect)
+            v.vibrate(effect())
         } catch (_: Exception) {
             // A vibrator that rejects the effect: silent, never a crash.
         }
