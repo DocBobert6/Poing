@@ -65,10 +65,10 @@ class AppSettingsScreenTest {
         composeRule.onNodeWithTag("handheld-settings-page").assertIsDisplayed()
         // The page's chain switch tag exists only on that
         // system's page, so it proves the right page
-        // opened. (A title-text check cannot: the main
-        // list's row keeps the same title as a merged
-        // text entry behind the page, so the text matches
-        // twice.)
+        // opened. (Alpha.9: the main list is no longer
+        // composed behind the page, so a title-text check
+        // would work now too — the tag stays as the
+        // precise proof.)
         composeRule.onNodeWithTag("handheld-${system.name.lowercase()}-chain-switch")
             .assertExists()
     }
@@ -624,6 +624,46 @@ class AppSettingsScreenTest {
         }
         openHandheldPage(GameSystem.GB)
         composeRule.onAllNodesWithText("Default layout").assertCountEquals(0)
+    }
+
+    @Test
+    fun handheldPageReplacesTheMainListInsteadOfStackingOverIt() {
+        // Alpha.9 — Robert's alpha.8 report (screenshots):
+        // the page drew OVER the list with both layers at
+        // 0.45 alpha, so every page row overlapped a
+        // main-list row and the screen was unreadable. The
+        // list is not composed at all while a page is open
+        // now — this test would have caught it: it asserts
+        // the list (tag + rows) is absent from the tree on
+        // each of the three pages, and that Back returns to
+        // the main list.
+        val s = store()
+        composeRule.setContent {
+            PoingTheme {
+                AppSettingsScreen(store = s, onCoreOptions = {}, onBack = { })
+            }
+        }
+        for (system in GameSystem.entries) {
+            openHandheldPage(system)
+            composeRule.onNodeWithTag("handheld-settings-page").assertIsDisplayed()
+            // The main list is gone, not hidden: no list
+            // node, and none of its rows either — "Fast-
+            // forward control" is list-only, and "Worm
+            // Light colour" is the list's Display row (the
+            // page's toggle is just "Worm Light").
+            composeRule.onAllNodesWithTag("settings-list").assertCountEquals(0)
+            composeRule.onAllNodesWithText("Fast-forward control").assertCountEquals(0)
+            composeRule.onAllNodesWithText("Worm Light colour").assertCountEquals(0)
+            // Back returns to the main list, whole — at
+            // the same scroll position (the state is
+            // hoisted above the list/page branch), so
+            // scroll to the top to prove the top rows are
+            // back too.
+            composeRule.onNodeWithText("Back to Settings").performClick()
+            composeRule.onNodeWithTag("settings-list").assertIsDisplayed()
+            composeRule.onNodeWithTag("settings-list").performScrollToIndex(0)
+            composeRule.onNodeWithText("Fast-forward control").assertExists()
+        }
     }
 
     @Test
