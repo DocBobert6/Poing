@@ -1,19 +1,20 @@
-## Poing! v0.1.0-alpha.13 — Envelope click
+## Poing! v0.1.0-alpha.14 — Joystick dead zone
 
-The thirteenth signed alpha of Poing!, the standalone Game Boy / Game Boy Color / Game Boy Advance emulator for Android (mGBA core, one app, arm64-v8a only).
+The fourteenth signed alpha of Poing!, the standalone Game Boy / Game Boy Color / Game Boy Advance emulator for Android (mGBA core, one app, arm64-v8a only).
 
-**Install first — read this:** this alpha is signed with the same release key as alpha.1 through alpha.12, so it installs straight over alpha.12 — no uninstall needed, saves and settings carry over. It will **not** install over the debug builds (different key). Uninstall the debug build first. Uninstalling wipes local saves (battery saves + save states); RetroAchievements progress is server-side and safe.
+**Install first — read this:** this alpha is signed with the same release key as alpha.1 through alpha.13, so it installs straight over alpha.13 — no uninstall needed, saves and settings carry over. It will **not** install over the debug builds (different key). Uninstall the debug build first. Uninstalling wipes local saves (battery saves + save states); RetroAchievements progress is server-side and safe.
 
 ## Download
 
-The signed APK is attached to this release: `poing-v0.1.0-alpha.13.apk` (size + SHA-256 in the Build section below).
+The signed APK is attached to this release: `poing-v0.1.0-alpha.14.apk` (size + SHA-256 in the Build section below).
 
-## What changed in alpha.13
+## What changed in alpha.14
 
-- Envelope click: the press click (A/B and Start/Select) is now built with Android 16's envelope API where the device supports it — an instant attack of about 15ms total, with the sharpness placed at the actuator's own resonant frequency from the device's frequency profile. It is an alternative press click, not a claim of a better one: whether it feels better than the current click is for your device to judge, and this build is the way to judge it.
-- Graceful fallback: the device is probed at runtime. Where envelope effects are not supported, the press falls back to the current click, exactly as before. And if an envelope the device claims to support will not build, the plain click is the fallback there too — a button always clicks, never goes silent.
-- Nothing else about haptics changed: the release tick, the roll tick, the shoulder click+thud, the strength slider and all the wiring are untouched. The envelope click is the press only.
-- What you should try: press the buttons as usual and compare the feel against alpha.12. If the envelope click feels better, it stays; if not, it goes.
+- Joystick dead zone, adjustable at last: the stick's dead zone was a fixed 22% of full travel — about 16dp from centre on a 144dp stick — and the nub moves from the moment you touch it, so in racing games the zone felt non-existent. There is now a "Joystick dead zone" slider in Settings → Player, beside "Left control": 0 to 50 percent in steps of 5, 22 by default (the old feel, unchanged on install). 0 is raw — no dead zone at all, like the real D-pad. A bigger zone means a wider neutral area in the middle of the stick, which is what steering in a racing game wants.
+- Per-game override: a game can set its own dead zone in the layout editor — a stepper in 5% steps plus a Global pill, shown only while the stick is the control in the slot. Per-game wins over the global slider; Global follows the slider again. Reset in the editor is layout-only and never touches the dead-zone choice.
+- Nothing else about the stick changed: below the zone nothing, above it the exact same diagonal rule, the same direction mask, the same nub tracking and snap-back. The dead zone is a pure gate — no rescaling. The D-pad keeps its own fixed dead zone, untouched.
+- What you should try: set the slider to 30 for a racing game and see how the steering feels; then set a per-game override on that game and confirm it sticks after a relaunch. Above the zone, the stick should behave exactly as it did before.
+- One fix on the way: the first build went red on a single editor test (the compose rule rejects a second setContent in one test) — split the test, no production code changed.
 
 ## What is in it
 
