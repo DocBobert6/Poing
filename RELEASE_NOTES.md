@@ -1,19 +1,19 @@
-## Poing! v0.1.0-alpha.18 — The tuning pair
+## Poing! v0.1.0-alpha.19 — The small UI pair
 
-The eighteenth signed alpha of Poing!, the standalone Game Boy / Game Boy Color / Game Boy Advance emulator for Android (mGBA core, one app, arm64-v8a only).
+The nineteenth signed alpha of Poing!, the standalone Game Boy / Game Boy Color / Game Boy Advance emulator for Android (mGBA core, one app, arm64-v8a only).
 
-**Install first — read this:** this alpha is signed with the same release key as alpha.1 through alpha.17, so it installs straight over alpha.17 — no uninstall needed, saves and settings carry over. It will **not** install over the debug builds (different key). Uninstall the debug build first. Uninstalling wipes local saves (battery saves + save states); RetroAchievements progress is server-side and safe.
+**Install first — read this:** this alpha is signed with the same release key as alpha.1 through alpha.18, so it installs straight over alpha.18 — no uninstall needed, saves and settings carry over. It will **not** install over the debug builds (different key). Uninstall the debug build first. Uninstalling wipes local saves (battery saves + save states); RetroAchievements progress is server-side and safe.
 
 ## Download
 
-The signed APK is attached to this release: `poing-v0.1.0-alpha.18.apk` (size + SHA-256 in the Build section below).
+The signed APK is attached to this release: `poing-v0.1.0-alpha.19.apk` (size + SHA-256 in the Build section below).
 
-## What changed in alpha.18
+## What changed in alpha.19
 
-- Proportional steering is retuned. The duty now follows the deflection squared instead of linearly, so a slight push counts for much less than it did; and the fractional remainder carries forward across periods instead of rounding per period, so a tiny push gives one full-steering frame every N periods rather than nothing-or-a-sixth. The 6-frame period is unchanged, full deflection still holds continuously, and the D-pad is untouched.
-- The Worm Light tilt is less sensitive. The tilt distance range widens from 12–64dp to 12–96dp: a 50dp orbit now tilts 0.45 instead of 0.73, and full tilt needs a deliberate 96dp sweep — still inside a thumb's reach, no longer hit by accident. The 12dp floor is unchanged: a finger on the lens still does not tilt.
-- Nothing else changed: the haptics (including the alpha.17 pair), the dead zone, the editor, the black-screen path, cover fetching, cheats, and RA are untouched.
-- What you should feel: in a racing game, a slight stick push should steer gently instead of grabbing; aiming the Worm Light should need a wider orbit to tilt fully.
+- The layout editor's settings panel collapses. A Hide/Show settings toggle under the action row folds the panel down to a slim bar, so the settings stop covering the whole screen while you drag the controls around; the action row (Back / Done / Reset / Snap / Together) stays visible throughout, and the controls stay draggable while minimized. It is session-only — the editor always opens expanded, and collapsing never touches a saved layout.
+- The cheat screen uses the detected system. It used to take the system from the file extension, so a GBC game in a `.gb` file got GB cheat formats; it now takes the system the core actually loaded (the header-detected one the library already knows), so that game gets GBC cheat formats.
+- Nothing else changed: the haptics (including the alpha.17 pair), the steering and Worm Light tilt tuning, the dead zone, the black-screen path, cover fetching, and RA are untouched.
+- What you should see: in the layout editor, tap Hide settings and the panel folds away to a slim bar with the controls free to drag; tap Show settings and it comes back. In the cheat screen for a GBC game in a `.gb` file, the formats are GBC ones.
 
 ## What is in it
 
