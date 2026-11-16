@@ -1,19 +1,19 @@
-## Poing! v0.1.0-alpha.17 — The haptics pair
+## Poing! v0.1.0-alpha.18 — The tuning pair
 
-The seventeenth signed alpha of Poing!, the standalone Game Boy / Game Boy Color / Game Boy Advance emulator for Android (mGBA core, one app, arm64-v8a only).
+The eighteenth signed alpha of Poing!, the standalone Game Boy / Game Boy Color / Game Boy Advance emulator for Android (mGBA core, one app, arm64-v8a only).
 
-**Install first — read this:** this alpha is signed with the same release key as alpha.1 through alpha.16, so it installs straight over alpha.16 — no uninstall needed, saves and settings carry over. It will **not** install over the debug builds (different key). Uninstall the debug build first. Uninstalling wipes local saves (battery saves + save states); RetroAchievements progress is server-side and safe.
+**Install first — read this:** this alpha is signed with the same release key as alpha.1 through alpha.17, so it installs straight over alpha.17 — no uninstall needed, saves and settings carry over. It will **not** install over the debug builds (different key). Uninstall the debug build first. Uninstalling wipes local saves (battery saves + save states); RetroAchievements progress is server-side and safe.
 
 ## Download
 
-The signed APK is attached to this release: `poing-v0.1.0-alpha.17.apk` (size + SHA-256 in the Build section below).
+The signed APK is attached to this release: `poing-v0.1.0-alpha.18.apk` (size + SHA-256 in the Build section below).
 
-## What changed in alpha.17
+## What changed in alpha.18
 
-- The rocker is back on normal haptics. A D-pad or joystick direction change while held is the plain tick at 0.6 again — the envelope is off the rocker entirely, not kept as a fallback. The envelope code for the direction change is gone.
-- The release tick is slightly stronger: 0.4 to 0.5. Lifting off a button should give a slightly more present tick — still clearly below the roll tick and the full press click.
-- Nothing else changed: the A/B click, the Start/Select envelope, the L/R envelope + thud, proportional steering, the dead zone, and all the wiring are untouched.
-- What you should feel: rolling the D-pad or the stick should feel like the normal tick again, not the envelope's smoother roll; lifting off a button should tick a touch more clearly than it did.
+- Proportional steering is retuned. The duty now follows the deflection squared instead of linearly, so a slight push counts for much less than it did; and the fractional remainder carries forward across periods instead of rounding per period, so a tiny push gives one full-steering frame every N periods rather than nothing-or-a-sixth. The 6-frame period is unchanged, full deflection still holds continuously, and the D-pad is untouched.
+- The Worm Light tilt is less sensitive. The tilt distance range widens from 12–64dp to 12–96dp: a 50dp orbit now tilts 0.45 instead of 0.73, and full tilt needs a deliberate 96dp sweep — still inside a thumb's reach, no longer hit by accident. The 12dp floor is unchanged: a finger on the lens still does not tilt.
+- Nothing else changed: the haptics (including the alpha.17 pair), the dead zone, the editor, the black-screen path, cover fetching, cheats, and RA are untouched.
+- What you should feel: in a racing game, a slight stick push should steer gently instead of grabbing; aiming the Worm Light should need a wider orbit to tilt fully.
 
 ## What is in it
 
