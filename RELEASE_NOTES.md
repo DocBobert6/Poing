@@ -1,21 +1,21 @@
-## Poing! v0.1.0-alpha.15 — Haptics retune
+## Poing! v0.1.0-alpha.16 — Proportional steering
 
-The fifteenth signed alpha of Poing!, the standalone Game Boy / Game Boy Color / Game Boy Advance emulator for Android (mGBA core, one app, arm64-v8a only).
+The sixteenth signed alpha of Poing!, the standalone Game Boy / Game Boy Color / Game Boy Advance emulator for Android (mGBA core, one app, arm64-v8a only).
 
-**Install first — read this:** this alpha is signed with the same release key as alpha.1 through alpha.14, so it installs straight over alpha.14 — no uninstall needed, saves and settings carry over. It will **not** install over the debug builds (different key). Uninstall the debug build first. Uninstalling wipes local saves (battery saves + save states); RetroAchievements progress is server-side and safe.
+**Install first — read this:** this alpha is signed with the same release key as alpha.1 through alpha.15, so it installs straight over alpha.15 — no uninstall needed, saves and settings carry over. It will **not** install over the debug builds (different key). Uninstall the debug build first. Uninstalling wipes local saves (battery saves + save states); RetroAchievements progress is server-side and safe.
 
 ## Download
 
-The signed APK is attached to this release: `poing-v0.1.0-alpha.15.apk` (size + SHA-256 in the Build section below).
+The signed APK is attached to this release: `poing-v0.1.0-alpha.16.apk` (size + SHA-256 in the Build section below).
 
-## What changed in alpha.15
+## What changed in alpha.16
 
-- Haptics retune, from the alpha.13 device verdict: the envelope click is good on Start/Select and worse than the old click on A/B. So A/B are back on the alpha.12 click (the scaled click primitive, no envelope) and Start/Select keep the envelope, unchanged.
-- The D-pad and the stick try the envelope on a direction change — a rocker rolling onto a new dome, not a button press — tuned softer than Start/Select's (the resonant sharpness pulled down a quarter) and landing slightly stronger than the old tick. Where the device has no envelopes the roll falls back to the tick, whose scale rose 0.5 to 0.6 — clearly present, still obviously below A/B's full click, because the rocker really is softer than a face button.
-- L/R take the envelope too — only the click part. The thud stays exactly as it is (a low thud at 0.3x, 20ms after the click starts), fired once the ~15ms envelope click has finished, so it still lands as one thunk. Without the thud primitive it is just the envelope click; without primitives at all it is the plain click.
-- Nothing else changed: the release tick, the strength slider, and all the haptics wiring are untouched.
-- What you should try: A/B should feel like alpha.12 again; Start/Select still the envelope; D-pad and stick rolls slightly stronger — and the verdict that matters is whether the envelope suits the rocker. L/R should click then thunk, as before.
-- One fix on the way: the fold-in run went red on a single compile error (a new enum declared inside the companion object is not reachable as `Haptics.ShoulderClickRoute` — the same trap as the alpha.11 TickEffectKind red run). Moved to class level, no behaviour change.
+- Proportional steering for the joystick. The stick's output was digital — on or off past the dead zone — so in a racing game you got full lock the moment you steered, and even a 50% dead zone only moved where full lock engaged. Now how far you push controls how much steering the game gets: a slight push pulses the direction in rapid gentle taps, like tapping the D-pad on real hardware, and a full push holds it continuously.
+- The pulse is a fixed 6-frame period (100 ms at 60 fps), with the direction on for a share of the period set by how far past the dead zone you are — linear, no curve, no extra setting. Full deflection is held exactly as before. The dead zone still applies first: below it, nothing.
+- It is off by default, and it should be: it changes what holding a direction means everywhere. In a menu a held direction taps repeatedly instead of scrolling, and in a platformer holding to run stutters. Racing games are the use case, so turn it on where you want it: Settings → Player has a "Proportional steering" switch beside the dead-zone slider, and the layout editor has a per-game Global / On / Off row (shown only while the joystick is in the slot), the same pattern as the dead zone. Per-game wins over global.
+- The pulse lives in the session, below the controls: the haptics and the input display read the raw direction, so a pulsing direction never buzzes the tick or flickers the display. The D-pad is untouched — it has no deflection to measure, so the switch does nothing while the D-pad is in the slot. Fast-forward keeps the steering consistent in game time (the pulse advances once per emulated step, not per displayed frame), and pausing restarts the pulse cleanly on resume.
+- What you should try: with the switch on (globally, or per game for a racer), steer gently through a corner — a slight push should steer slightly, a full push should lock it. With the switch off, everything behaves exactly as alpha.15 did.
+- Nothing else changed: the dead-zone slider, the haptics retune from alpha.15, and all the wiring are untouched.
 
 ## What is in it
 
