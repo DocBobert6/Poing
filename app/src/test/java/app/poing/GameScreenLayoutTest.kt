@@ -140,6 +140,13 @@ class GameScreenLayoutTest {
         composeRule.onNodeWithText("Pause").performClick()
         composeRule.onNodeWithText("Move controls").performScrollTo().performClick()
         composeRule.onNodeWithTag("editor-dpad").assertIsDisplayed()
+        // Alpha.19 — the expanded panel covers the D-pad's
+        // centre in the short test window, so a drag started
+        // there lands on the panel instead of the control.
+        // Minimizing is the designed way to clear it (Robert,
+        // 2026-11-16): the slim bar stays, the controls stay
+        // draggable, and Done still commits the draft.
+        composeRule.onNodeWithTag("editor-settings-collapse").performClick()
         composeRule.onNodeWithTag("editor-dpad").performTouchInput {
             swipe(start = center, end = center + Offset(0f, -200f), durationMillis = 300)
         }
