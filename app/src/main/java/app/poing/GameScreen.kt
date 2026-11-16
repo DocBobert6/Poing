@@ -964,7 +964,7 @@ fun GameScreen(
             onControlDown = onControlDown,
             onControlUp = onControlUp,
             onDirectionTick = onDirectionTick,
-            onDpadDirectionTick = onDpadDirectionTick,
+            onDpadDirectionChange = onDpadDirectionTick,
             onLightDown = onLightDown,
             onShoulderDown = onShoulderDown,
             leftControl = leftControl,
@@ -1294,7 +1294,7 @@ fun GameScreen(
                 },
                 onControlUp = onControlUp,
                 onDirectionTick = onDirectionTick,
-                onDpadDirectionTick = onDpadDirectionTick,
+                onDpadDirectionChange = onDpadDirectionTick,
                 onLightDown = onLightDown,
                 onShoulderDown = onShoulderDown,
                 // Alpha.10 — the per-game left-control choice:
