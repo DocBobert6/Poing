@@ -205,13 +205,14 @@ class Haptics(
                     val thudScale = (primitiveScale(strength) * SHOULDER_THUD_SCALE).coerceIn(0f, 1f)
                     // The 4-arg form (delay type) is API 34+;
                     // below that the 3-arg form carries the
-                    // same delay.
+                    // same delay. The delay-type constant lives
+                    // on Composition, not on VibrationEffect.
                     if (sdkInt >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
                         composition.addPrimitive(
                             VibrationEffect.Composition.PRIMITIVE_THUD,
                             thudScale,
                             SHOULDER_THUD_DELAY_MS,
-                            VibrationEffect.DELAY_TYPE_RELATIVE_START_OFFSET,
+                            VibrationEffect.Composition.DELAY_TYPE_RELATIVE_START_OFFSET,
                         )
                     } else {
                         composition.addPrimitive(
