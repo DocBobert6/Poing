@@ -415,12 +415,64 @@ class DisplayRendererTest {
         renderer.setFrame(Bitmap.createBitmap(160, 144, Bitmap.Config.ARGB_8888))
         renderer.onSurfaceCreated(null, null)
         assertEquals(1, readyCalls)
+        // Alpha.29 — the change notifies too now (the creation
+        // is immediately followed by its own change), so the
+        // count is 2 before the draw, not 1.
         renderer.onSurfaceChanged(null, 800, 600)
+        assertEquals(2, readyCalls)
         renderer.onDrawFrame(null)
         assertTrue(renderer.frameConsumed)
         assertEquals(DrawPath.PLAIN, renderer.lastDrawPath)
         // The window rotates: surface destroyed, recreated.
         renderer.onSurfaceCreated(null, null)
+        assertEquals(3, readyCalls)
+    }
+
+    /**
+     * Black screen, second cause (Robert, 2026-11-16: still
+     * black until a button press, DW 3 trace): the frame drew
+     * after the launch surface was created, but the surface
+     * then changed size (the top bar appearing, 1200x1080
+     * to 838x754) — the EGL surface is recreated on a size
+     * change and the presented buffer is lost with the old
+     * one. The view renders on demand, so on a static screen
+     * nothing re-renders into the new surface and it stays
+     * black until the picture changes. A size change must
+     * notify like a creation: the session re-delivers its
+     * latest frame and it draws into the new surface with no
+     * input. Fails on the old code: the change notifies
+     * nothing, so readyCalls stays 2 after the second change.
+     */
+    @Test
+    fun surfaceChangedAfterFrameConsumedNotifiesReadyAgain() {
+        val renderer = DisplayRenderer()
+        var readyCalls = 0
+        renderer.onSurfaceReady = { readyCalls++ }
+        renderer.setDisplay(
+            DisplayChain.CLEAN,
+            JadeMode.FSTN,
+            EdgeMode.OFF,
+            GameSystem.GB,
+        )
+        renderer.setFrame(Bitmap.createBitmap(160, 144, Bitmap.Config.ARGB_8888))
+        renderer.onSurfaceCreated(null, null)
+        assertEquals(1, readyCalls)
+        renderer.onSurfaceChanged(null, 1200, 1080)
         assertEquals(2, readyCalls)
+        renderer.onDrawFrame(null)
+        assertTrue(renderer.frameConsumed)
+        assertEquals(DrawPath.PLAIN, renderer.lastDrawPath)
+        // The top bar appears: the surface changes size and
+        // the presented buffer is lost with the old surface.
+        // The change notifies again, so the replayed frame
+        // draws into the new surface with no input.
+        renderer.onSurfaceChanged(null, 838, 754)
+        assertEquals(3, readyCalls)
+        // The session's replay re-delivers the latest frame;
+        // it draws into the new surface.
+        renderer.setFrame(Bitmap.createBitmap(160, 144, Bitmap.Config.ARGB_8888))
+        renderer.onDrawFrame(null)
+        assertTrue(renderer.frameConsumed)
+        assertEquals(DrawPath.PLAIN, renderer.lastDrawPath)
     }
 }

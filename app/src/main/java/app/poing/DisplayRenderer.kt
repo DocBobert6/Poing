@@ -515,6 +515,25 @@ class DisplayRenderer : GLSurfaceView.Renderer {
         // rotation on launch shows up here as the new
         // geometry, before the first draw after it).
         onTrace?.invoke("surface changed", "${w}x$h")
+        // Alpha.29 — the black screen's second cause (Robert,
+        // 2026-11-16: still black until a button press, DW 3
+        // trace): the size change recreates the EGL surface,
+        // and the presented buffer is lost with the old one.
+        // The view renders on demand (RENDERMODE_WHEN_DIRTY),
+        // so on a static screen nothing re-renders into the
+        // new surface — the dirty check posts no new frame —
+        // and it stays black until the picture changes (a
+        // button press). Mirror the alpha.20 creation path:
+        // ask the session to re-deliver its latest frame; the
+        // view issues requestRender before invoking the
+        // callback (see GameGlView), so the replayed frame
+        // draws. GLSurfaceView calls this immediately after
+        // onSurfaceCreated, so a creation yields two ready
+        // notifies; both are idempotent replays of the same
+        // latest frame — the replay only re-delivers and
+        // requests a render, it never changes the surface,
+        // so there is no loop.
+        onSurfaceReady?.invoke()
     }
 
     override fun onDrawFrame(gl: GL10?) {
