@@ -8,10 +8,9 @@ import android.os.Looper
 import android.util.Base64
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.test.assertCountEquals
-import androidx.compose.ui.test.assertDoesNotExist
-import androidx.compose.ui.test.assertExists
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithContentDescription
+import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
@@ -435,10 +434,13 @@ class LibraryCoverFetchTest {
             }
             // The fetch just finished: the bar is still there.
             composeRule.onNodeWithTag("cover-art-status").assertExists()
-            // Past the 4s hide delay, the bar is gone.
+            // Past the 4s hide delay, the bar is gone. (No
+            // single-node assertDoesNotExist on this classpath
+            // — absence is asserted with a zero count, the
+            // project's own pattern.)
             Shadows.shadowOf(Looper.getMainLooper()).idle(5000, TimeUnit.MILLISECONDS)
             composeRule.waitForIdle()
-            composeRule.onNodeWithTag("cover-art-status").assertDoesNotExist()
+            composeRule.onAllNodesWithTag("cover-art-status").assertCountEquals(0)
         } finally {
             repository.close()
         }
