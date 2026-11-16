@@ -1,20 +1,20 @@
-## Poing! v0.1.0-alpha.24 — RA chip follows the top bar
+## Poing! v0.1.0-alpha.25 — Unlock popup slim + movable
 
-The twenty-fourth signed alpha of Poing!, the standalone Game Boy / Game Boy Color / Game Boy Advance emulator for Android (mGBA core, one app, arm64-v8a only).
+The twenty-fifth signed alpha of Poing!, the standalone Game Boy / Game Boy Color / Game Boy Advance emulator for Android (mGBA core, one app, arm64-v8a only).
 
-**Install first — read this:** this alpha is signed with the same release key as alpha.1 through alpha.23, so it installs straight over alpha.23 — no uninstall needed, saves and settings carry over. It will **not** install over the debug builds (different key). Uninstall the debug build first. Uninstalling wipes local saves (battery saves + save states); RetroAchievements progress is server-side and safe.
+**Install first — read this:** this alpha is signed with the same release key as alpha.1 through alpha.24, so it installs straight over alpha.24 — no uninstall needed, saves and settings carry over. It will **not** install over the debug builds (different key). Uninstall the debug build first. Uninstalling wipes local saves (battery saves + save states); RetroAchievements progress is server-side and safe.
 
 ## Download
 
-The signed APK is attached to this release: `poing-v0.1.0-alpha.24.apk` (size + SHA-256 in the Build section below).
+The signed APK is attached to this release: `poing-v0.1.0-alpha.25.apk` (size + SHA-256 in the Build section below).
 
-## What changed in alpha.24
+## What changed in alpha.25
 
-- The in-game RetroAchievements chip ("RA 3/12") no longer stays on the whole session. It now follows the top bar: it shows while the bar is up, hides a few seconds into gameplay with it, and comes back with the bar when you summon it with a back swipe. It was built persistent in alpha.22 and sat outside the bar's hide gate — that was the bug.
-- The game gets its height back too. The chip sat in the column above the game area, so while it was up it pushed the game down and made it smaller. Now that it hides with the bar, the game re-measures taller, like it already did for the bar itself.
-- One accepted consequence: while the bar is hidden, the chip's Retry (on a failed set load) is unreachable in-game — but Pause → Achievements already carries a retry, so that path stays open.
-- Nothing else changed: the unlock toast (4 seconds), the tracker line, the chip's own states, rarity tiers, unlock history, cover fetching (including the alpha.21 diagnostic), haptics, steering and Worm Light are untouched.
-- What you should see: start a game and a few seconds in the "RA 3/12" chip is gone and the game is full height again; back-swipe and the chip returns with the top bar.
+- The achievement unlock notify is slim now: one line only — badge + "Achievement Unlocked: \<title\> (+N pts)". The description line drops out of the popup entirely (it still lives in Pause → Achievements and the hub, where it belongs), and the chip is capped at 75% of the game width, so it never spans the full game and covers the HUD the way it did.
+- The popup is movable now: it is an overlay item, so you can drag it and resize it in the layout editor like any other control — per-system default plus per-game override, like the rest. A sample popup shows while editing so the position is visible. The default stays top-centre.
+- It floats over the game now, in the overlay layer, so while it is up it no longer pushes the game down or makes it smaller — the same rule as the alpha.24 chip fix.
+- Nothing else changed: the 4-second auto-clear, the badge, the gold chip style, the scoreboard note, the RA chip and the tracker line are untouched.
+- What you should see: unlock an achievement and the notify is a single slim chip, not a wide two-liner; move it in the editor and it stays where you put it.
 
 ## What is in it
 
