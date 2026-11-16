@@ -111,7 +111,14 @@ class LibraryScreenTest {
     fun tappingGameReturnsHomeWithLoadError() {
         seedGame()
         composeRule.waitForText("TETRIS")
-        composeRule.onNodeWithText("TETRIS").performClick()
+        // The title itself, not the merged row: performClick
+        // taps the node's center, and the merged row node's
+        // center falls on the button strip in the narrow test
+        // window (the Cover button widened it past center) —
+        // the tap hit a button instead of the row. The
+        // unmerged title's center is left of the buttons,
+        // inside the row's clickable, as a real tap is.
+        composeRule.onNodeWithText("TETRIS", useUnmergedTree = true).performClick()
         composeRule.waitUntil(timeoutMillis = 10_000) {
             try {
                 composeRule.onNodeWithText("Native libraries failed to load.", substring = true)

@@ -4,10 +4,7 @@ import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
-import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
-import androidx.compose.ui.test.onRoot
-import androidx.compose.ui.test.printToString
 import androidx.compose.ui.test.performClick
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -139,45 +136,14 @@ class GameRowTest {
                 )
             }
         }
-        composeRule.onNodeWithText("TETRIS").performClick()
+        // The title itself, not the merged cell: performClick
+        // taps the node's center, and the merged cell node's
+        // center falls on the button strip in the narrow test
+        // window (the Cover button widened it past center) —
+        // the tap hit Saves instead of the cell. The unmerged
+        // title's center is on the tile/title area, inside
+        // the cell's clickable, as a real tap on the title is.
+        composeRule.onNodeWithText("TETRIS", useUnmergedTree = true).performClick()
         assertTrue(played)
-    }
-
-    // TEMPORARY DIAGNOSTIC (alpha.9): gridCellTapPlays and the
-    // LibraryScreen tap test went red after the Cover button
-    // was added — the title tap no longer reaches onPlay.
-    // Dumps the semantics tree + the resolved text node's
-    // bounds/actions, and compares a tag click with a text
-    // click. Remove once the cause is known.
-    @Test
-    fun diagnoseGridCellTap() {
-        var playedByTag = false
-        composeRule.setContent {
-            PoingTheme {
-                GameGridCell(
-                    game = game(),
-                    coverBitmap = null,
-                    onPlay = { playedByTag = true },
-                    onRemove = {},
-                )
-            }
-        }
-        println("DIAG TREE:\n" + composeRule.onRoot().printToString())
-        composeRule.onNodeWithTag("game-grid-cell").performClick()
-        println("DIAG playedByTag=$playedByTag")
-        var playedByText = false
-        composeRule.setContent {
-            PoingTheme {
-                GameGridCell(
-                    game = game(),
-                    coverBitmap = null,
-                    onPlay = { playedByText = true },
-                    onRemove = {},
-                )
-            }
-        }
-        println("DIAG TEXT NODE:\n" + composeRule.onNodeWithText("TETRIS").printToString(0))
-        composeRule.onNodeWithText("TETRIS").performClick()
-        println("DIAG playedByText=$playedByText")
     }
 }
