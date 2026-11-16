@@ -1,7 +1,9 @@
 package app.poing
 
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.fetchSemanticsNode
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithTag
@@ -57,6 +59,64 @@ class ControlButtonTest {
         setContent(LeftControl.STICK)
         composeRule.onNodeWithTag("stick").assertIsDisplayed()
         composeRule.onAllNodesWithTag("dpad").assertCountEquals(0)
+    }
+
+    // Alpha.27 — the D-pad envelope split: ControlButton
+    // forwards the routed callback (previous mask, new
+    // mask) to the D-pad, so a press then a roll to a
+    // diagonal reports both transitions with their masks.
+    @Test
+    fun dpadRoutesPreviousAndNewMasks() {
+        val changes = mutableListOf<Pair<Int, Int>>()
+        composeRule.setContent {
+            PoingTheme {
+                ControlButton(
+                    spec = ControlLayout.DEFAULT.control(ControlId.DPAD),
+                    theme = ControlThemes.themeFor(GameSystem.GB),
+                    held = HeldInput(),
+                    paused = false,
+                    onInputChanged = {},
+                    onControlDown = {},
+                    onDpadDirectionChange = { previous, new -> changes += previous to new },
+                )
+            }
+        }
+        val up = 1 shl InputMask.JOY_UP
+        val right = 1 shl InputMask.JOY_RIGHT
+        val size = composeRule.onNodeWithTag("dpad").fetchSemanticsNode().size
+        composeRule.onNodeWithTag("dpad").performTouchInput {
+            down(Offset(center.x, 8f))
+            moveTo(Offset(size.width - 8f, 8f))
+        }
+        assertEquals(listOf(0 to up, up to (up or right)), changes)
+    }
+
+    @Test
+    fun dpadWithoutRoutedCallbackFallsBackToPlainTick() {
+        // No routed callback supplied: every direction
+        // change falls back to the plain roll tick — the
+        // editor preview and any older caller keep the
+        // alpha.17 behaviour.
+        var ticks = 0
+        composeRule.setContent {
+            PoingTheme {
+                ControlButton(
+                    spec = ControlLayout.DEFAULT.control(ControlId.DPAD),
+                    theme = ControlThemes.themeFor(GameSystem.GB),
+                    held = HeldInput(),
+                    paused = false,
+                    onInputChanged = {},
+                    onControlDown = {},
+                    onDirectionTick = { ticks++ },
+                )
+            }
+        }
+        val size = composeRule.onNodeWithTag("dpad").fetchSemanticsNode().size
+        composeRule.onNodeWithTag("dpad").performTouchInput {
+            down(Offset(center.x, 8f))
+            moveTo(Offset(size.width - 8f, 8f))
+        }
+        assertEquals(2, ticks)
     }
 
     // Alpha.10 (Part D) — the FF / 0.5x / RW trio, moved out

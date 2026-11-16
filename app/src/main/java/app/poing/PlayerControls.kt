@@ -286,7 +286,12 @@ fun DpadControl(
     // changes to something non-empty — once per press and once
     // per direction change while held, never on release and never
     // on a pointer event that leaves the directions unchanged.
-    onDirectionChange: (() -> Unit)? = null,
+    // Alpha.27 — the split: the callback carries both masks —
+    // the previous set and the new set — so the caller can
+    // tell a press from neutral (previous empty) from a roll,
+    // and a cardinal from a diagonal, and route the envelope
+    // or the plain tick accordingly.
+    onDirectionChange: ((previousMask: Int, newMask: Int) -> Unit)? = null,
     // Alpha.11 — the release hook: fires once when the
     // direction set empties — the last finger lifts. Holding
     // one direction steady fires nothing; only the emptying
@@ -338,7 +343,7 @@ fun DpadControl(
                         }
                         if (newDirs != lastDirs) {
                             if (newDirs != 0) {
-                                onDirectionChange?.invoke()
+                                onDirectionChange?.invoke(lastDirs, newDirs)
                             } else {
                                 onDirectionsEmpty?.invoke()
                             }

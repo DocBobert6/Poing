@@ -1,20 +1,21 @@
-## Poing! v0.1.0-alpha.26 — Tree strip
+## Poing! v0.1.0-alpha.27 — D-pad envelope split
 
-The twenty-sixth signed alpha of Poing!, the standalone Game Boy / Game Boy Color / Game Boy Advance emulator for Android (mGBA core, one app, arm64-v8a only).
+The twenty-seventh signed alpha of Poing!, the standalone Game Boy / Game Boy Color / Game Boy Advance emulator for Android (mGBA core, one app, arm64-v8a only).
 
-**Install first — read this:** this alpha is signed with the same release key as alpha.1 through alpha.25, so it installs straight over alpha.25 — no uninstall needed, saves and settings carry over. It will **not** install over the debug builds (different key). Uninstall the debug build first. Uninstalling wipes local saves (battery saves + save states); RetroAchievements progress is server-side and safe.
+**Install first — read this:** this alpha is signed with the same release key as alpha.1 through alpha.26, so it installs straight over alpha.26 — no uninstall needed, saves and settings carry over. It will **not** install over the debug builds (different key). Uninstall the debug build first. Uninstalling wipes local saves (battery saves + save states); RetroAchievements progress is server-side and safe.
 
 ## Download
 
-The signed APK is attached to this release: `poing-v0.1.0-alpha.26.apk` (size + SHA-256 in the Build section below).
+The signed APK is attached to this release: `poing-v0.1.0-alpha.27.apk` (size + SHA-256 in the Build section below).
 
-## What changed in alpha.26
+## What changed in alpha.27
 
-- The repo no longer carries mGBA's test-suite ROMs: the `cinema/` directory is gone — 1,116 files, about 36 MB of blargg and acid test ROMs, baselines and configs that nothing in Poing ever ran.
-- Upstream's own GitHub workflows are gone too (`.github/workflows/compilation.yml`, `crowdin_prep.yml`, `crowdin_translate.yml`). Poing's own CI workflow (`.github/workflows/android.yml`) stays — it is what builds and releases every alpha.
-- The mGBA pin is unchanged at `7a12d6d4`; the tree is simply no longer verbatim. The core builds from the library sources only, exactly as before.
-- Nothing else changed: no app code, no bridge code, no settings, no behaviour. The smaller repo is the whole change.
-- What you should see: nothing different in the app — this one is under the hood.
+- The D-pad's haptics are split by how you roll it. Pressing a direction from neutral — any direction — is the envelope click again, the softer one from alpha.15 (0.75× resonant sharpness, weaker than A/B). Rolling to a straight direction (up, down, left, right) is the envelope click too.
+- Rolling to a diagonal is the plain tick at 0.6 — the regular haptic click, not the envelope.
+- The release tick is unchanged: 0.5, and it only fires when you lift off completely, never on a roll.
+- The joystick is untouched — it stays on the plain tick.
+- Nothing else changed: the A/B click, the Start/Select envelope, the L/R envelope + thud, the strength slider, proportional steering, the dead zone, and all the wiring are untouched.
+- What you should feel: pressing the D-pad or rolling it straight should feel like the envelope's smoother click again; rolling through a diagonal should feel like the normal tick.
 
 ## What is in it
 

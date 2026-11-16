@@ -142,6 +142,7 @@ class HapticsTest {
         haptics.click()
         haptics.lightClick()
         haptics.directionTick()
+        haptics.directionTick(0, 1 shl InputMask.JOY_UP)
         haptics.releaseTick()
         haptics.shoulderClick()
         assertFalse(shadowOf(v).isVibrating)
@@ -325,11 +326,17 @@ class HapticsTest {
     // (Robert's device verdict on alpha.15): the envelope
     // is off the rocker too — the direction change is the
     // plain PRIMITIVE_TICK at 0.6, no envelope, no fallback.
-    // The routing itself can only be proven on a real API 36
-    // device (at SDK 35 the envelope is never taken, so the
-    // behaviour tests above prove the plain-tick path) — what
-    // pins here is the behaviour: the tick is the plain
-    // tick primitive at 0.6 of full strength.
+    // Alpha.27 (Robert, 2026-11-16 13:29): the envelope is
+    // back on the rocker, but split — the press from
+    // neutral and the cardinal roll take it, the diagonal
+    // roll takes the plain tick. The no-arg tick below is
+    // now the stick's tick (and the D-pad's fallback); the
+    // routed overload carries the split. The routing itself
+    // can only be proven on a real API 36 device (at SDK 35
+    // the envelope is never taken, so the behaviour tests
+    // above prove the plain-tick path) — what pins here is
+    // the behaviour: the tick is the plain tick primitive
+    // at 0.6 of full strength.
     @Test
     fun directionTickScaleIsSlightlyStronger() {
         // 0.5 to 0.6: a small step up from the old tick —
@@ -362,6 +369,132 @@ class HapticsTest {
             0.001f,
         )
         Haptics.buildTickEffect(Haptics.DIRECTION_TICK_SCALE, 100, 35, tickSupported = true)
+    }
+
+    // Alpha.27 — the D-pad envelope split (Robert,
+    // 2026-11-16 13:29, design confirmed 13:31): press
+    // from neutral (any direction) and roll to a cardinal
+    // take the envelope; roll to a diagonal takes the plain
+    // tick. The routing is a pure function over the
+    // previous and new masks, so the matrix pins here; the
+    // envelope effect itself can only be proven on a real
+    // API 36 device (at SDK 35 the envelope is never taken,
+    // so the behaviour tests prove the plain-tick path).
+    @Test
+    fun directionSplitRoutingMatrix() {
+        val up = 1 shl InputMask.JOY_UP
+        val down = 1 shl InputMask.JOY_DOWN
+        val left = 1 shl InputMask.JOY_LEFT
+        val right = 1 shl InputMask.JOY_RIGHT
+        val upRight = up or right
+        val downLeft = down or left
+        // Press from neutral — any direction, envelope.
+        assertEquals(
+            Haptics.DirectionEffectKind.ENVELOPE,
+            Haptics.directionEffectKind(0, up),
+        )
+        assertEquals(
+            Haptics.DirectionEffectKind.ENVELOPE,
+            Haptics.directionEffectKind(0, upRight),
+        )
+        assertEquals(
+            Haptics.DirectionEffectKind.ENVELOPE,
+            Haptics.directionEffectKind(0, downLeft),
+        )
+        // Roll to a cardinal — envelope.
+        assertEquals(
+            Haptics.DirectionEffectKind.ENVELOPE,
+            Haptics.directionEffectKind(up, down),
+        )
+        assertEquals(
+            Haptics.DirectionEffectKind.ENVELOPE,
+            Haptics.directionEffectKind(upRight, left),
+        )
+        // Roll to a diagonal — plain tick.
+        assertEquals(
+            Haptics.DirectionEffectKind.PLAIN_TICK,
+            Haptics.directionEffectKind(up, upRight),
+        )
+        assertEquals(
+            Haptics.DirectionEffectKind.PLAIN_TICK,
+            Haptics.directionEffectKind(upRight, downLeft),
+        )
+        assertEquals(
+            Haptics.DirectionEffectKind.PLAIN_TICK,
+            Haptics.directionEffectKind(left, upRight),
+        )
+    }
+
+    @Test
+    fun cardinalDirectionIsExactlyOneDirectionBit() {
+        val up = 1 shl InputMask.JOY_UP
+        val right = 1 shl InputMask.JOY_RIGHT
+        assertTrue(Haptics.isCardinalDirection(up))
+        assertTrue(Haptics.isCardinalDirection(right))
+        assertFalse(Haptics.isCardinalDirection(up or right))
+        assertFalse(Haptics.isCardinalDirection(0))
+        // Non-direction bits never count: a cardinal plus
+        // an unrelated bit is still a cardinal.
+        assertTrue(Haptics.isCardinalDirection(up or (1 shl InputMask.JOY_A)))
+    }
+
+    @Test
+    fun directionEnvelopeStrengthMatchesTheFallbackTick() {
+        // The envelope lands at exactly the fallback tick's
+        // amplitude — the envelope-or-tick choice changes
+        // only the character of the roll, never how hard it
+        // lands. The tick's amplitude is the primitive scale
+        // times the direction scale; the envelope's strength
+        // is the same product, as a 0–100 strength.
+        // Restored from alpha.15 (alpha.17 removed it with
+        // the rocker envelope); alpha.27 brings it back.
+        assertEquals(60, Haptics.directionEnvelopeStrength(100))
+        assertEquals(30, Haptics.directionEnvelopeStrength(50))
+        assertEquals(0, Haptics.directionEnvelopeStrength(0))
+        assertEquals(
+            0.6f,
+            Haptics.primitiveScale(Haptics.directionEnvelopeStrength(100)),
+            0.001f,
+        )
+        assertEquals(
+            Haptics.primitiveScale(100) * Haptics.DIRECTION_TICK_SCALE,
+            Haptics.primitiveScale(Haptics.directionEnvelopeStrength(100)),
+            0.001f,
+        )
+    }
+
+    @Test
+    fun directionEnvelopeSharpnessIsSofterThanThePress() {
+        // The resonant sharpness pulled down a quarter: the
+        // roll reads softer than Start/Select's envelope,
+        // which takes the resonant sharpness whole, while
+        // staying in the resonant neighbourhood. Restored
+        // from alpha.15 (alpha.17 removed it); alpha.27
+        // brings it back at the same 0.75x.
+        assertEquals(0.75f, Haptics.DIRECTION_ENVELOPE_SHARPNESS_SCALE, 0.001f)
+        assertEquals(0.75f, Haptics.directionEnvelopeSharpness(1.0f), 0.001f)
+        assertEquals(0.6f, Haptics.directionEnvelopeSharpness(0.8f), 0.001f)
+        assertEquals(0f, Haptics.directionEnvelopeSharpness(0f), 0.001f)
+        // Always softer than the resonant sharpness it starts
+        // from — the pull-down never leaves the value alone.
+        assertTrue(Haptics.directionEnvelopeSharpness(0.8f) < 0.8f)
+    }
+
+    @Test
+    fun routedDirectionTickVibrates() {
+        // The routed overload plays through the same guard
+        // as the plain tick — at SDK 35 the envelope is
+        // never taken, so both routes land on the tick and
+        // vibrate. The envelope branch itself is proven on
+        // a real API 36 device.
+        val v = vibrator()
+        val haptics = Haptics(v)
+        val up = 1 shl InputMask.JOY_UP
+        val right = 1 shl InputMask.JOY_RIGHT
+        haptics.directionTick(0, up)
+        assertTrue(shadowOf(v).isVibrating)
+        haptics.directionTick(up, up or right)
+        assertTrue(shadowOf(v).isVibrating)
     }
 
     @Test

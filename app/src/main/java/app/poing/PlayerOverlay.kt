@@ -91,6 +91,13 @@ fun BoxScope.ControlOverlay(
     // Defaults to the canvas width, so callers without a game
     // (tests) keep working.
     gameWidthDp: Float = canvasWidthDp,
+    // Alpha.27 — the D-pad envelope split: the routed
+    // direction callback (previous mask, new mask) — the
+    // press from neutral and the cardinal roll take the
+    // envelope, a diagonal roll the plain tick. Null keeps
+    // callers without a routing (the editor preview, tests)
+    // on the plain tick for every direction change.
+    onDpadDirectionChange: ((Int, Int) -> Unit)? = null,
 ) {
     val theme = ControlThemes.themeFor(system)
     val alpha = layout.opacity / 100f
@@ -140,6 +147,7 @@ fun BoxScope.ControlOverlay(
                 slowOn = slowOn,
                 onFfDown = onFfDown, onFfUp = onFfUp, onSlowToggle = onSlowToggle,
                 onRwDown = onRwDown, onRwUp = onRwUp,
+                onDpadDirectionChange = onDpadDirectionChange,
             )
         }
     }
@@ -216,12 +224,20 @@ fun ControlButton(
     onSlowToggle: () -> Unit = {},
     onRwDown: () -> Unit = {},
     onRwUp: () -> Unit = {},
+    // Alpha.27 — the D-pad envelope split (see
+    // ControlOverlay): the routed direction callback.
+    // Null falls back to the plain roll tick.
+    onDpadDirectionChange: ((Int, Int) -> Unit)? = null,
 ) {
     val pressed = Color(theme.pressed)
     when (spec.id) {
         ControlId.DPAD -> when (leftControl) {
             LeftControl.DPAD -> DpadControl(
-                held, paused, onInputChanged, onDirectionChange = onDirectionTick,
+                held, paused, onInputChanged,
+                // Alpha.27 — the split: the routed callback
+                // when the caller supplies one, else the
+                // plain roll tick for every direction change.
+                onDirectionChange = onDpadDirectionChange ?: { _, _ -> onDirectionTick() },
                 onDirectionsEmpty = onControlUp,
                 crossColor = Color(theme.dpadCross), wellColor = Color(theme.dpadWell),
                 pressedColor = pressed,

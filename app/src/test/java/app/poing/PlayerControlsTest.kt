@@ -197,7 +197,7 @@ class PlayerControlsTest {
         composeRule.setContent {
             PoingTheme {
                 DpadControl(HeldInput(), false, {},
-                    onDirectionChange = { changes++ },
+                    onDirectionChange = { _, _ -> changes++ },
                     onDirectionsEmpty = { empties++ })
             }
         }
@@ -233,6 +233,38 @@ class PlayerControlsTest {
             up()
         }
         assertEquals(1, empties)
+    }
+
+    // Alpha.27 — the D-pad envelope split: the direction
+    // callback carries the previous and new masks — a press
+    // from neutral reports (0, direction), a roll reports
+    // the old set and the new set, and the release fires
+    // the empty hook only, never the change hook.
+    @Test
+    fun dpadDirectionChangeCarriesPreviousAndNewMasks() {
+        val changes = mutableListOf<Pair<Int, Int>>()
+        var empties = 0
+        composeRule.setContent {
+            PoingTheme {
+                DpadControl(HeldInput(), false, {},
+                    onDirectionChange = { previous, new -> changes += previous to new },
+                    onDirectionsEmpty = { empties++ })
+            }
+        }
+        val up = 1 shl InputMask.JOY_UP
+        val right = 1 shl InputMask.JOY_RIGHT
+        val size = composeRule.onNodeWithTag("dpad").fetchSemanticsNode().size
+        composeRule.onNodeWithTag("dpad").performTouchInput {
+            down(Offset(center.x, 8f))
+            moveTo(Offset(size.width - 8f, 8f))
+        }
+        assertEquals(listOf(0 to up, up to (up or right)), changes)
+        assertEquals(0, empties)
+        composeRule.onNodeWithTag("dpad").performTouchInput {
+            up()
+        }
+        assertEquals(1, empties)
+        assertEquals(2, changes.size)
     }
 
     // Alpha.16 — proportional steering never drives a

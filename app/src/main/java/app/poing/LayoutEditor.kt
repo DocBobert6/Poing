@@ -120,6 +120,12 @@ fun LayoutEditor(
     // when there is no live game (the Settings default
     // editor): the canvas width stands in.
     gameWidthDp: Float? = null,
+    // Alpha.27 — the D-pad envelope split (see
+    // ControlOverlay): the routed direction callback,
+    // threaded to the editor preview so the D-pad feels
+    // the same there as in play. Null falls back to the
+    // plain roll tick.
+    onDpadDirectionChange: ((Int, Int) -> Unit)? = null,
 ) {
     var draft by remember { mutableStateOf(initial) }
     // Alpha.10 — the left-control draft: the override until
@@ -206,6 +212,7 @@ fun LayoutEditor(
                     onControlDown = onControlDown,
                     onControlUp = onControlUp,
                     onDirectionTick = onDirectionTick,
+                    onDpadDirectionChange = onDpadDirectionChange,
                     onLightDown = onLightDown,
                     onShoulderDown = onShoulderDown,
                     // Alpha.10 — the editor previews the draft
@@ -495,6 +502,9 @@ private fun EditorControl(
     deadZone: Float = StickInput.DEAD_ZONE,
     onSelect: () -> Unit,
     onMove: (Float, Float) -> Unit,
+    // Alpha.27 — the D-pad envelope split (see
+    // ControlOverlay).
+    onDpadDirectionChange: ((Int, Int) -> Unit)? = null,
 ) {
     val currentSpec by rememberUpdatedState(spec)
     val density = LocalDensity.current.density
@@ -557,6 +567,7 @@ private fun EditorControl(
             onLightDown = onLightDown,
             onShoulderDown = onShoulderDown,
             deadZone = deadZone,
+            onDpadDirectionChange = onDpadDirectionChange,
         )
         // A selected control shows its exact size in dp inside
         // itself, Mariner's model — a small gold label at its

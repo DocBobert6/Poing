@@ -806,6 +806,17 @@ fun GameScreen(
     val onDirectionTick: () -> Unit = remember {
         { if (cartridgeRumble.currentStrength == 0) hapticsImpl.directionTick() }
     }
+    // Alpha.27 — the D-pad envelope split: the routed
+    // direction callback — previous mask, new mask — so the
+    // press from neutral and the cardinal roll take the
+    // envelope and the diagonal roll the plain tick. The
+    // same rumble gate as the plain roll tick; the stick
+    // keeps the plain tick (onDirectionTick above).
+    val onDpadDirectionTick: (Int, Int) -> Unit = remember {
+        { previousMask, newMask ->
+            if (cartridgeRumble.currentStrength == 0) hapticsImpl.directionTick(previousMask, newMask)
+        }
+    }
     val onLightDown: () -> Unit = remember {
         { if (cartridgeRumble.currentStrength == 0) hapticsImpl.lightClick() }
     }
@@ -953,6 +964,7 @@ fun GameScreen(
             onControlDown = onControlDown,
             onControlUp = onControlUp,
             onDirectionTick = onDirectionTick,
+            onDpadDirectionTick = onDpadDirectionTick,
             onLightDown = onLightDown,
             onShoulderDown = onShoulderDown,
             leftControl = leftControl,
@@ -1282,6 +1294,7 @@ fun GameScreen(
                 },
                 onControlUp = onControlUp,
                 onDirectionTick = onDirectionTick,
+                onDpadDirectionTick = onDpadDirectionTick,
                 onLightDown = onLightDown,
                 onShoulderDown = onShoulderDown,
                 // Alpha.10 — the per-game left-control choice:
