@@ -921,7 +921,13 @@ class AppSettingsScreenTest {
                 AppSettingsScreen(store = store(), onCoreOptions = {}, onBack = {})
             }
         }
-        composeRule.onNodeWithTag("left-control-dpad").performScrollTo()
+        // The row sits below the first viewport: scroll the
+        // list to it first (the openHandheldPage pattern) —
+        // performScrollTo on the row itself fails because a
+        // LazyColumn row outside the composed viewport does
+        // not exist yet.
+        composeRule.onNodeWithTag("settings-list")
+            .performScrollToNode(hasTestTag("left-control-dpad"))
         composeRule.onNodeWithTag("left-control-dpad").assertIsSelected()
         composeRule.onNodeWithTag("left-control-stick").assertIsNotSelected()
     }
@@ -934,7 +940,9 @@ class AppSettingsScreenTest {
                 AppSettingsScreen(store = s, onCoreOptions = {}, onBack = {})
             }
         }
-        composeRule.onNodeWithTag("left-control-stick").performScrollTo().performClick()
+        composeRule.onNodeWithTag("settings-list")
+            .performScrollToNode(hasTestTag("left-control-stick"))
+        composeRule.onNodeWithTag("left-control-stick").performClick()
         assertEquals(LeftControl.STICK, AppSettingsStore(temp.root).leftControl())
     }
 }

@@ -91,6 +91,7 @@ fun StickControl(
     grabMarginDp: Dp = 8.dp,
 ) {
     var sizePx by remember { mutableStateOf(0f) }
+    var sizePy by remember { mutableStateOf(0f) }
     var knob by remember { mutableStateOf(Offset.Zero) }
     val density = LocalDensity.current
     val grabPx = with(density) { grabMarginDp.toPx() }
@@ -110,7 +111,10 @@ fun StickControl(
         modifier = Modifier
             .testTag("stick")
             .size(sizeDp)
-            .onSizeChanged { sizePx = it.width.toFloat() }
+            .onSizeChanged {
+                sizePx = it.width.toFloat()
+                sizePy = it.height.toFloat()
+            }
             // Keyed on [paused]: pausing restarts the loop, and
             // the finally block below clears the direction, so a
             // stick held when the pause overlay appears cannot
@@ -133,13 +137,20 @@ fun StickControl(
                     }
                     fun updateKnob(position: Offset) {
                         val (baseR, maxTravel, _) = geometry() ?: return
-                        // The touch area is the sizePx square, so
-                        // its centre is sizePx / 2. Do NOT use an
-                        // unqualified `size` here: it would resolve
-                        // to the Dp parameter, not the measured
-                        // pixels (the HowlingDog comment that broke
-                        // CI twice).
-                        val centre = Offset(sizePx / 2f, sizePx / 2f)
+                        // The touch area is the measured sizePx x
+                        // sizePy rect, so its centre is (sizePx / 2,
+                        // sizePy / 2). The rect is square by intent
+                        // (.size(sizeDp)), but the measured size is
+                        // the truth: a non-square measurement — a
+                        // narrow window clamping the width, as the
+                        // Robolectric harness does — must not shift
+                        // the centre, or every touch reads as
+                        // below-centre (a phantom DOWN). Do NOT use
+                        // an unqualified `size` here: it would
+                        // resolve to the Dp parameter, not the
+                        // measured pixels (the HowlingDog comment
+                        // that broke CI twice).
+                        val centre = Offset(sizePx / 2f, sizePy / 2f)
                         val raw = position - centre
                         // Direction: the drag normalised by the
                         // input travel, so the dead zone and the

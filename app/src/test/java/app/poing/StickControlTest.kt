@@ -46,6 +46,14 @@ class StickControlTest {
         }
     }
 
+    // The node's centre in root coordinates — the ground
+    // truth for dispatching touches. The TouchInjectionScope
+    // `center` is the node's centre in its own space, which
+    // is the same point only when the node sits at the root
+    // origin; the semantics bounds are explicit either way.
+    private fun stickCenter(): Offset =
+        composeRule.onNodeWithTag("stick").fetchSemanticsNode().boundsInRoot.center
+
     @Test
     fun stickRenders() {
         setContent()
@@ -55,9 +63,10 @@ class StickControlTest {
     @Test
     fun dragRightReportsRight() {
         setContent()
+        val c = stickCenter()
         composeRule.onNodeWithTag("stick").performTouchInput {
-            down(center)
-            moveTo(center + Offset(60f, 0f))
+            down(c)
+            moveTo(c + Offset(60f, 0f))
         }
         assertEquals(right, held.mask)
     }
@@ -65,9 +74,10 @@ class StickControlTest {
     @Test
     fun dragDiagonalReportsBothDirections() {
         setContent()
+        val c = stickCenter()
         composeRule.onNodeWithTag("stick").performTouchInput {
-            down(center)
-            moveTo(center + Offset(50f, -50f))
+            down(c)
+            moveTo(c + Offset(50f, -50f))
         }
         assertEquals(up or right, held.mask)
     }
@@ -75,9 +85,10 @@ class StickControlTest {
     @Test
     fun dragInsideTheDeadZoneReportsNothing() {
         setContent()
+        val c = stickCenter()
         composeRule.onNodeWithTag("stick").performTouchInput {
-            down(center)
-            moveTo(center + Offset(5f, 0f))
+            down(c)
+            moveTo(c + Offset(5f, 0f))
         }
         assertEquals(0, held.mask)
     }
@@ -85,9 +96,10 @@ class StickControlTest {
     @Test
     fun releaseClearsTheDirection() {
         setContent()
+        val c = stickCenter()
         composeRule.onNodeWithTag("stick").performTouchInput {
-            down(center)
-            moveTo(center + Offset(60f, 0f))
+            down(c)
+            moveTo(c + Offset(60f, 0f))
         }
         assertEquals(right, held.mask)
         composeRule.onNodeWithTag("stick").performTouchInput {
@@ -99,20 +111,21 @@ class StickControlTest {
     @Test
     fun actuationClickFiresOnCrossingOnly() {
         setContent()
+        val c = stickCenter()
         // Down at the centre: neutral, no click.
         composeRule.onNodeWithTag("stick").performTouchInput {
-            down(center)
-            moveTo(center + Offset(60f, 0f))
+            down(c)
+            moveTo(c + Offset(60f, 0f))
         }
         assertEquals(1, clicks)
         // Direction -> diagonal: a second click.
         composeRule.onNodeWithTag("stick").performTouchInput {
-            moveTo(center + Offset(50f, -50f))
+            moveTo(c + Offset(50f, -50f))
         }
         assertEquals(2, clicks)
         // Diagonal -> cardinal: a third click.
         composeRule.onNodeWithTag("stick").performTouchInput {
-            moveTo(center + Offset(60f, 0f))
+            moveTo(c + Offset(60f, 0f))
         }
         assertEquals(3, clicks)
         // Release back to neutral stays silent.
@@ -126,9 +139,10 @@ class StickControlTest {
     @Test
     fun leftAndDownReportTheirDirections() {
         setContent()
+        val c = stickCenter()
         composeRule.onNodeWithTag("stick").performTouchInput {
-            down(center)
-            moveTo(center + Offset(-60f, 60f))
+            down(c)
+            moveTo(c + Offset(-60f, 60f))
         }
         assertEquals(down or left, held.mask)
     }
