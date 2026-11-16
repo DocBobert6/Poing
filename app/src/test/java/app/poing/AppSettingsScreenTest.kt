@@ -1055,7 +1055,7 @@ class AppSettingsScreenTest {
     // Alpha.23 — the optional web API key row: save stores the
     // key and shows only its masked form; Remove drops it.
 
-    private fun settingsWithSessionStore() {
+    private fun settingsWithSessionStore(scrollToTag: String = "ra-api-key-field") {
         composeRule.setContent {
             PoingTheme {
                 AppSettingsScreen(
@@ -1067,7 +1067,7 @@ class AppSettingsScreenTest {
             }
         }
         composeRule.onNodeWithTag("settings-list")
-            .performScrollToNode(hasTestTag("ra-api-key-field"))
+            .performScrollToNode(hasTestTag(scrollToTag))
     }
 
     @Test
@@ -1088,7 +1088,7 @@ class AppSettingsScreenTest {
     @Test
     fun apiKeyRemoveDropsTheKey() {
         RaSessionStore(temp.root).setApiKey("abcd1234wxyz5678")
-        settingsWithSessionStore()
+        settingsWithSessionStore(scrollToTag = "ra-api-key-remove")
         composeRule.onNodeWithTag("settings-list")
             .performScrollToNode(hasTestTag("ra-api-key-remove"))
         composeRule.onNodeWithText("API key saved: abcd…5678").assertIsDisplayed()
