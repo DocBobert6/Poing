@@ -32,6 +32,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
@@ -825,6 +826,20 @@ fun GameScreen(
         // buttons never jump when the top bar hides and shows.
         val canvasWidthDp = maxWidth.value
         val canvasHeightDp = maxHeight.value
+        // Alpha.25 — the game width in dp, for the unlock
+        // popup's width cap (75% of the game width): the
+        // player area's height at the frame's aspect, capped
+        // by the canvas width. Before the first measure the
+        // player height is unknown, so the canvas height
+        // stands in — the popup only ever shows on an unlock,
+        // by which time the layout is done.
+        val density = LocalDensity.current.density
+        val gameWidthDp = remember(frameAspect, playerHeightPx, canvasWidthDp, canvasHeightDp, density) {
+            val aspect = frameAspect ?: (160f / 144f)
+            val playerHeightDp =
+                if (playerHeightPx > 0f) playerHeightPx / density else canvasHeightDp
+            minOf(canvasWidthDp, playerHeightDp * aspect)
+        }
         Column(modifier = Modifier.fillMaxSize()) {
             // Player chrome (Robert, 2026-11-12): the top bar
             // hides during active gameplay unless dev stats
@@ -984,6 +999,9 @@ fun GameScreen(
                     session.endRewind()
                 }
             },
+            // Alpha.25 — the game width, for the unlock
+            // popup's width cap (75% of the game width).
+            gameWidthDp = gameWidthDp,
         )
         // Worm Light improvements (Robert, 2026-11-13):
         // while a drag is in progress, the lamp's head
@@ -1301,6 +1319,10 @@ fun GameScreen(
                 },
                 onBack = { editingLayout = false },
                 resetLayout = handheldDefault,
+                // Alpha.25 — the game width, for the sample
+                // popup's width cap (the same cap as play
+                // mode, so what is edited is what is played).
+                gameWidthDp = gameWidthDp,
             )
         }
     }

@@ -36,6 +36,11 @@ enum class ControlId(val key: String) {
     FF("ff"),
     SLOW("slow"),
     RW("rw"),
+    // Alpha.25 — the achievement unlock popup: a movable
+    // overlay item, not a button. Its spec is the chip's
+    // centre (fractions of the screen) + its width in dp;
+    // the height is the chip's own (POPUP_HEIGHT_DP).
+    POPUP("popup"),
 }
 
 /** One control's place on screen: centre fraction + size in dp. */
@@ -49,12 +54,17 @@ data class OverlayControl(
      * Keep the control on screen. Mariner's clamp: a centre
      * never closer than 0.03 to any edge, so a control can sit
      * over the game centre but never slide off the screen; size
-     * in Mariner's 36–220dp range.
+     * in Mariner's 36–220dp range. Alpha.25 — the popup is a
+     * wide chip, not a square button, so its size (its width)
+     * clamps to its own range instead.
      */
     fun clamped(): OverlayControl = copy(
         cx = cx.coerceIn(ControlLayout.MIN_FRACTION, ControlLayout.MAX_FRACTION),
         cy = cy.coerceIn(ControlLayout.MIN_FRACTION, ControlLayout.MAX_FRACTION),
-        sizeDp = sizeDp.coerceIn(ControlLayout.MIN_SIZE_DP, ControlLayout.MAX_SIZE_DP),
+        sizeDp = sizeDp.coerceIn(
+            if (id == ControlId.POPUP) ControlLayout.POPUP_MIN_WIDTH_DP else ControlLayout.MIN_SIZE_DP,
+            if (id == ControlId.POPUP) ControlLayout.POPUP_MAX_WIDTH_DP else ControlLayout.MAX_SIZE_DP,
+        ),
     )
 }
 
@@ -123,6 +133,28 @@ data class ControlLayout(
         const val MIN_SIZE_DP = 36
         const val MAX_SIZE_DP = 220
 
+        /**
+         * Alpha.25 — the unlock popup's width range (a wide
+         * chip, not a square button) and its height: badge
+         * 32dp + 6dp of padding top and bottom. The width is
+         * also capped at POPUP_MAX_WIDTH_FRACTION of the game
+         * width at render time (see popupWidthDp), so the chip
+         * can never run edge to edge the way the old
+         * full-width card did.
+         */
+        const val POPUP_MIN_WIDTH_DP = 120
+        const val POPUP_MAX_WIDTH_DP = 480
+        const val POPUP_HEIGHT_DP = 48f
+        const val POPUP_MAX_WIDTH_FRACTION = 0.75f
+
+        /**
+         * Alpha.25 — the popup's placed width: its spec's
+         * width, capped at 75% of the game width. Pure, so
+         * the cap is unit-tested (ControlLayoutTest).
+         */
+        fun popupWidthDp(sizeDp: Int, gameWidthDp: Float): Float =
+            minOf(sizeDp.toFloat(), POPUP_MAX_WIDTH_FRACTION * gameWidthDp)
+
         /** Mariner's clamp: a centre never closer than 0.03 to an edge. */
         const val MIN_FRACTION = 0.03f
         const val MAX_FRACTION = 0.97f
@@ -155,6 +187,9 @@ data class ControlLayout(
             ControlId.L, ControlId.R -> "lr"
             ControlId.START, ControlId.SELECT -> "startselect"
             ControlId.FF, ControlId.SLOW, ControlId.RW -> "ffrw"
+            // Alpha.25 — the popup is a cluster of one: a
+            // grouped move drags it alone, never the buttons.
+            ControlId.POPUP -> "popup"
         }
 
         /** Snap a centre point (in dp on the editor canvas) to the grid when snapping is on. */
@@ -177,11 +212,13 @@ data class ControlLayout(
          * RW trio as 48dp circles in the bottom-right corner
          * (16dp in, 16dp up, 12dp apart — the fixed Row's spot,
          * so an existing install keeps its buttons exactly
-         * where they were). Written out from the dp spots so
-         * the numbers stay checkable, not magic decimals.
-         * Listed in ControlId order — the store loads in that
-         * order, and list equality is order-sensitive, so a
-         * save/load round-trip depends on it.
+         * where they were). Alpha.25 — the unlock popup chip,
+         * 320dp wide at the top centre (32dp down, the old
+         * TopCenter spot with the bar hidden), so it starts
+         * slim and movable. Listed in ControlId order — the
+         * store loads in that order, and list equality is
+         * order-sensitive, so a save/load round-trip depends
+         * on it.
          */
         val DEFAULT: ControlLayout = run {
             fun spec(id: ControlId, centreXDp: Float, centreYDp: Float, sizeDp: Int) =
@@ -203,6 +240,7 @@ data class ControlLayout(
                     spec(ControlId.FF, 923f - 16f - 24f, 411f - 16f - 24f, 48),
                     spec(ControlId.SLOW, 923f - 16f - 24f - 60f, 411f - 16f - 24f, 48),
                     spec(ControlId.RW, 923f - 16f - 24f - 120f, 411f - 16f - 24f, 48),
+                    spec(ControlId.POPUP, 923f / 2f, 32f, 320),
                 ),
             )
         }

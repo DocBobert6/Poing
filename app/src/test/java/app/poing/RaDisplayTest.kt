@@ -21,8 +21,10 @@ import org.robolectric.annotation.Config
  * achievements screen and the in-game indicator tell an
  * unrecognised ROM, a failed load, and a genuinely empty set
  * apart, and a failed load offers a manual Retry (on the screen
- * and on the indicator chip). The unlock toast carries the
- * achievement's description as well as its title and points.
+ * and on the indicator chip). Alpha.25 — the unlock toast is
+ * one slim line (title + points, no description) and movable
+ * through the overlay editor (ControlId.POPUP); the
+ * description lives in Pause → Achievements and the hub.
  *
  * The load states are driven through RaClient's own callbacks
  * (onLoginResult / onLoadGameResult / loadGame), the same entry
@@ -182,7 +184,7 @@ class RaDisplayTest {
     }
 
     @Test
-    fun unlockToastShowsDescription() {
+    fun unlockToastShowsTitleAndPointsWithoutDescription() {
         val hub = RaHubStore(temp.root)
         RaClient.init(RaSessionStore(temp.root), hubStore = hub)
         RaClient.loadGame("/games/abc123.gba")
@@ -195,6 +197,10 @@ class RaDisplayTest {
         composeRule.onNodeWithText(
             "Achievement Unlocked: First! (+10 pts)",
         ).assertIsDisplayed()
-        composeRule.onNodeWithText("Do the thing.").assertIsDisplayed()
+        // Alpha.25 — the description left the popup (it lives
+        // in Pause → Achievements and the hub now): the slim
+        // popup is one line, title + points only. This fails
+        // on the old code, which renders the description.
+        composeRule.onAllNodesWithText("Do the thing.").assertCountEquals(0)
     }
 }

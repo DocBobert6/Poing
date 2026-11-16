@@ -121,6 +121,10 @@ class LayoutEditorTest {
         composeRule.onNodeWithTag("editor-ff").assertIsDisplayed()
         composeRule.onNodeWithTag("editor-slow").assertIsDisplayed()
         composeRule.onNodeWithTag("editor-rw").assertIsDisplayed()
+        // Alpha.25 — the unlock popup's editor handle, with
+        // the sample popup inside it.
+        composeRule.onNodeWithTag("editor-popup").assertIsDisplayed()
+        composeRule.onNodeWithText("Achievement Unlocked: Sample Achievement (+5 pts)").assertIsDisplayed()
         composeRule.onNodeWithTag("editor-done").assertIsDisplayed()
         composeRule.onNodeWithTag("editor-back").assertIsDisplayed()
         composeRule.onNodeWithTag("editor-reset").assertIsDisplayed()
@@ -184,6 +188,44 @@ class LayoutEditorTest {
         assertTrue(done.control(ControlId.FF).cy < ControlLayout.DEFAULT.control(ControlId.FF).cy)
         assertTrue(done.control(ControlId.SLOW).cx < ControlLayout.DEFAULT.control(ControlId.SLOW).cx)
         assertTrue(done.control(ControlId.RW).cx < ControlLayout.DEFAULT.control(ControlId.RW).cx)
+    }
+
+    @Test
+    fun editorShowsPopupSample() {
+        // Alpha.25 — the real popup only shows on an unlock
+        // and never while paused, so the editor shows a sample
+        // popup at the spec's spot instead: the position is
+        // visible while it is dragged.
+        setContent()
+        composeRule.onNodeWithTag("editor-popup").assertIsDisplayed()
+        composeRule.onNodeWithTag("ra-unlock-popup-sample").assertIsDisplayed()
+        composeRule.onNodeWithText("Achievement Unlocked: Sample Achievement (+5 pts)").assertIsDisplayed()
+    }
+
+    // Alpha.25 — the popup drags like any other overlay item:
+    // the drag starts on the popup's bottom-right strip, clear
+    // of the pills row at the top (the same overlap dodge as
+    // the A-drag), and Done commits the new spot.
+    @Test
+    fun draggingPopupMovesItAndCommits() {
+        setContent()
+        val before = centreX("editor-popup")
+        val bounds = composeRule.onNodeWithTag("editor-popup").fetchSemanticsNode().boundsInRoot
+        val start = Offset(bounds.right - 4f, bounds.bottom - 4f)
+        composeRule.onNodeWithTag("editor-popup").performTouchInput {
+            swipe(start = start, end = start + Offset(200f, 0f), durationMillis = 300)
+        }
+        val after = centreX("editor-popup")
+        assertTrue("Popup should move right, was $before now $after", after > before + 10f)
+        composeRule.onNodeWithTag("editor-done").performClick()
+        val done = committed
+        assertNotNull(done)
+        assertTrue(done!!.control(ControlId.POPUP).cx > ControlLayout.DEFAULT.control(ControlId.POPUP).cx)
+        assertEquals(
+            ControlLayout.DEFAULT.control(ControlId.POPUP).cy,
+            done.control(ControlId.POPUP).cy,
+            0.02f,
+        )
     }
 
     @Test

@@ -191,7 +191,6 @@ fun GameDisplayView(
                             contentAlignment = Alignment.TopCenter,
                         ) {
                             Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                RaUnlockPopup(paused = paused)
                                 RaScoreboardNote(paused = paused)
                             }
                         }

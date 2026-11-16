@@ -58,6 +58,29 @@ class ControlLayoutStoreTest {
     }
 
     @Test
+    fun `a saved layout without popup keys loads the popup at its default`() {
+        // Alpha.25 — an existing install's saved layout has
+        // no popup keys, so the popup loads at its default —
+        // 320dp wide at the top centre — and the chip is
+        // movable from there.
+        store.file("abc123").writeText("dpad.cx=0.5\ndpad.cy=0.5\n")
+        val loaded = store.load("abc123")
+        assertEquals(ControlLayout.DEFAULT.control(ControlId.POPUP), loaded.control(ControlId.POPUP))
+    }
+
+    @Test
+    fun `a moved and resized popup round-trips`() {
+        val moved = ControlLayout.DEFAULT
+            .moved(ControlId.POPUP, 0.2f, 0.8f, grouped = false)
+            .resized(ControlId.POPUP, 200, grouped = false)
+        store.save("abc123", moved)
+        val loaded = store.load("abc123")
+        assertEquals(0.2f, loaded.control(ControlId.POPUP).cx, 0f)
+        assertEquals(0.8f, loaded.control(ControlId.POPUP).cy, 0f)
+        assertEquals(200, loaded.control(ControlId.POPUP).sizeDp)
+    }
+
+    @Test
     fun `ff moved to the centre round-trips and the per-game override wins`() {
         val centred = ControlLayout.DEFAULT.moved(ControlId.FF, 0.5f, 0.5f, grouped = false)
         store.save("abc123", centred)

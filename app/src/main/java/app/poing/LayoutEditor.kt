@@ -115,6 +115,11 @@ fun LayoutEditor(
     // Settings default editor passes the factory default,
     // so Reset there restores the factory layout.
     resetLayout: ControlLayout = ControlLayout.DEFAULT,
+    // Alpha.25 — the game width in dp, for the sample
+    // popup's width cap (the same cap as play mode). Null
+    // when there is no live game (the Settings default
+    // editor): the canvas width stands in.
+    gameWidthDp: Float? = null,
 ) {
     var draft by remember { mutableStateOf(initial) }
     // Alpha.10 — the left-control draft: the override until
@@ -167,6 +172,27 @@ fun LayoutEditor(
             val canvasWDp = maxWidth.value
             val canvasHDp = maxHeight.value
             for (spec in draft.controlsFor(isGba)) {
+                // Alpha.25 — the popup is not a button: it
+                // gets its own handle with the sample popup
+                // inside, at the same spec and cap as play
+                // mode, so the position is visible while it
+                // is dragged.
+                if (spec.id == ControlId.POPUP) {
+                    EditorPopup(
+                        spec = spec,
+                        selected = spec.id == selectedId,
+                        canvasWDp = canvasWDp,
+                        canvasHDp = canvasHDp,
+                        gameWidthDp = gameWidthDp ?: canvasWDp,
+                        snapOn = snapOn,
+                        alpha = alpha,
+                        onSelect = { selectedId = spec.id },
+                        onMove = { cx, cy ->
+                            draft = draft.moved(spec.id, cx, cy, grouped)
+                        },
+                    )
+                    continue
+                }
                 EditorControl(
                     spec = spec,
                     selected = spec.id == selectedId,
@@ -546,5 +572,82 @@ private fun EditorControl(
                     .testTag("editor-selected-size"),
             )
         }
+    }
+}
+
+/**
+ * Alpha.25 — the unlock popup's editor handle: the same drag
+ * math as EditorControl (centre fractions, snap, selection
+ * border), but the content is the sample popup at the spec's
+ * width — the real popup only shows on an unlock and never
+ * while paused, so without the sample the position would be
+ * invisible while it is dragged. The width is the spec's,
+ * capped at 75% of the game width, exactly as in play mode;
+ * the height is the chip's own. The size stepper still
+ * applies (it changes the width, and its label shows the
+ * value in effect); the in-control size label is skipped —
+ * it would sit on top of the sample's text.
+ */
+@Composable
+private fun EditorPopup(
+    spec: OverlayControl,
+    selected: Boolean,
+    canvasWDp: Float,
+    canvasHDp: Float,
+    gameWidthDp: Float,
+    snapOn: Boolean,
+    alpha: Float,
+    onSelect: () -> Unit,
+    onMove: (Float, Float) -> Unit,
+) {
+    val currentSpec by rememberUpdatedState(spec)
+    val density = LocalDensity.current.density
+    val width = ControlLayout.popupWidthDp(spec.sizeDp, gameWidthDp)
+    val height = ControlLayout.POPUP_HEIGHT_DP
+    Box(
+        modifier = Modifier
+            .offset(
+                x = (spec.cx * canvasWDp - width / 2f).dp,
+                y = (spec.cy * canvasHDp - height / 2f).dp,
+            )
+            .size(width.dp, height.dp)
+            .then(
+                if (selected) {
+                    Modifier.border(2.dp, PoingGold, RoundedCornerShape(4.dp))
+                } else {
+                    Modifier
+                },
+            )
+            .alpha(alpha)
+            .testTag("editor-popup")
+            .pointerInput(spec.id, snapOn, canvasWDp, canvasHDp) {
+                var baseCxDp = 0f
+                var baseCyDp = 0f
+                var accX = 0f
+                var accY = 0f
+                detectDragGestures(
+                    onDragStart = {
+                        onSelect()
+                        baseCxDp = currentSpec.cx * canvasWDp
+                        baseCyDp = currentSpec.cy * canvasHDp
+                        accX = 0f
+                        accY = 0f
+                    },
+                    onDrag = { change, drag ->
+                        change.consume()
+                        accX += drag.x / density
+                        accY += drag.y / density
+                        val cxDp = ControlLayout.snap(baseCxDp + accX, snapOn)
+                        val cyDp = ControlLayout.snap(baseCyDp + accY, snapOn)
+                        onMove(
+                            cxDp / canvasWDp,
+                            cyDp / canvasHDp,
+                        )
+                    },
+                )
+            },
+        contentAlignment = Alignment.Center,
+    ) {
+        RaUnlockPopupSample()
     }
 }

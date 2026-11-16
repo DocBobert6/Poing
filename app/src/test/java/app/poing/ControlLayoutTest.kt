@@ -55,7 +55,42 @@ class ControlLayoutTest {
         assertEquals(48, def.control(ControlId.FF).sizeDp)
         assertEquals(48, def.control(ControlId.SLOW).sizeDp)
         assertEquals(48, def.control(ControlId.RW).sizeDp)
+        // Alpha.25 — the popup is a wide chip: 320dp at the
+        // top centre, the old TopCenter spot with the bar
+        // hidden.
+        assertEquals(320, def.control(ControlId.POPUP).sizeDp)
+        assertEquals(0.5f, def.control(ControlId.POPUP).cx, 0f)
+        assertEquals(32f / 411f, def.control(ControlId.POPUP).cy, 0.001f)
         assertEquals(100, def.opacity)
+    }
+
+    @Test
+    fun `popup width clamps to 120 and 480, not the button range`() {
+        val wide = ControlLayout.DEFAULT.resized(ControlId.POPUP, 999, grouped = false)
+        assertEquals(480, wide.control(ControlId.POPUP).sizeDp)
+        val narrow = ControlLayout.DEFAULT.resized(ControlId.POPUP, 1, grouped = false)
+        assertEquals(120, narrow.control(ControlId.POPUP).sizeDp)
+    }
+
+    @Test
+    fun `popup width caps at 75 percent of the game width`() {
+        // A 320dp spec fits a 457dp GB game untouched.
+        assertEquals(320f, ControlLayout.popupWidthDp(320, 457f), 0.001f)
+        // A 480dp spec is capped at 75% of the game.
+        assertEquals(0.75f * 457f, ControlLayout.popupWidthDp(480, 457f), 0.001f)
+        // A narrow game caps even the default spec.
+        assertEquals(300f, ControlLayout.popupWidthDp(320, 400f), 0.001f)
+    }
+
+    @Test
+    fun `moving the popup grouped moves only the popup`() {
+        val moved = ControlLayout.DEFAULT.moved(ControlId.POPUP, 0.2f, 0.8f, grouped = true)
+        assertEquals(0.2f, moved.control(ControlId.POPUP).cx, 0.001f)
+        assertEquals(0.8f, moved.control(ControlId.POPUP).cy, 0.001f)
+        assertEquals(
+            ControlLayout.DEFAULT.control(ControlId.A),
+            moved.control(ControlId.A),
+        )
     }
 
     @Test

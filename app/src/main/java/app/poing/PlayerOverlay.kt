@@ -86,6 +86,11 @@ fun BoxScope.ControlOverlay(
     onSlowToggle: () -> Unit = {},
     onRwDown: () -> Unit = {},
     onRwUp: () -> Unit = {},
+    // Alpha.25 — the game width in dp, for the unlock popup's
+    // width cap (75% of the game width, see popupWidthDp).
+    // Defaults to the canvas width, so callers without a game
+    // (tests) keep working.
+    gameWidthDp: Float = canvasWidthDp,
 ) {
     val theme = ControlThemes.themeFor(system)
     val alpha = layout.opacity / 100f
@@ -96,6 +101,9 @@ fun BoxScope.ControlOverlay(
             when (spec.id) {
                 ControlId.FF, ControlId.SLOW -> ffVisible
                 ControlId.RW -> rewindVisible
+                // Alpha.25 — the popup is not a button: it
+                // renders separately below, at its spec.
+                ControlId.POPUP -> false
                 else -> true
             }
         }
@@ -134,6 +142,25 @@ fun BoxScope.ControlOverlay(
                 onRwDown = onRwDown, onRwUp = onRwUp,
             )
         }
+    }
+    // Alpha.25 — the unlock popup lives in the overlay now,
+    // not in the game view: it floats over the game at its
+    // spec's centre (fractions of the full screen, like every
+    // other overlay item) and never resizes the game — the
+    // same rule as the alpha.24 chip fix. The width is the
+    // spec's, capped at 75% of the game width, so it cannot
+    // run edge to edge the way the old full-width card did.
+    // The popup itself still clears after 4s and hides while
+    // paused (see RaUnlockPopup); this layer only places it.
+    val popupSpec = layout.control(ControlId.POPUP)
+    PlacedControl(
+        cx = popupSpec.cx, cy = popupSpec.cy,
+        widthDp = ControlLayout.popupWidthDp(popupSpec.sizeDp, gameWidthDp),
+        heightDp = ControlLayout.POPUP_HEIGHT_DP,
+        canvasWidthDp = canvasWidthDp, canvasHeightDp = canvasHeightDp,
+        alpha = alpha, testTag = "ra-unlock-popup-placed",
+    ) {
+        RaUnlockPopup(paused = paused)
     }
 }
 

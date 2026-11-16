@@ -2,9 +2,9 @@ package app.poing
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -16,6 +16,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.delay
@@ -60,6 +61,14 @@ import kotlinx.coroutines.delay
  * different chips, never the same line: an unrecognised ROM
  * has no set to retry for, while a failed load offers a manual
  * Retry on the chip itself (no auto-retry).
+ *
+ * Alpha.25 — the unlock popup is slim and movable: one line
+ * (badge + title + points), no description, placed by the
+ * overlay layout (ControlId.POPUP) instead of pinned to the
+ * top of the game view. The description left the popup
+ * (Robert, 2026-11-16: the two-line card spanned nearly the
+ * full game width and covered the game's HUD) — it still
+ * lives in Pause → Achievements and the hub.
  */
 @Composable
 fun RaGameIndicator(paused: Boolean) {
@@ -112,39 +121,75 @@ fun RaUnlockPopup(paused: Boolean) {
         // The badge comes from the refreshed list (onUnlocked
         // refreshes it before the popup shows), so the chip
         // carries the achievement's own image, not just its
-        // name. Alpha.22 — the chip is richer: the description
-        // joins the title and the points (the hub already shows
-        // all three; the popup showed only two).
+        // name.
         val badgeUrl = RaClient.achievements.find { it.id == unlock.id }?.badgeUrl
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier
-                .padding(top = 8.dp)
-                .background(Color(0xFF1A1A1A), RoundedCornerShape(4.dp))
-                .padding(horizontal = 12.dp, vertical = 6.dp),
-        ) {
-            RaBadgeImage(
-                store = badgeStore,
-                url = badgeUrl,
-                size = 32.dp,
-                contentDescription = "Badge for ${unlock.title}",
-            )
-            Spacer(Modifier.width(8.dp))
-            Column {
-                Text(
-                    text = "Achievement Unlocked: ${unlock.title} (+${unlock.points} pts)",
-                    color = Color(0xFFC9A227),
-                    fontWeight = FontWeight.Bold,
-                )
-                if (unlock.description.isNotEmpty()) {
-                    Text(
-                        text = unlock.description,
-                        color = Color(0xFFC9C9CE),
-                        fontSize = 13.sp,
-                    )
-                }
-            }
-        }
+        UnlockPopupRow(
+            badgeStore = badgeStore,
+            badgeUrl = badgeUrl,
+            title = unlock.title,
+            points = unlock.points,
+        )
+    }
+}
+
+/**
+ * Alpha.25 — the editor's sample popup: the same slim row
+ * with sample data, so the position is visible while the
+ * layout is edited. The real popup only shows on an unlock
+ * and never while paused — and the editor is always paused —
+ * so without the sample the popup's spot would be invisible
+ * while it is dragged.
+ */
+@Composable
+fun RaUnlockPopupSample() {
+    val badgeStore = rememberRaBadgeStore()
+    UnlockPopupRow(
+        badgeStore = badgeStore,
+        badgeUrl = null,
+        title = "Sample Achievement",
+        points = 5,
+        modifier = Modifier.testTag("ra-unlock-popup-sample"),
+    )
+}
+
+/**
+ * Alpha.25 — the slim unlock row, one line: badge + title +
+ * points. The description is gone (see the file doc): the
+ * two-line card was too wide and covered the game's HUD.
+ * The row fills the width its overlay spec gives it, and the
+ * text ellipsizes inside that width, so a long title never
+ * pushes the chip wider than its spec.
+ */
+@Composable
+private fun UnlockPopupRow(
+    badgeStore: RaBadgeStore,
+    badgeUrl: String?,
+    title: String,
+    points: Int,
+    modifier: Modifier = Modifier,
+) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = modifier
+            .fillMaxWidth()
+            .background(Color(0xFF1A1A1A), RoundedCornerShape(4.dp))
+            .padding(horizontal = 12.dp, vertical = 6.dp),
+    ) {
+        RaBadgeImage(
+            store = badgeStore,
+            url = badgeUrl,
+            size = 32.dp,
+            contentDescription = "Badge for $title",
+        )
+        Spacer(Modifier.width(8.dp))
+        Text(
+            text = "Achievement Unlocked: $title (+$points pts)",
+            color = Color(0xFFC9A227),
+            fontWeight = FontWeight.Bold,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f),
+        )
     }
 }
 
