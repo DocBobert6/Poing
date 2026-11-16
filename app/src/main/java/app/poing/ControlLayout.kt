@@ -30,6 +30,12 @@ enum class ControlId(val key: String) {
     R("r"),
     START("start"),
     SELECT("select"),
+    // Alpha.10 — the FF / 0.5x / RW buttons (Part D):
+    // they live in the overlay now, with a spec each,
+    // instead of a fixed Row at the bottom-right.
+    FF("ff"),
+    SLOW("slow"),
+    RW("rw"),
 }
 
 /** One control's place on screen: centre fraction + size in dp. */
@@ -139,14 +145,16 @@ data class ControlLayout(
 
         /**
          * Which cluster a control belongs to: the D-pad cross,
-         * the A/B pair, the L/R pair, the Start/Select pair.
-         * Mariner's groupOf, Poing's clusters.
+         * the A/B pair, the L/R pair, the Start/Select pair,
+         * and the FF / 0.5x / RW trio. Mariner's groupOf,
+         * Poing's clusters.
          */
         fun clusterOf(id: ControlId): String = when (id) {
             ControlId.DPAD -> "dpad"
             ControlId.A, ControlId.B -> "ab"
             ControlId.L, ControlId.R -> "lr"
             ControlId.START, ControlId.SELECT -> "startselect"
+            ControlId.FF, ControlId.SLOW, ControlId.RW -> "ffrw"
         }
 
         /** Snap a centre point (in dp on the editor canvas) to the grid when snapping is on. */
@@ -165,11 +173,15 @@ data class ControlLayout(
          * shoulder pills at the top corners (96x48dp, 16dp in,
          * 60dp down — the bar-hidden spot, clear of the floating
          * power light), Start/Select pills side by side at the
-         * bottom centre (64x32dp, 16dp up). Written out from the
-         * dp spots so the numbers stay checkable, not magic
-         * decimals. Listed in ControlId order — the store loads
-         * in that order, and list equality is order-sensitive, so
-         * a save/load round-trip depends on it.
+         * bottom centre (64x32dp, 16dp up), and the FF / 0.5x /
+         * RW trio as 48dp circles in the bottom-right corner
+         * (16dp in, 16dp up, 12dp apart — the fixed Row's spot,
+         * so an existing install keeps its buttons exactly
+         * where they were). Written out from the dp spots so
+         * the numbers stay checkable, not magic decimals.
+         * Listed in ControlId order — the store loads in that
+         * order, and list equality is order-sensitive, so a
+         * save/load round-trip depends on it.
          */
         val DEFAULT: ControlLayout = run {
             fun spec(id: ControlId, centreXDp: Float, centreYDp: Float, sizeDp: Int) =
@@ -188,6 +200,9 @@ data class ControlLayout(
                     spec(ControlId.R, 923f - 16f - 48f, 60f + 24f, 96),
                     spec(ControlId.START, (923f - 140f) / 2f + 32f, 411f - 16f - 16f, 64),
                     spec(ControlId.SELECT, (923f - 140f) / 2f + 32f + 76f, 411f - 16f - 16f, 64),
+                    spec(ControlId.FF, 923f - 16f - 24f, 411f - 16f - 24f, 48),
+                    spec(ControlId.SLOW, 923f - 16f - 24f - 60f, 411f - 16f - 24f, 48),
+                    spec(ControlId.RW, 923f - 16f - 24f - 120f, 411f - 16f - 24f, 48),
                 ),
             )
         }

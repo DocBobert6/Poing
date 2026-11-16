@@ -35,9 +35,10 @@ class RewindControlTest {
     @get:Rule
     val temp = TemporaryFolder()
 
-    private fun setContent(rewindOn: Boolean) {
+    private fun setContent(rewindOn: Boolean, ffOn: Boolean = false) {
         val root = File(temp.root, "stores").apply { mkdirs() }
         if (rewindOn) AppSettingsStore(root).setRewindControlVisible(true)
+        if (ffOn) AppSettingsStore(root).setFfControlVisible(true)
         composeRule.setContent {
             PoingTheme {
                 GameScreen(
@@ -63,6 +64,22 @@ class RewindControlTest {
     fun rewindButtonShowsWhenTheToggleIsOn() {
         setContent(rewindOn = true)
         composeRule.onNodeWithTag("hold-action-RW").assertIsDisplayed()
+    }
+
+    // Alpha.10 (Part D) — the FF / 0.5x buttons live in the
+    // overlay now, gated on the same FF toggle as before.
+    @Test
+    fun ffButtonHiddenByDefault() {
+        setContent(rewindOn = false)
+        composeRule.onAllNodesWithTag("hold-action-FF").assertCountEquals(0)
+        composeRule.onAllNodesWithTag("toggle-action-0.5x").assertCountEquals(0)
+    }
+
+    @Test
+    fun ffButtonShowsWhenTheToggleIsOn() {
+        setContent(rewindOn = false, ffOn = true)
+        composeRule.onNodeWithTag("hold-action-FF").assertIsDisplayed()
+        composeRule.onNodeWithTag("toggle-action-0.5x").assertIsDisplayed()
     }
 
     @Test

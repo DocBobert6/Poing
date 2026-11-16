@@ -93,6 +93,9 @@ class LayoutEditorTest {
         composeRule.onNodeWithTag("editor-r").assertIsDisplayed()
         composeRule.onNodeWithTag("editor-start").assertIsDisplayed()
         composeRule.onNodeWithTag("editor-select").assertIsDisplayed()
+        composeRule.onNodeWithTag("editor-ff").assertIsDisplayed()
+        composeRule.onNodeWithTag("editor-slow").assertIsDisplayed()
+        composeRule.onNodeWithTag("editor-rw").assertIsDisplayed()
         composeRule.onNodeWithTag("editor-done").assertIsDisplayed()
         composeRule.onNodeWithTag("editor-back").assertIsDisplayed()
         composeRule.onNodeWithTag("editor-reset").assertIsDisplayed()
@@ -132,6 +135,30 @@ class LayoutEditorTest {
         assertNotNull(done)
         assertTrue(done!!.control(ControlId.A).cx > ControlLayout.DEFAULT.control(ControlId.A).cx)
         assertTrue(done.control(ControlId.B).cx > ControlLayout.DEFAULT.control(ControlId.B).cx)
+    }
+
+    // Alpha.10 (Part D) — the FF / 0.5x / RW trio moves
+    // together in the editor like any other cluster: a drag
+    // on FF's right strip (clear of Slow, which sits to its
+    // left — the same overlap dodge as the A-drag) moves the
+    // trio, and Done commits all three at their new spots.
+    @Test
+    fun draggingFfMovesTheTrioTogetherAndCommits() {
+        setContent()
+        val slowBefore = centreX("editor-slow")
+        composeRule.onNodeWithTag("editor-ff").performTouchInput {
+            val start = center + Offset(width * 0.35f, 0f)
+            swipe(start = start, end = start + Offset(-120f, -60f), durationMillis = 300)
+        }
+        val slowAfter = centreX("editor-slow")
+        assertTrue("Slow should move left with FF when grouped, was $slowBefore now $slowAfter", slowAfter < slowBefore - 10f)
+        composeRule.onNodeWithTag("editor-done").performClick()
+        val done = committed
+        assertNotNull(done)
+        assertTrue(done!!.control(ControlId.FF).cx < ControlLayout.DEFAULT.control(ControlId.FF).cx)
+        assertTrue(done.control(ControlId.FF).cy < ControlLayout.DEFAULT.control(ControlId.FF).cy)
+        assertTrue(done.control(ControlId.SLOW).cx < ControlLayout.DEFAULT.control(ControlId.SLOW).cx)
+        assertTrue(done.control(ControlId.RW).cx < ControlLayout.DEFAULT.control(ControlId.RW).cx)
     }
 
     @Test

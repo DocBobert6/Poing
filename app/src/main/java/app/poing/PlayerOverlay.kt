@@ -51,12 +51,34 @@ fun BoxScope.ControlOverlay(
     // never both; the caller resolves the global default +
     // per-game override (see GameScreen).
     leftControl: LeftControl = LeftControl.DPAD,
+    // Alpha.10 (Part D) — the FF / 0.5x / RW buttons live in
+    // the overlay now: they render from the layout like every
+    // other control, and only when their Settings toggle is on
+    // (both off by default, per the standing overlay rule).
+    // FF is hold-to-run at the chosen speed, 0.5x is a toggle,
+    // RW is hold-to-step back; the behaviour is the caller's.
+    ffVisible: Boolean = false,
+    rewindVisible: Boolean = false,
+    slowOn: Boolean = false,
+    onFfDown: () -> Unit = {},
+    onFfUp: () -> Unit = {},
+    onSlowToggle: () -> Unit = {},
+    onRwDown: () -> Unit = {},
+    onRwUp: () -> Unit = {},
 ) {
     val theme = ControlThemes.themeFor(system)
     val alpha = layout.opacity / 100f
     // Performance fix 1 (2026-11-14): the filtered list is
     // built once per layout/system, not once per pass.
-    val specs = remember(layout, isGba) { layout.controlsFor(isGba) }
+    val specs = remember(layout, isGba, ffVisible, rewindVisible) {
+        layout.controlsFor(isGba).filter { spec ->
+            when (spec.id) {
+                ControlId.FF, ControlId.SLOW -> ffVisible
+                ControlId.RW -> rewindVisible
+                else -> true
+            }
+        }
+    }
     // One placed control per spec: the centre fraction and the
     // size come from the layout, so a resized or moved control
     // renders exactly where the editor put it. The D-pad is one
@@ -78,7 +100,12 @@ fun BoxScope.ControlOverlay(
             canvasWidthDp = canvasWidthDp, canvasHeightDp = canvasHeightDp,
             alpha = alpha, testTag = "controls-${spec.id.key}",
         ) {
-            ControlButton(spec, theme, held, paused, onInputChanged, onControlDown, leftControl)
+            ControlButton(
+                spec, theme, held, paused, onInputChanged, onControlDown, leftControl,
+                slowOn = slowOn,
+                onFfDown = onFfDown, onFfUp = onFfUp, onSlowToggle = onSlowToggle,
+                onRwDown = onRwDown, onRwUp = onRwUp,
+            )
         }
     }
 }
@@ -89,7 +116,10 @@ fun BoxScope.ControlOverlay(
  * D-pad cross — or the joystick, when the left-control choice
  * says so — a round A/B button, a wide L/R shoulder pill,
  * or a small Start/Select pill, in the system's theme, at the
- * spec's size.
+ * spec's size. The FF / 0.5x / RW buttons are 48dp circles
+ * here too: FF and RW hold, 0.5x toggles — the same
+ * HoldActionButton / ToggleActionButton the fixed Row used,
+ * so their tags and behaviour are unchanged by the move.
  */
 @Composable
 fun ControlButton(
@@ -104,6 +134,17 @@ fun ControlButton(
     // editor's tests, the Settings default editor) keep the
     // cross unless they pass the choice.
     leftControl: LeftControl = LeftControl.DPAD,
+    // Alpha.10 (Part D) — the FF / 0.5x / RW actions. The
+    // editor previews with the defaults (no-ops): a press
+    // there is inert, the game is paused. Visibility is the
+    // overlay's job, not this button's — ControlOverlay
+    // filters hidden buttons before this is reached.
+    slowOn: Boolean = false,
+    onFfDown: () -> Unit = {},
+    onFfUp: () -> Unit = {},
+    onSlowToggle: () -> Unit = {},
+    onRwDown: () -> Unit = {},
+    onRwUp: () -> Unit = {},
 ) {
     val pressed = Color(theme.pressed)
     when (spec.id) {
@@ -167,6 +208,21 @@ fun ControlButton(
             unpressedBackground = Color(theme.startSelect.background),
             unpressedLabel = Color(theme.startSelect.label),
             pressedBackground = pressed,
+        )
+        // Alpha.10 (Part D) — the FF / 0.5x / RW trio, moved
+        // out of the fixed Row into the overlay: the same
+        // buttons, the same tags, at the spec's size.
+        ControlId.FF -> HoldActionButton(
+            "FF", paused, onDown = onFfDown, onUp = onFfUp,
+            sizeDp = spec.sizeDp.dp,
+        )
+        ControlId.SLOW -> ToggleActionButton(
+            "0.5x", checked = slowOn, onToggle = onSlowToggle,
+            sizeDp = spec.sizeDp.dp,
+        )
+        ControlId.RW -> HoldActionButton(
+            "RW", paused, onDown = onRwDown, onUp = onRwUp,
+            sizeDp = spec.sizeDp.dp,
         )
     }
 }

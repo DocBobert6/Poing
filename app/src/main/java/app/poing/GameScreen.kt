@@ -11,7 +11,6 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
@@ -842,64 +841,6 @@ fun GameScreen(
                     // swipe brings it back (see peekBar).
                     modifier = Modifier.fillMaxSize(),
                 )
-                // Fast-forward / slow motion (Phase 6, item 1) and
-                // rewind (Phase 6, item 9): shown only when their
-                // Settings toggle is on — both off by default, per
-                // the standing overlay rule. FF is hold-to-run at
-                // the chosen speed; 0.5x is a toggle; RW is
-                // hold-to-step back through the last 30 seconds.
-                // Overlaid at the bottom-right corner of the
-                // player area, below the A/B cluster.
-                if (ffControlVisible || rewindControlVisible) {
-                    Row(
-                        modifier = Modifier
-                            .align(Alignment.BottomEnd)
-                            .padding(end = 16.dp, bottom = 16.dp),
-                        horizontalArrangement = Arrangement.spacedBy(12.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        if (rewindControlVisible) {
-                            HoldActionButton(
-                                label = "RW",
-                                paused = paused,
-                                onDown = {
-                                    if (session.startRewind()) {
-                                        rewinding = true
-                                        session.stepRewind()
-                                    }
-                                },
-                                onUp = {
-                                    if (rewinding) {
-                                        rewinding = false
-                                        session.endRewind()
-                                    }
-                                },
-                            )
-                        }
-                        if (ffControlVisible) {
-                            ToggleActionButton(
-                                label = "0.5x",
-                                checked = slowOn,
-                                onToggle = {
-                                    slowOn = !slowOn
-                                    applySpeed()
-                                },
-                            )
-                            HoldActionButton(
-                                label = "FF",
-                                paused = paused,
-                                onDown = {
-                                    ffHeld = true
-                                    applySpeed()
-                                },
-                                onUp = {
-                                    ffHeld = false
-                                    applySpeed()
-                                },
-                            )
-                        }
-                    }
-                }
             }
         }
         // Overlay rework (Robert, 2026-11-13): the controls live
@@ -919,6 +860,39 @@ fun GameScreen(
             onInputChanged = onInputChanged,
             onControlDown = onControlDown,
             leftControl = leftControl,
+            // Alpha.10 (Part D) — FF / 0.5x / RW live in the
+            // overlay now (see ControlOverlay): the same
+            // hold/toggle behaviour the fixed Row had, at the
+            // spec's position and size. FF is hold-to-run at
+            // the chosen speed; 0.5x is a toggle; RW is
+            // hold-to-step back through the last 30 seconds.
+            ffVisible = ffControlVisible,
+            rewindVisible = rewindControlVisible,
+            slowOn = slowOn,
+            onFfDown = {
+                ffHeld = true
+                applySpeed()
+            },
+            onFfUp = {
+                ffHeld = false
+                applySpeed()
+            },
+            onSlowToggle = {
+                slowOn = !slowOn
+                applySpeed()
+            },
+            onRwDown = {
+                if (session.startRewind()) {
+                    rewinding = true
+                    session.stepRewind()
+                }
+            },
+            onRwUp = {
+                if (rewinding) {
+                    rewinding = false
+                    session.endRewind()
+                }
+            },
         )
         // Worm Light improvements (Robert, 2026-11-13):
         // while a drag is in progress, the lamp's head

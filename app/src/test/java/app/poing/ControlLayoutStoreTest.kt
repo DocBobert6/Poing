@@ -45,6 +45,35 @@ class ControlLayoutStoreTest {
     }
 
     @Test
+    fun `a saved layout without ff keys loads the trio at their defaults`() {
+        // Alpha.10 (Part D) — migration: an existing install's
+        // saved layout has no ff/slow/rw keys, so the trio
+        // loads at the defaults — the fixed Row's spot, bottom-
+        // right — and the buttons stay exactly where they were.
+        store.file("abc123").writeText("dpad.cx=0.5\ndpad.cy=0.5\n")
+        val loaded = store.load("abc123")
+        assertEquals(ControlLayout.DEFAULT.control(ControlId.FF), loaded.control(ControlId.FF))
+        assertEquals(ControlLayout.DEFAULT.control(ControlId.SLOW), loaded.control(ControlId.SLOW))
+        assertEquals(ControlLayout.DEFAULT.control(ControlId.RW), loaded.control(ControlId.RW))
+    }
+
+    @Test
+    fun `ff moved to the centre round-trips and the per-game override wins`() {
+        val centred = ControlLayout.DEFAULT.moved(ControlId.FF, 0.5f, 0.5f, grouped = false)
+        store.save("abc123", centred)
+        store.saveDefault(
+            GameSystem.GB,
+            ControlLayout.DEFAULT.moved(ControlId.FF, 0.1f, 0.1f, grouped = false),
+        )
+        val loaded = store.loadForGame("abc123", GameSystem.GB)
+        assertEquals(0.5f, loaded.control(ControlId.FF).cx, 0f)
+        assertEquals(0.5f, loaded.control(ControlId.FF).cy, 0f)
+        // And a game with no override gets the handheld default.
+        val other = store.loadForGame("def456", GameSystem.GB)
+        assertEquals(0.1f, other.control(ControlId.FF).cx, 0f)
+    }
+
+    @Test
     fun `games do not share layout files`() {
         store.save(
             "abc123",

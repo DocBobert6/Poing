@@ -30,6 +30,16 @@ class ControlLayoutTest {
         assertEquals(423.5f / 923f, def.control(ControlId.START).cx, 0.001f)
         assertEquals(499.5f / 923f, def.control(ControlId.SELECT).cx, 0.001f)
         assertEquals(379f / 411f, def.control(ControlId.START).cy, 0.001f)
+        // Alpha.10 (Part D) — the FF / 0.5x / RW trio keeps
+        // the fixed Row's spot: 48dp circles, bottom-right,
+        // 16dp in, 16dp up, 12dp apart (centres 883 / 823 /
+        // 763 across, 371 down).
+        assertEquals(883f / 923f, def.control(ControlId.FF).cx, 0.001f)
+        assertEquals(823f / 923f, def.control(ControlId.SLOW).cx, 0.001f)
+        assertEquals(763f / 923f, def.control(ControlId.RW).cx, 0.001f)
+        assertEquals(371f / 411f, def.control(ControlId.FF).cy, 0.001f)
+        assertEquals(371f / 411f, def.control(ControlId.SLOW).cy, 0.001f)
+        assertEquals(371f / 411f, def.control(ControlId.RW).cy, 0.001f)
     }
 
     @Test
@@ -42,6 +52,9 @@ class ControlLayoutTest {
         assertEquals(96, def.control(ControlId.R).sizeDp)
         assertEquals(64, def.control(ControlId.START).sizeDp)
         assertEquals(64, def.control(ControlId.SELECT).sizeDp)
+        assertEquals(48, def.control(ControlId.FF).sizeDp)
+        assertEquals(48, def.control(ControlId.SLOW).sizeDp)
+        assertEquals(48, def.control(ControlId.RW).sizeDp)
         assertEquals(100, def.opacity)
     }
 
@@ -142,7 +155,7 @@ class ControlLayoutTest {
     }
 
     @Test
-    fun `clusters are the four pairs`() {
+    fun `clusters are the five groups`() {
         assertEquals("dpad", ControlLayout.clusterOf(ControlId.DPAD))
         assertEquals("ab", ControlLayout.clusterOf(ControlId.A))
         assertEquals("ab", ControlLayout.clusterOf(ControlId.B))
@@ -150,14 +163,56 @@ class ControlLayoutTest {
         assertEquals("lr", ControlLayout.clusterOf(ControlId.R))
         assertEquals("startselect", ControlLayout.clusterOf(ControlId.START))
         assertEquals("startselect", ControlLayout.clusterOf(ControlId.SELECT))
+        assertEquals("ffrw", ControlLayout.clusterOf(ControlId.FF))
+        assertEquals("ffrw", ControlLayout.clusterOf(ControlId.SLOW))
+        assertEquals("ffrw", ControlLayout.clusterOf(ControlId.RW))
+    }
+
+    @Test
+    fun `moving FF moves Slow and RW when grouped`() {
+        val ff = ControlLayout.DEFAULT.control(ControlId.FF)
+        val slow = ControlLayout.DEFAULT.control(ControlId.SLOW)
+        val rw = ControlLayout.DEFAULT.control(ControlId.RW)
+        val moved = ControlLayout.DEFAULT.moved(
+            ControlId.FF, ff.cx - 0.05f, ff.cy - 0.05f, grouped = true,
+        )
+        assertEquals(ff.cx - 0.05f, moved.control(ControlId.FF).cx, 0.001f)
+        assertEquals(ff.cy - 0.05f, moved.control(ControlId.FF).cy, 0.001f)
+        assertEquals(slow.cx - 0.05f, moved.control(ControlId.SLOW).cx, 0.001f)
+        assertEquals(rw.cx - 0.05f, moved.control(ControlId.RW).cx, 0.001f)
+        // The other clusters do not move.
+        assertEquals(
+            ControlLayout.DEFAULT.control(ControlId.A),
+            moved.control(ControlId.A),
+        )
+    }
+
+    @Test
+    fun `moving FF alone leaves Slow and RW when separate`() {
+        val moved = ControlLayout.DEFAULT.moved(
+            ControlId.FF, 0.5f, 0.5f, grouped = false,
+        )
+        assertEquals(0.5f, moved.control(ControlId.FF).cx, 0f)
+        assertEquals(
+            ControlLayout.DEFAULT.control(ControlId.SLOW),
+            moved.control(ControlId.SLOW),
+        )
+        assertEquals(
+            ControlLayout.DEFAULT.control(ControlId.RW),
+            moved.control(ControlId.RW),
+        )
     }
 
     @Test
     fun `GB and GBC have no L and R controls`() {
         val gb = ControlLayout.DEFAULT.controlsFor(isGba = false)
         assertFalse(gb.any { it.id == ControlId.L || it.id == ControlId.R })
-        assertEquals(5, gb.size)
-        assertEquals(7, ControlLayout.DEFAULT.controlsFor(isGba = true).size)
+        assertEquals(8, gb.size)
+        assertEquals(10, ControlLayout.DEFAULT.controlsFor(isGba = true).size)
+        // The FF / 0.5x / RW trio is on every system.
+        assertTrue(gb.any { it.id == ControlId.FF })
+        assertTrue(gb.any { it.id == ControlId.SLOW })
+        assertTrue(gb.any { it.id == ControlId.RW })
     }
 
     @Test
