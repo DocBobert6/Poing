@@ -271,14 +271,17 @@ class ControlLayoutTest {
         val gb = ControlLayout.DEFAULT.controlsFor(isGba = false)
         assertFalse(gb.any { it.id == ControlId.L || it.id == ControlId.R })
         // Alpha.25 — the popup is on every system, so GB has
-        // nine controls now and GBA eleven.
-        assertEquals(9, gb.size)
-        assertEquals(11, ControlLayout.DEFAULT.controlsFor(isGba = true).size)
+        // nine controls now and GBA eleven. Alpha.32 — the fps
+        // counter is on every system too, so GB has ten now
+        // and GBA twelve.
+        assertEquals(10, gb.size)
+        assertEquals(12, ControlLayout.DEFAULT.controlsFor(isGba = true).size)
         // The FF / 0.5x / RW trio is on every system.
         assertTrue(gb.any { it.id == ControlId.FF })
         assertTrue(gb.any { it.id == ControlId.SLOW })
         assertTrue(gb.any { it.id == ControlId.RW })
         assertTrue(gb.any { it.id == ControlId.POPUP })
+        assertTrue(gb.any { it.id == ControlId.FPS })
     }
 
     @Test
