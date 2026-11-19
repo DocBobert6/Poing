@@ -225,7 +225,9 @@ fun AppSettingsScreen(
                 Text(
                     "Player",
                     style = displayTextStyle(DisplaySizeMedium),
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                    modifier = Modifier
+                        .padding(horizontal = 16.dp, vertical = 8.dp)
+                        .testTag("section-player"),
                 )
             }
             item {
@@ -289,6 +291,38 @@ fun AppSettingsScreen(
                     }
                 }
             }
+            // Alpha.30 (audit 6) — Rewind control moved to
+            // Player, beside the fast-forward rows: it is a
+            // player control, not a RetroAchievements one.
+            // The RA section keeps only login/Account + the
+            // web API key below it.
+            item {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            "Rewind control",
+                            style = MaterialTheme.typography.titleMedium,
+                        )
+                        Text(
+                            "Shows the hold-to-rewind button on the player: hold it to step back through the last 30 seconds. Off by default.",
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                    }
+                    Switch(
+                        checked = rewindControl,
+                        onCheckedChange = {
+                            store.setRewindControlVisible(it)
+                            rewindControl = it
+                        },
+                        modifier = Modifier.testTag("rewind-control-switch"),
+                    )
+                }
+            }
             item {
                 Row(
                     modifier = Modifier
@@ -313,6 +347,36 @@ fun AppSettingsScreen(
                             inputDisplay = it
                         },
                         modifier = Modifier.testTag("input-display-switch"),
+                    )
+                }
+            }
+            // Alpha.30 (audit 6) — Dev stats moved to Player,
+            // beside Input display: it is a player diagnostic,
+            // not a RetroAchievements one.
+            item {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            "Dev stats",
+                            style = MaterialTheme.typography.titleMedium,
+                        )
+                        Text(
+                            "Keeps the top bar — frame size, core and measured frame rate, frames drawn — visible during gameplay. Off by default: the bar hides while playing and the power light stays on.",
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                    }
+                    Switch(
+                        checked = devStats,
+                        onCheckedChange = {
+                            store.setDevStatsEnabled(it)
+                            devStats = it
+                        },
+                        modifier = Modifier.testTag("dev-stats-switch"),
                     )
                 }
             }
@@ -516,7 +580,9 @@ fun AppSettingsScreen(
                 Text(
                     "RetroAchievements",
                     style = displayTextStyle(DisplaySizeMedium),
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                    modifier = Modifier
+                        .padding(horizontal = 16.dp, vertical = 8.dp)
+                        .testTag("section-retroachievements"),
                 )
             }
             item {
@@ -605,60 +671,6 @@ fun AppSettingsScreen(
                             }
                         }
                     }
-                }
-            }
-            item {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 12.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            "Rewind control",
-                            style = MaterialTheme.typography.titleMedium,
-                        )
-                        Text(
-                            "Shows the hold-to-rewind button on the player: hold it to step back through the last 30 seconds. Off by default.",
-                            style = MaterialTheme.typography.bodySmall,
-                        )
-                    }
-                    Switch(
-                        checked = rewindControl,
-                        onCheckedChange = {
-                            store.setRewindControlVisible(it)
-                            rewindControl = it
-                        },
-                        modifier = Modifier.testTag("rewind-control-switch"),
-                    )
-                }
-            }
-            item {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 12.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            "Dev stats",
-                            style = MaterialTheme.typography.titleMedium,
-                        )
-                        Text(
-                            "Keeps the top bar — frame size, core and measured frame rate, frames drawn — visible during gameplay. Off by default: the bar hides while playing and the power light stays on.",
-                            style = MaterialTheme.typography.bodySmall,
-                        )
-                    }
-                    Switch(
-                        checked = devStats,
-                        onCheckedChange = {
-                            store.setDevStatsEnabled(it)
-                            devStats = it
-                        },
-                        modifier = Modifier.testTag("dev-stats-switch"),
-                    )
                 }
             }
             // Alpha.8 — one page per handheld: the settings

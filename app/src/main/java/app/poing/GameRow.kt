@@ -28,10 +28,12 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import java.io.File
 
 /**
@@ -223,21 +225,54 @@ fun GameGridCell(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
+        // Alpha.30 (audit 2) — compact action links: 12sp,
+        // one line, no wrap, no minimum width. A TextButton's
+        // 64dp minimum width (3 x 64dp) never fit the narrow
+        // grid cell, so "Remove" wrapped to "Remo"/"ve" on
+        // device. The list row keeps its TextButtons (it has
+        // room). Vertical padding keeps a tappable height;
+        // horizontal padding is zero — the 8dp gaps between
+        // links are the spacing. Ellipsis is the safety net,
+        // never the plan: the three links at 12sp measure
+        // ~118dp against the narrowest cell's 144dp of
+        // content width (160dp adaptive cell minus the
+        // cell's 8dp padding each side).
         Row(
-            horizontalArrangement = Arrangement.Center,
+            horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
         ) {
-            TextButton(
+            GridActionLink(
+                text = "Cover",
                 onClick = onCover,
                 modifier = Modifier.testTag("game-cover"),
-            ) {
-                Text("Cover")
-            }
-            TextButton(onClick = onSaveManager) {
-                Text("Saves")
-            }
-            TextButton(onClick = onRemove) {
-                Text("Remove")
-            }
+            )
+            GridActionLink(text = "Saves", onClick = onSaveManager)
+            GridActionLink(text = "Remove", onClick = onRemove)
         }
     }
+}
+
+/**
+ * One compact action link for the grid cell (see the
+ * alpha.30 note above): 12sp, one line, no wrap, no
+ * minimum width, primary-coloured like the TextButtons
+ * it replaces. Role.Button keeps the accessibility
+ * meaning the button had.
+ */
+@Composable
+private fun GridActionLink(
+    text: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Text(
+        text,
+        maxLines = 1,
+        softWrap = false,
+        overflow = TextOverflow.Ellipsis,
+        fontSize = 12.sp,
+        color = MaterialTheme.colorScheme.primary,
+        modifier = modifier
+            .padding(vertical = 8.dp)
+            .clickable(onClick = onClick, role = Role.Button),
+    )
 }

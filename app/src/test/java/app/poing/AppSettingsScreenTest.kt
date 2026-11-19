@@ -363,16 +363,52 @@ class AppSettingsScreenTest {
                 AppSettingsScreen(store = s, onCoreOptions = {}, onBack = { })
             }
         }
-        // The Dev stats row is index 11 (header, Player,
-        // fast-forward, input display, haptics, haptics
-        // strength, left control, dead zone, RA title, RA,
-        // rewind, Dev stats) — the last Player row before
-        // the Display title.
-        composeRule.onNodeWithTag("settings-list").performScrollToIndex(11)
+        // The Dev stats row is index 5 now (header, Player,
+        // fast-forward, Rewind, input display, Dev stats) —
+        // alpha.30 moved it out of RetroAchievements into
+        // Player, beside Input display.
+        composeRule.onNodeWithTag("settings-list").performScrollToIndex(5)
         composeRule.onNodeWithText("Dev stats").assertIsDisplayed()
         assertFalse(AppSettingsStore(temp.root).devStatsEnabled())
         composeRule.onNodeWithTag("dev-stats-switch").performClick()
         assertTrue(AppSettingsStore(temp.root).devStatsEnabled())
+    }
+
+    @Test
+    fun rewindAndDevStatsLiveUnderPlayerNotRetroAchievements() {
+        // Alpha.30 (audit 6) — the Rewind control and Dev
+        // stats rows moved out of the RetroAchievements
+        // section into Player: Rewind beside the
+        // fast-forward rows, Dev stats beside Input display.
+        // The RA section keeps only login/Account (+ the web
+        // API key). Proved by the switch tags' positions in
+        // the list: with defaults (fast-forward off, so no
+        // speed row), Rewind is item 3 and Dev stats item 5
+        // (header, Player, fast-forward, Rewind, input
+        // display, Dev stats, ...), and the RA title is item
+        // 11 — after both. The headings carry tags, so the
+        // section boundaries are tags, not title text.
+        // Scrolled to the Display title (item 17), the
+        // Player rows are disposed — the switches are gone
+        // from the tree, so they sit above the RA section,
+        // not inside it.
+        val s = store()
+        composeRule.setContent {
+            PoingTheme {
+                AppSettingsScreen(store = s, onCoreOptions = {}, onBack = {})
+            }
+        }
+        composeRule.onNodeWithTag("settings-list").performScrollToIndex(1)
+        composeRule.onNodeWithTag("section-player").assertIsDisplayed()
+        composeRule.onNodeWithTag("settings-list").performScrollToIndex(3)
+        composeRule.onNodeWithTag("rewind-control-switch").assertIsDisplayed()
+        composeRule.onNodeWithTag("settings-list").performScrollToIndex(5)
+        composeRule.onNodeWithTag("dev-stats-switch").assertIsDisplayed()
+        composeRule.onNodeWithTag("settings-list").performScrollToIndex(11)
+        composeRule.onNodeWithTag("section-retroachievements").assertIsDisplayed()
+        composeRule.onNodeWithTag("settings-list").performScrollToIndex(17)
+        composeRule.onAllNodesWithTag("rewind-control-switch").assertCountEquals(0)
+        composeRule.onAllNodesWithTag("dev-stats-switch").assertCountEquals(0)
     }
 
     @Test
@@ -481,11 +517,12 @@ class AppSettingsScreenTest {
                 AppSettingsScreen(store = s, onCoreOptions = {}, onBack = { })
             }
         }
-        // The colour row is index 15 here (header, Player,
-        // fast-forward, input display, haptics, haptics
-        // strength, left control, dead zone, RA title, RA,
-        // rewind, Dev stats, Handheld title, handheld rows,
-        // Display title, colour row).
+        // The colour row is index 18 here (header, Player,
+        // fast-forward, Rewind, input display, Dev stats,
+        // haptics, haptics strength, left control, dead
+        // zone, proportional steering, RA title, RA login,
+        // Handheld title, handheld rows, Display title,
+        // colour row) — scrolling to 15 brings it into view.
         composeRule.onNodeWithTag("settings-list").performScrollToIndex(15)
         composeRule.onNodeWithText("Worm Light colour").assertIsDisplayed()
         assertEquals(WormLightColor.DEFAULT, AppSettingsStore(temp.root).wormLightColor())
@@ -529,12 +566,13 @@ class AppSettingsScreenTest {
                 AppSettingsScreen(store = s, onCoreOptions = {}, onBack = { })
             }
         }
-        // The row is index 17 here (header, Player,
-        // fast-forward, input display, haptics, haptics
-        // strength, left control, dead zone, RA title, RA,
-        // rewind, Dev stats, Handheld title, handheld rows,
-        // Display title, colour row, Library title,
-        // cover-art row).
+        // The row is index 20 here (header, Player,
+        // fast-forward, Rewind, input display, Dev stats,
+        // haptics, haptics strength, left control, dead
+        // zone, proportional steering, RA title, RA login,
+        // Handheld title, handheld rows, Display title,
+        // colour row, Library title, cover-art row) —
+        // scrolling to 17 brings it into view.
         composeRule.onNodeWithTag("settings-list").performScrollToIndex(17)
         composeRule.onNodeWithText("Download cover art over mobile data").assertIsDisplayed()
         assertFalse(AppSettingsStore(temp.root).coverArtMobileDataAllowed())

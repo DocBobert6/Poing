@@ -1,11 +1,16 @@
 package app.poing
 
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.width
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
+import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.unit.dp
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Rule
@@ -208,6 +213,48 @@ class GameRowTest {
             }
         }
         composeRule.onNodeWithText("Achievements 3/12").assertIsDisplayed()
+    }
+
+    @Test
+    fun gridCellRemoveStaysOnOneLineAtNarrowestWidth() {
+        // Alpha.30 (audit 2) — the three action links
+        // wrapped in the narrow grid cell ("Remove" became
+        // "Remo"/"ve" on device). The cell is an adaptive
+        // 160dp column, so 160dp is the narrowest it can
+        // ever be (its 8dp padding each side leaves 144dp
+        // of content). At that width the links must fit on
+        // one line: the "Remove" node is one text line high
+        // (12sp, ~16dp, plus the link's 16dp of vertical
+        // padding — two lines would be ~48dp), its width is
+        // the full one-line word (a wrapped "Remo" would be
+        // ~30dp), and all three links sit inside the cell
+        // bounds. Bounds are pixels; the density converts
+        // them (Robolectric density is 1, so dp == px).
+        composeRule.setContent {
+            PoingTheme {
+                Box(modifier = Modifier.width(160.dp)) {
+                    GameGridCell(
+                        game = game(),
+                        coverBitmap = null,
+                        onPlay = {},
+                        onRemove = {},
+                    )
+                }
+            }
+        }
+        val density = composeRule.density
+        val cell = composeRule.onNodeWithTag("game-grid-cell")
+            .fetchSemanticsNode().boundsInRoot
+        val remove = composeRule.onNodeWithText("Remove")
+            .fetchSemanticsNode().boundsInRoot
+        val cover = composeRule.onNodeWithText("Cover")
+            .fetchSemanticsNode().boundsInRoot
+        with(density) {
+            assertTrue(remove.height < 40.dp.toPx())
+            assertTrue(remove.width > 36.dp.toPx())
+            assertTrue(cover.left >= cell.left - 0.5.dp.toPx())
+            assertTrue(remove.right <= cell.right + 0.5.dp.toPx())
+        }
     }
 
     @Test
