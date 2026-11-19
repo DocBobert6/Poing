@@ -172,6 +172,10 @@ fun AppSettingsScreen(
     // form, never the full key).
     var apiKeyDraft by remember { mutableStateOf("") }
     var apiKeyStored by remember { mutableStateOf(sessionStore?.apiKey().orEmpty()) }
+    // Alpha.34 — the unlock-screenshot toggle, read from the
+    // session store like the API key: a settings reset never
+    // touches it.
+    var unlockScreenshot by remember { mutableStateOf(sessionStore?.unlockScreenshot() ?: false) }
     // Overlay defaults (Robert, 2026-11-14): which handheld's
     // default layout is being edited in the full-screen
     // editor, null while the list shows. defaultsNonce is
@@ -670,6 +674,36 @@ fun AppSettingsScreen(
                                 Text("Remove key")
                             }
                         }
+                    }
+                }
+                // Alpha.34 — screenshot-on-unlock, under the key
+                // row it belongs to: one screenshot per unlock,
+                // off by default.
+                item {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                "Screenshot on unlock",
+                                style = MaterialTheme.typography.titleMedium,
+                            )
+                            Text(
+                                "Save a screenshot to Pictures/Poing! every time an achievement unlocks, named for the game and the achievement. Off by default.",
+                                style = MaterialTheme.typography.bodySmall,
+                            )
+                        }
+                        Switch(
+                            checked = unlockScreenshot,
+                            onCheckedChange = {
+                                sessionStore.setUnlockScreenshot(it)
+                                unlockScreenshot = it
+                            },
+                            modifier = Modifier.testTag("ra-unlock-screenshot"),
+                        )
                     }
                 }
             }

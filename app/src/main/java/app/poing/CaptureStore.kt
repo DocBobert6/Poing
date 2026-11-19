@@ -34,16 +34,30 @@ object CaptureStore {
     /** One video output: the MediaStore (or fallback) Uri and the open file descriptor the muxer writes to. */
     data class VideoOutput(val uri: Uri, val pfd: ParcelFileDescriptor)
 
-    /** "Poing-<game>-<yyyyMMdd-HHmmss>.<ext>" — pure, so it is covered by unit tests. */
-    fun captureName(gameName: String, timestampMillis: Long, extension: String): String {
-        val safe = gameName
+    /** Sanitize one filename part (letters, digits, dash and dot survive), with a fallback when nothing does. */
+    private fun sanitizePart(value: String, fallback: String): String =
+        value
             .map { if (it.isLetterOrDigit() || it == '-' || it == '.') it else '_' }
             .joinToString("")
             .trim('_')
             .take(40)
-            .ifEmpty { "game" }
+            .ifEmpty { fallback }
+
+    /** "Poing-<game>-<yyyyMMdd-HHmmss>.<ext>" — pure, so it is covered by unit tests. */
+    fun captureName(gameName: String, timestampMillis: Long, extension: String): String {
         val stamp = SimpleDateFormat("yyyyMMdd-HHmmss", Locale.US).format(Date(timestampMillis))
-        return "Poing-$safe-$stamp.$extension"
+        return "Poing-${sanitizePart(gameName, "game")}-$stamp.$extension"
+    }
+
+    /**
+     * Alpha.34 — "Poing-<game>-<achievement>-<yyyyMMdd-HHmmss>.png":
+     * the unlock screenshot's name, with the game title and the
+     * achievement title in it, so a screenshot names the moment
+     * it caught. Pure, so it is covered by unit tests.
+     */
+    fun unlockCaptureName(gameTitle: String, achievementTitle: String, timestampMillis: Long): String {
+        val stamp = SimpleDateFormat("yyyyMMdd-HHmmss", Locale.US).format(Date(timestampMillis))
+        return "Poing-${sanitizePart(gameTitle, "game")}-${sanitizePart(achievementTitle, "achievement")}-$stamp.png"
     }
 
     /**
@@ -51,8 +65,28 @@ object CaptureStore {
      * gallery entry on API 29+, the filesDir file below that),
      * or null when the save failed.
      */
-    fun saveScreenshot(context: Context, gameName: String, bitmap: Bitmap): Uri? {
-        val name = captureName(gameName, System.currentTimeMillis(), "png")
+    fun saveScreenshot(context: Context, gameName: String, bitmap: Bitmap): Uri? =
+        writeScreenshot(context, captureName(gameName, System.currentTimeMillis(), "png"), bitmap)
+
+    /**
+     * Alpha.34 — save an unlock screenshot: one PNG named for
+     * the game and the achievement (see [unlockCaptureName]).
+     * Returns the Uri it landed at, or null when the save failed.
+     */
+    fun saveUnlockScreenshot(
+        context: Context,
+        gameTitle: String,
+        achievementTitle: String,
+        bitmap: Bitmap,
+        timestampMillis: Long = System.currentTimeMillis(),
+    ): Uri? = writeScreenshot(
+        context,
+        unlockCaptureName(gameTitle, achievementTitle, timestampMillis),
+        bitmap,
+    )
+
+    /** The shared screenshot write: MediaStore on API 29+, the app-private fallback below that. */
+    private fun writeScreenshot(context: Context, name: String, bitmap: Bitmap): Uri? {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             val values = ContentValues().apply {
                 put(MediaStore.Images.Media.DISPLAY_NAME, name)

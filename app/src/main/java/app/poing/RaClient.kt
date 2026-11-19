@@ -336,6 +336,14 @@ object RaClient {
     }
 
     /**
+     * Alpha.34 — the unlock-screenshot toggle, read from the
+     * session store: false when RA is not initialised (no
+     * store) or the toggle was never set. GameScreen snapshots
+     * it at game load, like the other player settings.
+     */
+    fun unlockScreenshotEnabled(): Boolean = session?.unlockScreenshot() ?: false
+
+    /**
      * Log in with a username and password. The result arrives
      * asynchronously through [onLoginResult]; until then
      * [loginPending] is true. The password is NOT stored anywhere

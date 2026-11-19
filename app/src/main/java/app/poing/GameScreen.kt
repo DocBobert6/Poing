@@ -288,6 +288,10 @@ fun GameScreen(
     // not re-read the file on every frame's recomposition.
     val ffControlVisible = remember { appSettings.ffControlVisible() }
     val ffSpeed = remember { appSettings.ffSpeed() }
+    // Alpha.34 — the unlock-screenshot toggle, snapshotted at
+    // game load like the other player settings: it can only
+    // change in Settings, never mid-game.
+    val unlockScreenshot = remember { RaClient.unlockScreenshotEnabled() }
     var slowOn by remember { mutableStateOf(false) }
     var ffHeld by remember { mutableStateOf(false) }
 
@@ -1147,6 +1151,19 @@ fun GameScreen(
                 hapticsImpl.unlockRarity(
                     raUnlockRarityKind(RaClient.rarityByAchievement[unlock.id]?.percent),
                 )
+                // Alpha.34 — screenshot-on-unlock, when the
+                // toggle is on: one save of the frame in hand,
+                // named for the game and the achievement. The
+                // hook fires once per unlock (RaUnlockPopup's
+                // LaunchedEffect is keyed on the unlock), so a
+                // recomposition never takes a second shot. A
+                // null frame (no frame handed out yet) saves
+                // nothing.
+                if (unlockScreenshot) {
+                    session.latestFrameBitmap()?.let { frame ->
+                        CaptureStore.saveUnlockScreenshot(context, gameName, unlock.title, frame)
+                    }
+                }
             },
         )
         // Worm Light improvements (Robert, 2026-11-13):

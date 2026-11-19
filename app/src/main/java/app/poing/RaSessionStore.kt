@@ -26,6 +26,10 @@ import java.util.Properties
  * account. It is never shown in full after entry: the UI shows
  * only [maskApiKey].
  *
+ * Alpha.34 — the unlock-screenshot toggle lives here too, for
+ * the same reason: a player-settings reset must never turn it
+ * off, and logout wipes it with the login.
+ *
  * Pure java.io — no Android APIs — so the whole store runs under
  * plain JVM unit tests.
  */
@@ -38,6 +42,9 @@ class RaSessionStore(private val root: File) {
 
         /** Alpha.23 — the web API key (see the class doc). */
         const val KEY_API_KEY = "api_key"
+
+        /** Alpha.34 — the unlock-screenshot toggle (see the class doc). */
+        const val KEY_UNLOCK_SCREENSHOT = "unlock_screenshot"
     }
 
     /** The logged-in username ("" when logged out). */
@@ -50,6 +57,11 @@ class RaSessionStore(private val root: File) {
     fun apiKey(): String = readAll()[KEY_API_KEY].orEmpty()
 
     fun setApiKey(key: String) = write(KEY_API_KEY, key)
+
+    /** Alpha.34 — the unlock-screenshot toggle (false when never set). */
+    fun unlockScreenshot(): Boolean = readAll()[KEY_UNLOCK_SCREENSHOT] == "true"
+
+    fun setUnlockScreenshot(enabled: Boolean) = write(KEY_UNLOCK_SCREENSHOT, enabled.toString())
 
     /** Drop the stored web API key (the Remove button). The login is untouched. */
     fun clearApiKey() {

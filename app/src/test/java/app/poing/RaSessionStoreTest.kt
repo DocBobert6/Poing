@@ -93,6 +93,34 @@ class RaSessionStoreTest {
         assertEquals("", s.apiKey())
     }
 
+    // Alpha.34 — the unlock-screenshot toggle.
+
+    @Test
+    fun unlockScreenshotDefaultsOff() {
+        assertFalse(store().unlockScreenshot())
+    }
+
+    @Test
+    fun unlockScreenshotRoundTrip() {
+        val s = store()
+        s.setUnlockScreenshot(true)
+        assertTrue(s.unlockScreenshot())
+        // A fresh store over the same dir reads it back.
+        assertTrue(RaSessionStore(temp.root).unlockScreenshot())
+        s.setUnlockScreenshot(false)
+        assertFalse(s.unlockScreenshot())
+    }
+
+    @Test
+    fun clearWipesUnlockScreenshotWithTheLogin() {
+        val s = store()
+        s.setUsername("DocBobert")
+        s.setToken("abc123token")
+        s.setUnlockScreenshot(true)
+        s.clear()
+        assertFalse(s.unlockScreenshot())
+    }
+
     @Test
     fun maskShowsOnlyTheEnds() {
         assertEquals("abcd…5678", maskApiKey("abcd1234wxyz5678"))

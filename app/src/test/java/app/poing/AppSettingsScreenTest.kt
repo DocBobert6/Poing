@@ -1178,4 +1178,31 @@ class AppSettingsScreenTest {
         composeRule.onAllNodesWithTag("ra-api-key-field").assertCountEquals(0)
         composeRule.onAllNodesWithText("Web API key (optional)").assertCountEquals(0)
     }
+
+    // Alpha.34 — screenshot-on-unlock: off by default, and
+    // flipping it persists to the session store.
+
+    @Test
+    fun unlockScreenshotToggleDefaultsOffAndPersists() {
+        settingsWithSessionStore(scrollToTag = "ra-unlock-screenshot")
+        composeRule.onNodeWithTag("ra-unlock-screenshot").assertIsOff()
+        assertFalse(RaSessionStore(temp.root).unlockScreenshot())
+        composeRule.onNodeWithTag("ra-unlock-screenshot").performClick()
+        composeRule.onNodeWithTag("ra-unlock-screenshot").assertIsOn()
+        assertTrue(RaSessionStore(temp.root).unlockScreenshot())
+        composeRule.onNodeWithTag("ra-unlock-screenshot").performClick()
+        composeRule.onNodeWithTag("ra-unlock-screenshot").assertIsOff()
+        assertFalse(RaSessionStore(temp.root).unlockScreenshot())
+    }
+
+    @Test
+    fun unlockScreenshotToggleHiddenWithoutASessionStore() {
+        composeRule.setContent {
+            PoingTheme {
+                AppSettingsScreen(store = store(), onCoreOptions = {}, onBack = {})
+            }
+        }
+        composeRule.onAllNodesWithTag("ra-unlock-screenshot").assertCountEquals(0)
+        composeRule.onAllNodesWithText("Screenshot on unlock").assertCountEquals(0)
+    }
 }

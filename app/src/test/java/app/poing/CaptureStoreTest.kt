@@ -30,4 +30,28 @@ class CaptureStoreTest {
         val name = CaptureStore.captureName("///", 1794490800000L, "png")
         assertTrue(name.startsWith("Poing-game-"))
     }
+
+    // Alpha.34 — the unlock screenshot's name.
+
+    @Test
+    fun unlockCaptureNameHasGameAchievementDateAndExtension() {
+        // 2026-11-12 19:00:00 UTC = 1794490800000 ms. The
+        // stamp is matched by shape, not by value — the
+        // formatter uses the JVM default timezone.
+        val name = CaptureStore.unlockCaptureName("Tetris", "Clear 40 Lines", 1794490800000L)
+        assertTrue(name.matches(Regex("Poing-Tetris-Clear_40_Lines-\\d{8}-\\d{6}\\.png")))
+    }
+
+    @Test
+    fun unlockCaptureNameSanitizesBothParts() {
+        val name = CaptureStore.unlockCaptureName("Pokémon Red!", "Got 'Em All?", 1794490800000L)
+        assertTrue(name.startsWith("Poing-Pokémon_Red-Got__Em_All-"))
+        assertTrue(name.endsWith(".png"))
+    }
+
+    @Test
+    fun unlockCaptureNameFallsBackForEmptyParts() {
+        val name = CaptureStore.unlockCaptureName("///", "???", 1794490800000L)
+        assertTrue(name.startsWith("Poing-game-achievement-"))
+    }
 }
