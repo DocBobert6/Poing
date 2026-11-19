@@ -116,4 +116,18 @@ object RaAchievements {
         val unlocked = achievements.count { it.isUnlocked }
         return "$unlocked / ${achievements.size} unlocked"
     }
+
+    /**
+     * Alpha.31 — closest-first order, current game only: locked
+     * achievements closest to done first (measured percent
+     * descending; unmeasured locked last in their server order),
+     * then unlocked in their server order. Pure, so the tests
+     * prove the order without a composed list — a LazyColumn only
+     * composes the rows in view, so a four-row order assertion
+     * in the UI test is at the mercy of the test window's fold.
+     */
+    fun closestFirstOrder(achievements: List<RaAchievement>): List<RaAchievement> {
+        val (unlocked, locked) = achievements.partition { it.isUnlocked }
+        return locked.sortedByDescending { it.measuredPercent ?: -1.0 } + unlocked
+    }
 }

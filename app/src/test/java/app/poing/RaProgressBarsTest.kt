@@ -173,8 +173,12 @@ class RaProgressBarsTest {
     }
 
     @Test
-    fun closestFirstSortOrdersLockedByPercentDescending() {
-        loadGameWith(
+    fun closestFirstOrderPutsLockedClosestFirstThenUnlocked() {
+        // Pure: the order the toggle applies, proved without a
+        // composed list (a LazyColumn only composes the rows in
+        // view, so a four-row order assertion in the UI test is
+        // at the mercy of the test window's fold).
+        val ordered = RaAchievements.closestFirstOrder(
             listOf(
                 measured(1, "Slow Start", "1/5", 20.0),
                 measured(2, "Almost There", "4/5", 80.0),
@@ -182,16 +186,31 @@ class RaProgressBarsTest {
                 plain(4, "Done", unlocked = true),
             ),
         )
-        // Server order first: the toggle has to change something.
+        assertEquals(listOf(2, 1, 3, 4), ordered.map { it.id })
+        // All unmeasured: the server order survives (stable sort).
+        val unmeasured = RaAchievements.closestFirstOrder(
+            listOf(plain(1, "One"), plain(2, "Two")),
+        )
+        assertEquals(listOf(1, 2), unmeasured.map { it.id })
+    }
+
+    @Test
+    fun sortToggleFlipsTwoRowsClosestFirst() {
+        // Two rows fit the test window for sure; the four-row
+        // order itself is pinned by the pure test above.
+        loadGameWith(
+            listOf(
+                measured(1, "Slow Start", "1/5", 20.0),
+                measured(2, "Almost There", "4/5", 80.0),
+            ),
+        )
         assertEquals(
-            listOf("ra-achievement-1", "ra-achievement-2", "ra-achievement-3", "ra-achievement-4"),
+            listOf("ra-achievement-1", "ra-achievement-2"),
             rowOrder(),
         )
         composeRule.onNodeWithTag("ra-sort-closest").performClick()
-        // Locked closest-first, unmeasured locked after the
-        // measured ones, unlocked last.
         assertEquals(
-            listOf("ra-achievement-2", "ra-achievement-1", "ra-achievement-3", "ra-achievement-4"),
+            listOf("ra-achievement-2", "ra-achievement-1"),
             rowOrder(),
         )
     }
@@ -200,7 +219,7 @@ class RaProgressBarsTest {
     private fun rowOrder(): List<String> {
         fun top(tag: String): Float =
             composeRule.onNodeWithTag(tag).fetchSemanticsNode().boundsInRoot.top
-        return listOf(1, 2, 3, 4)
+        return listOf(1, 2)
             .map { "ra-achievement-$it" }
             .sortedBy { top(it) }
     }

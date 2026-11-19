@@ -80,8 +80,7 @@ fun RaAchievementsScreen(
     val displayed = if (!closestFirst) {
         achievements
     } else {
-        val (unlocked, locked) = achievements.partition { it.isUnlocked }
-        locked.sortedByDescending { it.measuredPercent ?: -1.0 } + unlocked
+        RaAchievements.closestFirstOrder(achievements)
     }
     val richPresence = RaClient.richPresence
     // Alpha.23 — rarity tiers come from the web API (a stored
