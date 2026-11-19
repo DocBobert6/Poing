@@ -225,11 +225,17 @@ class GameRowTest {
         // of content). At that width the links must fit on
         // one line: the "Remove" node is one text line high
         // (12sp, ~16dp, plus the link's 16dp of vertical
-        // padding — two lines would be ~48dp), its width is
-        // the full one-line word (a wrapped "Remo" would be
-        // ~30dp), and all three links sit inside the cell
-        // bounds. Bounds are pixels; the density converts
-        // them (Robolectric density is 1, so dp == px).
+        // padding — two lines would be ~48dp), and it is
+        // wider than the "Cover" link in the same font and
+        // size — the full six-letter word, not a wrapped
+        // "Remo" (four letters, narrower than five-letter
+        // "Cover"). The width check is relative, not an
+        // absolute dp number: the Robolectric font measures
+        // "Remove" at 12sp under 36dp, so an absolute
+        // threshold would fail on a one-line word. All three
+        // links sit inside the cell bounds. Bounds are
+        // pixels; the density converts them (Robolectric
+        // density is 1, so dp == px).
         composeRule.setContent {
             PoingTheme {
                 Box(modifier = Modifier.width(160.dp)) {
@@ -251,7 +257,7 @@ class GameRowTest {
             .fetchSemanticsNode().boundsInRoot
         with(density) {
             assertTrue(remove.height < 40.dp.toPx())
-            assertTrue(remove.width > 36.dp.toPx())
+            assertTrue(remove.width > cover.width)
             assertTrue(cover.left >= cell.left - 0.5.dp.toPx())
             assertTrue(remove.right <= cell.right + 0.5.dp.toPx())
         }

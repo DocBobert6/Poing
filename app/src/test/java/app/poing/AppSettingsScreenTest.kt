@@ -151,6 +151,12 @@ class AppSettingsScreenTest {
                 AppSettingsScreen(store = s, onCoreOptions = {}, onBack = {})
             }
         }
+        // The Input display row sits below the fold in the
+        // test window once the Rewind row is above it
+        // (alpha.30): scroll it into view first, or the
+        // click lands outside the window and misses.
+        composeRule.onNodeWithTag("settings-list")
+            .performScrollToNode(hasTestTag("input-display-switch"))
         composeRule.onNodeWithTag("input-display-switch").performClick()
         assertTrue(AppSettingsStore(temp.root).inputDisplayVisible())
     }
@@ -186,12 +192,16 @@ class AppSettingsScreenTest {
                 AppSettingsScreen(store = s, onCoreOptions = {}, onBack = { })
             }
         }
+        // The haptics row sits below the fold in the test
+        // window once the Rewind and Dev stats rows are
+        // above it (alpha.30): scroll it into view before
+        // asserting it is displayed and before clicking, or
+        // both miss a row that is only just outside the
+        // viewport.
+        composeRule.onNodeWithTag("settings-list")
+            .performScrollToNode(hasTestTag("haptics-switch"))
         composeRule.onNodeWithText("Haptics").assertIsDisplayed()
         assertTrue(AppSettingsStore(temp.root).hapticsEnabled())
-        // The haptics row sits near the bottom of the settings
-        // list (below the FF and input-display rows): scroll it
-        // into view before clicking, or the click can miss a
-        // switch that is only just inside the viewport.
         composeRule.onNodeWithTag("haptics-switch").performScrollTo().performClick()
         assertFalse(AppSettingsStore(temp.root).hapticsEnabled())
     }
