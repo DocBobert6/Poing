@@ -84,6 +84,8 @@ extern "C" {
 #define RA_EVENT_LEADERBOARD_TRACKER_UPDATE 12
 #define RA_EVENT_LEADERBOARD_SCOREBOARD 13
 #define RA_EVENT_GAME_COMPLETED 15
+/* Alpha.31 — the tracked achievement's measured progress moved (SHOW or UPDATE). */
+#define RA_EVENT_PROGRESS_INDICATOR_UPDATE 16
 
 /* One captured memory-map descriptor (RETRO_ENVIRONMENT_
  * SET_MEMORY_MAPS, copied by the bridge). ptr points at live

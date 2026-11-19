@@ -163,6 +163,18 @@ object Bridge {
         raEventUnlockedHandler?.invoke(id, title, description, points)
     }
 
+    /**
+     * Alpha.31 — a progress-indicator event: the tracked
+     * achievement's measured value moved. The handler is set by
+     * [RaClient] when it initialises, next to the unlock handler.
+     */
+    var raProgressIndicatorUpdateHandler: ((achievementId: Int) -> Unit)? = null
+
+    /** A tracked achievement's measured progress moved. */
+    fun raProgressIndicatorUpdate(achievementId: Int) {
+        raProgressIndicatorUpdateHandler?.invoke(achievementId)
+    }
+
     /** A leaderboard event (tracker show/hide/update, scoreboard). */
     fun raLeaderboardEvent(type: Int, leaderboardId: Int, json: String?) {
         raLeaderboardEventHandler?.invoke(type, leaderboardId, json)

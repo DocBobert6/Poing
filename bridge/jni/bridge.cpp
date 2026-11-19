@@ -308,6 +308,7 @@ static JavaVM *g_ra_vm = NULL;
 static jobject g_ra_bridge = NULL; // global ref to the Bridge object
 static jmethodID g_ra_http_request_method = NULL;
 static jmethodID g_ra_event_unlocked_method = NULL;
+static jmethodID g_ra_progress_update_method = NULL;
 static jmethodID g_ra_leaderboard_event_method = NULL;
 static jmethodID g_ra_leaderboard_entries_result_method = NULL;
 static jmethodID g_ra_login_result_method = NULL;
@@ -357,6 +358,16 @@ static void ra_call_event_unlocked(uint32_t id, const char *title, const char *d
         env->DeleteLocalRef(jdesc);
 }
 
+/* Alpha.31 — a progress-indicator event: the tracked achievement's
+ * measured value moved. Same thread rules as the unlock call
+ * (the emu thread; ra_get_env attaches it). */
+static void ra_call_event_progress_update(uint32_t id) {
+    JNIEnv *env = ra_get_env();
+    if (!env || !g_ra_bridge || !g_ra_progress_update_method)
+        return;
+    env->CallVoidMethod(g_ra_bridge, g_ra_progress_update_method, (jint)id);
+}
+
 static void ra_call_result(jmethodID method, int result, const char *error_message) {
     JNIEnv *env = ra_get_env();
     jstring jerror;
@@ -386,6 +397,8 @@ static void bridge_ra_event(int type, uint32_t achievement_id, const char *title
     (void)ctx;
     if (type == RA_EVENT_ACHIEVEMENT_TRIGGERED)
         ra_call_event_unlocked(achievement_id, title, description, points);
+    else if (type == RA_EVENT_PROGRESS_INDICATOR_UPDATE)
+        ra_call_event_progress_update(achievement_id);
     // RA_EVENT_GAME_COMPLETED is not surfaced: the achievements
     // list the app refreshes on every unlock already shows the
     // completed state.
@@ -1324,6 +1337,7 @@ Java_app_poing_Bridge_nativeRaInit(JNIEnv *env, jobject thiz) {
         bridge_class = env->GetObjectClass(thiz);
         g_ra_http_request_method = env->GetMethodID(bridge_class, "raHttpRequest", "(ILjava/lang/String;Ljava/lang/String;)V");
         g_ra_event_unlocked_method = env->GetMethodID(bridge_class, "raEventUnlocked", "(ILjava/lang/String;Ljava/lang/String;I)V");
+        g_ra_progress_update_method = env->GetMethodID(bridge_class, "raProgressIndicatorUpdate", "(I)V");
         g_ra_leaderboard_event_method = env->GetMethodID(bridge_class, "raLeaderboardEvent", "(IILjava/lang/String;)V");
         g_ra_leaderboard_entries_result_method = env->GetMethodID(bridge_class, "raLeaderboardEntriesResult", "(ZLjava/lang/String;Ljava/lang/String;)V");
         g_ra_login_result_method = env->GetMethodID(bridge_class, "raLoginResult", "(ZLjava/lang/String;)V");
@@ -1333,6 +1347,7 @@ Java_app_poing_Bridge_nativeRaInit(JNIEnv *env, jobject thiz) {
         g_cam_stop_method = env->GetMethodID(bridge_class, "onCameraStop", "()V");
         env->DeleteLocalRef(bridge_class);
         if (!g_ra_http_request_method || !g_ra_event_unlocked_method ||
+            !g_ra_progress_update_method ||
             !g_ra_leaderboard_event_method || !g_ra_leaderboard_entries_result_method ||
             !g_ra_login_result_method || !g_ra_load_game_result_method || !g_ra_rumble_method ||
             !g_cam_start_method || !g_cam_stop_method) {

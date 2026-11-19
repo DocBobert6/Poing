@@ -395,14 +395,25 @@ static void ra_event_handler(const rc_client_event_t* event, rc_client_t* client
                        event->achievement->points, g_event_ctx);
         } else if (event->type == RC_CLIENT_EVENT_GAME_COMPLETED) {
             g_event_cb(RA_EVENT_GAME_COMPLETED, 0, NULL, NULL, 0, g_event_ctx);
+        } else if ((event->type == RC_CLIENT_EVENT_ACHIEVEMENT_PROGRESS_INDICATOR_SHOW ||
+                    event->type == RC_CLIENT_EVENT_ACHIEVEMENT_PROGRESS_INDICATOR_UPDATE) &&
+                   event->achievement) {
+            /* Alpha.31 — live progress bars: the tracked achievement's
+             * measured value moved. The Kotlin handler refreshes the
+             * whole list (the parse is cheap, and any measured bar
+             * may have moved). HIDE is not forwarded: the list keeps
+             * the last measured values, which are the truth, and an
+             * unlock already refreshes. */
+            g_event_cb(RA_EVENT_PROGRESS_INDICATOR_UPDATE, event->achievement->id,
+                       NULL, NULL, 0, g_event_ctx);
         }
     }
     /* Leaderboards: the attempt is submitted automatically by
      * rc_client (the tracker is evaluated in do_frame and the
      * submission goes through the same async HTTP plumbing as
      * achievements), so the app only has to show what happened.
-     * Challenge/progress indicators, server errors and
-     * disconnects are still not used. */
+     * Challenge indicators, server errors and disconnects are
+     * still not used; progress indicators are forwarded above. */
     if (g_leaderboard_event_cb) {
         uint32_t leaderboard_id = 0;
         char* json = NULL;

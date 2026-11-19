@@ -172,6 +172,18 @@ object RaClient {
     var rarityState by mutableStateOf(RaWebApiState.Idle)
         private set
 
+    /**
+     * Alpha.31 — the loaded game's guide URL from
+     * API_GetGameInfoAndUserProgress (null when RA supplies none,
+     * which is usual, or when no key is stored and the game-info
+     * fetch never runs). Search for Help opens this when it
+     * exists and falls back to a web search otherwise. Per loaded
+     * game, like rarity — it goes with the game on quit and with
+     * the account on logout.
+     */
+    var guideUrl by mutableStateOf<String?>(null)
+        private set
+
     /** The account's unlock history, newest first (empty when none). */
     var unlockHistory by mutableStateOf<List<RaHistoryEntry>>(emptyList())
         private set
@@ -301,6 +313,7 @@ object RaClient {
         if (!Bridge.ensureLoaded()) return false
         Bridge.raHttpRequestHandler = { id, url, post -> onHttpRequest(id, url, post) }
         Bridge.raEventUnlockedHandler = { id, title, desc, points -> onUnlocked(id, title, desc, points) }
+        Bridge.raProgressIndicatorUpdateHandler = { id -> onProgressIndicatorUpdate(id) }
         Bridge.raLeaderboardEventHandler = { type, id, json -> onLeaderboardEvent(type, id, json) }
         Bridge.raLeaderboardEntriesResultHandler = { ok, err, json -> onLeaderboardEntriesResult(ok, err, json) }
         Bridge.raLoginResultHandler = { ok, err -> onLoginResult(ok, err) }
@@ -369,11 +382,13 @@ object RaClient {
         gameLoaded = false
         achievements = emptyList()
         lastUnlock = null
+        lastProgressIndicatorAchievementId = 0
         // Alpha.23 — the history belongs to this account, so it
         // goes with the logout (the key is wiped by the session
         // store's clear above).
         rarityByAchievement = emptyMap()
         rarityState = RaWebApiState.Idle
+        guideUrl = null
         unlockHistory = emptyList()
         historyState = RaWebApiState.Idle
         clearLeaderboardState()
@@ -440,10 +455,12 @@ object RaClient {
         gameLoaded = false
         achievements = emptyList()
         lastUnlock = null
+        lastProgressIndicatorAchievementId = 0
         // Alpha.23 — rarity is per loaded game, so it goes with
         // the game. The account history stays for the session.
         rarityByAchievement = emptyMap()
         rarityState = RaWebApiState.Idle
+        guideUrl = null
         clearLeaderboardState()
     }
 
@@ -677,6 +694,27 @@ object RaClient {
         }
     }
 
+    /**
+     * Alpha.31 — the id of the achievement whose measured progress
+     * moved most recently (0 when none has). The progress-indicator
+     * event names the tracked achievement; the handler refreshes
+     * the whole list, so the in-memory list stays live during
+     * gameplay — the achievements screen itself is pause-only, so
+     * while it is open no events fire and its open-refresh covers
+     * it, but the live list is what the HUD build (next) reads.
+     * The id is also the test seam: under Robolectric there is no
+     * native layer, so the refresh is a no-op there and the id is
+     * what proves the event reached Kotlin.
+     */
+    var lastProgressIndicatorAchievementId by mutableStateOf(0)
+        private set
+
+    /** A tracked achievement's measured progress moved: record it and refresh the list. */
+    fun onProgressIndicatorUpdate(achievementId: Int) {
+        lastProgressIndicatorAchievementId = achievementId
+        refreshAchievements()
+    }
+
     /** Re-read the account's total softcore points from the native layer (a no-op while logged out or uninitialised). */
     fun refreshUserScore() {
         if (!initialised || !loggedIn) {
@@ -824,6 +862,7 @@ object RaClient {
             // Alpha.23 — no set, no rarity.
             rarityByAchievement = emptyMap()
             rarityState = RaWebApiState.Idle
+            guideUrl = null
             clearLeaderboardState()
             pendingProgress = null
             pendingProgressReset = false
@@ -865,6 +904,7 @@ object RaClient {
                 return@launch
             }
             rarityByAchievement = RaWebApi.parseGameRarity(body)
+            guideUrl = RaWebApi.parseGuideUrl(body)
             rarityState = RaWebApiState.Loaded
         }
     }

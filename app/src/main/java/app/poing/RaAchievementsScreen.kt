@@ -1,5 +1,7 @@
 package app.poing
 
+import android.content.Intent
+import android.net.Uri
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -13,11 +15,15 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -62,6 +68,21 @@ fun RaAchievementsScreen(
     val title = RaClient.gameTitle ?: gameName
     val achievements = RaClient.achievements
         .filter { it.state != RaAchievements.STATE_INACTIVE }
+    // Alpha.31 — the loaded game's guide URL (null when RA
+    // supplies none, which is usual): Search for Help opens it
+    // when it exists and falls back to a web search otherwise.
+    val guideUrl = RaClient.guideUrl
+    // Alpha.31 — closest-first sort, current game only: locked
+    // achievements ordered by measured percent descending, then
+    // unlocked in their server order. Off by default (server
+    // order); session-only, like the rest of this screen.
+    var closestFirst by remember { mutableStateOf(false) }
+    val displayed = if (!closestFirst) {
+        achievements
+    } else {
+        val (unlocked, locked) = achievements.partition { it.isUnlocked }
+        locked.sortedByDescending { it.measuredPercent ?: -1.0 } + unlocked
+    }
     val richPresence = RaClient.richPresence
     // Alpha.23 — rarity tiers come from the web API (a stored
     // key + the network gate), fetched once per loaded game.
@@ -193,9 +214,19 @@ fun RaAchievementsScreen(
                 }
             }
             else -> {
-                items(achievements, key = { it.id }) { achievement ->
+                item {
+                    TextButton(
+                        onClick = { closestFirst = !closestFirst },
+                        modifier = Modifier.testTag("ra-sort-closest"),
+                    ) {
+                        Text(if (closestFirst) "Closest first ✓" else "Closest first")
+                    }
+                }
+                items(displayed, key = { it.id }) { achievement ->
                     Row(
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("ra-achievement-${achievement.id}"),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         RaBadgeImage(
@@ -236,6 +267,45 @@ fun RaAchievementsScreen(
                                 fontSize = 13.sp,
                                 color = Color(0xFF9E9EA5),
                             )
+                            // Alpha.31 — live progress bars: only
+                            // where the achievement reports measured
+                            // progress; the rest get no bar, never
+                            // an invented percentage. The value is
+                            // refreshed on screen open, on unlock,
+                            // and live during play by the
+                            // progress-indicator event.
+                            if (achievement.measuredProgress != null) {
+                                val fraction = ((achievement.measuredPercent ?: 0.0) / 100.0)
+                                    .coerceIn(0.0, 1.0).toFloat()
+                                LinearProgressIndicator(
+                                    progress = { fraction },
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(top = 4.dp)
+                                        .testTag("ra-progress-bar-${achievement.id}"),
+                                    color = Color(0xFFC9A227),
+                                    trackColor = Color(0xFF3A3A3A),
+                                )
+                            }
+                        }
+                        // Alpha.31 — Search for Help, locked rows
+                        // only: the game's guide URL when RA
+                        // supplies one, else a web search for the
+                        // game + achievement. User-initiated; it
+                        // sends nothing but the query asked for.
+                        if (!achievement.isUnlocked) {
+                            TextButton(
+                                onClick = {
+                                    val url = guideUrl
+                                        ?: RaWebApi.helpSearchUrl(title, achievement.title)
+                                    context.startActivity(
+                                        Intent(Intent.ACTION_VIEW, Uri.parse(url)),
+                                    )
+                                },
+                                modifier = Modifier.testTag("ra-help-${achievement.id}"),
+                            ) {
+                                Text("Help")
+                            }
                         }
                     }
                 }

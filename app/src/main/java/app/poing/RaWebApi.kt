@@ -202,6 +202,33 @@ object RaWebApi {
     }
 
     /**
+     * Alpha.31 — the loaded game's guide URL from a game-info
+     * response (top-level "GuideURL"). Null when RA supplies
+     * none — which is usual — or when the payload is malformed.
+     * Search for Help opens this when it exists and falls back
+     * to a web search otherwise.
+     */
+    fun parseGuideUrl(json: String): String? {
+        val obj = try {
+            RaJson.parseObject(json)
+        } catch (_: Exception) {
+            return null
+        }
+        return (obj["GuideURL"] as? String)?.takeIf { it.isNotEmpty() }
+    }
+
+    /**
+     * Alpha.31 — the Search for Help fallback: a web search for
+     * the game and the achievement on RetroAchievements. Web
+     * search, not video search — it finds text guides and videos
+     * both. Pure, so the tests prove the query string without
+     * launching a browser.
+     */
+    fun helpSearchUrl(gameTitle: String, achievementTitle: String): String =
+        "https://www.google.com/search?q=" +
+            urlEncode("$gameTitle $achievementTitle RetroAchievements")
+
+    /**
      * Parse a recent-achievements response into the unlock
      * history, newest first, capped at [MAX_HISTORY_ENTRIES].
      * Malformed JSON parses to an empty list. A single malformed
