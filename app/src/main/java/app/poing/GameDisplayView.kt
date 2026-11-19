@@ -103,9 +103,8 @@ fun GameDisplayView(
         // render loop). The view now composes on the first
         // frame alone; the aspect comes from the frame (the
         // GL path's aspect state, or the fallback Bitmap),
-        // and only the dev-stats diagnostic line (in the
-        // top bar, which already tolerates null stats) waits
-        // for the stats.
+        // and only the fps counter chip (in the overlay, which
+        // already tolerates null stats) waits for the stats.
         // Worm Light realism (Robert, 2026-11-12): when the
         // lamp goes off, the pool resets to intensity 0 so it
         // never lingers on the picture. (While it is on, the

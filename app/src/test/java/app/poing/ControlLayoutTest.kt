@@ -61,6 +61,12 @@ class ControlLayoutTest {
         assertEquals(320, def.control(ControlId.POPUP).sizeDp)
         assertEquals(0.5f, def.control(ControlId.POPUP).cx, 0f)
         assertEquals(32f / 411f, def.control(ControlId.POPUP).cy, 0.001f)
+        // Alpha.32 — the fps counter is a wide chip too:
+        // 360dp at the top centre, 100dp down, clear of the
+        // top bar and the RA chip below it.
+        assertEquals(360, def.control(ControlId.FPS).sizeDp)
+        assertEquals(0.5f, def.control(ControlId.FPS).cx, 0f)
+        assertEquals(100f / 411f, def.control(ControlId.FPS).cy, 0.001f)
         assertEquals(100, def.opacity)
     }
 
@@ -70,6 +76,28 @@ class ControlLayoutTest {
         assertEquals(480, wide.control(ControlId.POPUP).sizeDp)
         val narrow = ControlLayout.DEFAULT.resized(ControlId.POPUP, 1, grouped = false)
         assertEquals(120, narrow.control(ControlId.POPUP).sizeDp)
+    }
+
+    @Test
+    fun `fps width clamps to 120 and 480, like the popup`() {
+        val wide = ControlLayout.DEFAULT.resized(ControlId.FPS, 999, grouped = false)
+        assertEquals(480, wide.control(ControlId.FPS).sizeDp)
+        val narrow = ControlLayout.DEFAULT.resized(ControlId.FPS, 1, grouped = false)
+        assertEquals(120, narrow.control(ControlId.FPS).sizeDp)
+    }
+
+    @Test
+    fun `fps is a cluster of one`() {
+        assertEquals("fps", ControlLayout.clusterOf(ControlId.FPS))
+        val moved = ControlLayout.DEFAULT.moved(ControlId.FPS, 0.2f, 0.8f, grouped = true)
+        assertEquals(0.2f, moved.control(ControlId.FPS).cx, 0.001f)
+        assertEquals(0.8f, moved.control(ControlId.FPS).cy, 0.001f)
+        // A grouped move drags the chip alone — the buttons
+        // stay where they were.
+        assertEquals(
+            ControlLayout.DEFAULT.control(ControlId.A),
+            moved.control(ControlId.A),
+        )
     }
 
     @Test

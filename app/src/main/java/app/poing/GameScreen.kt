@@ -311,7 +311,7 @@ fun GameScreen(
     // Screen Optics dim fix (Robert, 2026-11-12): the live lux
     // for the diagnostic line (dev stats only). Only the
     // rounded whole-lux value is state, so a steady room does
-    // not recompose the bar on every ~50 Hz sensor reading.
+    // not recompose the chip on every ~50 Hz sensor reading.
     var latestLux by remember { mutableStateOf<Int?>(null) }
 
     // Phase 8 — Screen Optics, snapshotted like the chain:
@@ -944,19 +944,6 @@ fun GameScreen(
             // 2026-11-12).
             if (barVisible) {
                 TopBarRow(
-                    stats = stats,
-                    // The live lux shows in the diagnostic line
-                    // only when dev stats are on — the line is
-                    // the dev-stats display.
-                    lux = if (devStats) latestLux else null,
-                    // Edge smoothing, item 5: which program
-                    // actually drew the last frame — the
-                    // dev-stats readout, so edge on is never
-                    // again a guess on device. Task 6: the
-                    // same for the reconstruction.
-                    drawPath = drawPath,
-                    edgeOn = edgeMode != EdgeMode.OFF,
-                    reconOn = reconMode != ReconMode.OFF,
                     recording = recording,
                     recordingElapsed = recordingElapsed,
                     buttonLabel = if (paused) "Resume" else "Pause",
@@ -1095,6 +1082,19 @@ fun GameScreen(
             // Alpha.25 — the game width, for the unlock
             // popup's width cap (75% of the game width).
             gameWidthDp = gameWidthDp,
+            // Alpha.32 — the fps counter chip: the same
+            // once-a-second stats the old top-bar diagnostic
+            // line read, now at the chip's spec. It shows
+            // only while dev stats are on (the devStats
+            // snapshot, like the bar rule); the lux is the
+            // live reading, which the chip shows whenever it
+            // has one.
+            fpsVisible = devStats,
+            stats = stats,
+            lux = latestLux,
+            drawPath = drawPath,
+            edgeOn = edgeMode != EdgeMode.OFF,
+            reconOn = reconMode != ReconMode.OFF,
         )
         // Worm Light improvements (Robert, 2026-11-13):
         // while a drag is in progress, the lamp's head

@@ -41,6 +41,13 @@ enum class ControlId(val key: String) {
     // centre (fractions of the screen) + its width in dp;
     // the height is the chip's own (POPUP_HEIGHT_DP).
     POPUP("popup"),
+    // Alpha.32 — the fps counter: a movable overlay chip,
+    // not a button, following the popup pattern. Its spec
+    // is the chip's centre (fractions of the screen) + its
+    // width in dp; the height is the chip's own
+    // (FPS_HEIGHT_DP). It shows only while dev stats are
+    // on, and its chip is the system's theme colour.
+    FPS("fps"),
 }
 
 /** One control's place on screen: centre fraction + size in dp. */
@@ -56,14 +63,23 @@ data class OverlayControl(
      * over the game centre but never slide off the screen; size
      * in Mariner's 36–220dp range. Alpha.25 — the popup is a
      * wide chip, not a square button, so its size (its width)
-     * clamps to its own range instead.
+     * clamps to its own range instead. Alpha.32 — the fps
+     * counter is a wide chip too, with its own range.
      */
     fun clamped(): OverlayControl = copy(
         cx = cx.coerceIn(ControlLayout.MIN_FRACTION, ControlLayout.MAX_FRACTION),
         cy = cy.coerceIn(ControlLayout.MIN_FRACTION, ControlLayout.MAX_FRACTION),
         sizeDp = sizeDp.coerceIn(
-            if (id == ControlId.POPUP) ControlLayout.POPUP_MIN_WIDTH_DP else ControlLayout.MIN_SIZE_DP,
-            if (id == ControlId.POPUP) ControlLayout.POPUP_MAX_WIDTH_DP else ControlLayout.MAX_SIZE_DP,
+            when (id) {
+                ControlId.POPUP -> ControlLayout.POPUP_MIN_WIDTH_DP
+                ControlId.FPS -> ControlLayout.FPS_MIN_WIDTH_DP
+                else -> ControlLayout.MIN_SIZE_DP
+            },
+            when (id) {
+                ControlId.POPUP -> ControlLayout.POPUP_MAX_WIDTH_DP
+                ControlId.FPS -> ControlLayout.FPS_MAX_WIDTH_DP
+                else -> ControlLayout.MAX_SIZE_DP
+            },
         ),
     )
 }
@@ -148,6 +164,20 @@ data class ControlLayout(
         const val POPUP_MAX_WIDTH_FRACTION = 0.75f
 
         /**
+         * Alpha.32 — the fps counter's width range (a wide
+         * chip, like the popup) and its height: one line of
+         * terminal text + 4dp of padding top and bottom. The
+         * width is NOT capped at a fraction of the game
+         * width, unlike the popup: the diagnostic text is
+         * long, and the cap would cut the numbers the chip
+         * exists to show. The size stepper still bounds it
+         * to this range, and 480dp still fits the screen.
+         */
+        const val FPS_MIN_WIDTH_DP = 120
+        const val FPS_MAX_WIDTH_DP = 480
+        const val FPS_HEIGHT_DP = 32f
+
+        /**
          * Alpha.25 — the popup's placed width: its spec's
          * width, capped at 75% of the game width. Pure, so
          * the cap is unit-tested (ControlLayoutTest).
@@ -190,6 +220,9 @@ data class ControlLayout(
             // Alpha.25 — the popup is a cluster of one: a
             // grouped move drags it alone, never the buttons.
             ControlId.POPUP -> "popup"
+            // Alpha.32 — the fps counter is a cluster of one
+            // too, for the same reason.
+            ControlId.FPS -> "fps"
         }
 
         /** Snap a centre point (in dp on the editor canvas) to the grid when snapping is on. */
@@ -215,10 +248,15 @@ data class ControlLayout(
          * where they were). Alpha.25 — the unlock popup chip,
          * 320dp wide at the top centre (32dp down, the old
          * TopCenter spot with the bar hidden), so it starts
-         * slim and movable. Listed in ControlId order — the
-         * store loads in that order, and list equality is
-         * order-sensitive, so a save/load round-trip depends
-         * on it.
+         * slim and movable. Alpha.32 — the fps counter chip,
+         * 360dp wide at the top centre (100dp down, clear of
+         * the ~80dp top bar and of the left-aligned RA chip
+         * below it, clear of the L/R shoulder tabs at the top
+         * corners and of the popup's 32dp spot), so the
+         * diagnostic text fits on one line. Listed in
+         * ControlId order — the store loads in that order, and
+         * list equality is order-sensitive, so a save/load
+         * round-trip depends on it.
          */
         val DEFAULT: ControlLayout = run {
             fun spec(id: ControlId, centreXDp: Float, centreYDp: Float, sizeDp: Int) =
@@ -241,6 +279,7 @@ data class ControlLayout(
                     spec(ControlId.SLOW, 923f - 16f - 24f - 60f, 411f - 16f - 24f, 48),
                     spec(ControlId.RW, 923f - 16f - 24f - 120f, 411f - 16f - 24f, 48),
                     spec(ControlId.POPUP, 923f / 2f, 32f, 320),
+                    spec(ControlId.FPS, 923f / 2f, 100f, 360),
                 ),
             )
         }

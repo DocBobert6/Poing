@@ -15,8 +15,10 @@ import org.robolectric.annotation.Config
  * Screen Optics dim fix (Robert, 2026-11-12): the live lux
  * shows in the diagnostic line when dev stats are on, so the
  * room's light — and whether the dim engages — is visible on
- * the screen itself. Pinned to emulated SDK 35, same as the
- * startup gate.
+ * the screen itself. Alpha.32 — the line is the fps counter
+ * chip in the overlay now, not a row in the top bar; these
+ * tests pin the chip's content. Pinned to emulated SDK 35,
+ * same as the startup gate.
  */
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [35])
@@ -34,21 +36,29 @@ class PlayerTopBarTest {
         sampleRate = 48000,
     )
 
-    private fun setContent(lux: Int? = null, drawPath: DrawPath? = null, edgeOn: Boolean = false) {
+    private fun setContent(
+        stats: PlayerStats? = this.stats,
+        lux: Int? = null,
+        drawPath: DrawPath? = null,
+        edgeOn: Boolean = false,
+    ) {
         composeRule.setContent {
             PoingTheme {
-                TopBarRow(
+                FpsCounterChip(
                     stats = stats,
-                    recording = false,
-                    recordingElapsed = 0,
-                    buttonLabel = "Pause",
-                    onButtonClick = {},
+                    theme = ControlThemes.themeFor(GameSystem.GB),
                     lux = lux,
                     drawPath = drawPath,
                     edgeOn = edgeOn,
                 )
             }
         }
+    }
+
+    @Test
+    fun diagnosticLineShowsStartingBeforeTheFirstStats() {
+        setContent(stats = null)
+        composeRule.onNodeWithText("starting…", substring = true).assertExists()
     }
 
     @Test

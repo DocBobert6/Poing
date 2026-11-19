@@ -98,6 +98,19 @@ fun BoxScope.ControlOverlay(
     // callers without a routing (the editor preview, tests)
     // on the plain tick for every direction change.
     onDpadDirectionChange: ((Int, Int) -> Unit)? = null,
+    // Alpha.32 — the fps counter chip: shown only while dev
+    // stats are on (fpsVisible), at its spec's centre. The
+    // stats are the same once-a-second values the old top-bar
+    // diagnostic line read; the lux is the live reading (the
+    // caller passes null when there is none). These sit after
+    // onDpadDirectionChange so the positional callers keep
+    // working.
+    fpsVisible: Boolean = false,
+    stats: PlayerStats? = null,
+    lux: Int? = null,
+    drawPath: DrawPath? = null,
+    edgeOn: Boolean = false,
+    reconOn: Boolean = false,
 ) {
     val theme = ControlThemes.themeFor(system)
     val alpha = layout.opacity / 100f
@@ -111,6 +124,10 @@ fun BoxScope.ControlOverlay(
                 // Alpha.25 — the popup is not a button: it
                 // renders separately below, at its spec.
                 ControlId.POPUP -> false
+                // Alpha.32 — the fps counter is not a button
+                // either: it renders separately below, at
+                // its spec.
+                ControlId.FPS -> false
                 else -> true
             }
         }
@@ -169,6 +186,34 @@ fun BoxScope.ControlOverlay(
         alpha = alpha, testTag = "ra-unlock-popup-placed",
     ) {
         RaUnlockPopup(paused = paused)
+    }
+    // Alpha.32 — the fps counter lives in the overlay now,
+    // not in the top bar: a themed chip at its spec's centre
+    // (fractions of the full screen, like every other overlay
+    // item), shown only while dev stats are on. Its width is
+    // the spec's — no game-width cap, so the diagnostic text
+    // fits on one line (see FPS_MIN_WIDTH_DP). It shows
+    // while paused too, like the old bar line did (dimmed
+    // under the pause overlay, like the buttons) — the
+    // numbers are the last live window then, same as before.
+    if (fpsVisible) {
+        val fpsSpec = layout.control(ControlId.FPS)
+        PlacedControl(
+            cx = fpsSpec.cx, cy = fpsSpec.cy,
+            widthDp = fpsSpec.sizeDp.toFloat(),
+            heightDp = ControlLayout.FPS_HEIGHT_DP,
+            canvasWidthDp = canvasWidthDp, canvasHeightDp = canvasHeightDp,
+            alpha = alpha, testTag = "fps-counter-placed",
+        ) {
+            FpsCounterChip(
+                stats = stats,
+                theme = theme,
+                lux = lux,
+                drawPath = drawPath,
+                edgeOn = edgeOn,
+                reconOn = reconOn,
+            )
+        }
     }
 }
 
@@ -322,5 +367,10 @@ fun ControlButton(
         // when is the function's last statement, so Kotlin
         // requires it to be exhaustive.
         ControlId.POPUP -> Unit
+        // Alpha.32 — the fps counter is not a button either:
+        // ControlOverlay filters it out of the button loop
+        // and LayoutEditor branches to EditorFps, same as
+        // the popup.
+        ControlId.FPS -> Unit
     }
 }
