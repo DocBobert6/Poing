@@ -94,6 +94,29 @@ fun formatRarityPercent(percent: Double): String =
     if (percent >= 10.0) "${percent.toInt()}%"
     else String.format(Locale.US, "%.1f%%", percent)
 
+/**
+ * Alpha.33 — the unlock popup's rarity kind: which visual
+ * variant (and which tier haptic) an unlock gets, from the
+ * web-API rarity percent already in hand. Under 10% is rare
+ * (Very Rare and below in the community bands); under 5% is
+ * ultra-rare (Ultra Rare and Legendary). A null percent — no
+ * key, no fetch, or a fetch that never landed — is the plain
+ * gold popup, never an invented tier: rarity that is not
+ * known is not shown.
+ */
+enum class RaUnlockRarityKind {
+    PLAIN,
+    RARE,
+    ULTRA_RARE,
+}
+
+fun raUnlockRarityKind(percent: Double?): RaUnlockRarityKind = when {
+    percent == null -> RaUnlockRarityKind.PLAIN
+    percent < 5.0 -> RaUnlockRarityKind.ULTRA_RARE
+    percent < 10.0 -> RaUnlockRarityKind.RARE
+    else -> RaUnlockRarityKind.PLAIN
+}
+
 /** One unlock from the account's history, newest first. */
 data class RaHistoryEntry(
     val achievementId: Int,

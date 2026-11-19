@@ -48,6 +48,15 @@ enum class ControlId(val key: String) {
     // (FPS_HEIGHT_DP). It shows only while dev stats are
     // on, and its chip is the system's theme colour.
     FPS("fps"),
+    // Alpha.33 — the HUD pin chip: the pinned achievement's
+    // title + progress bar, a movable overlay chip like the
+    // popup and the fps counter. Its spec is the chip's
+    // centre (fractions of the screen) + its width in dp;
+    // the height is the chip's own (HUD_HEIGHT_DP). It
+    // shows only while an achievement is pinned for this
+    // game (see RaPinStore) — off by default, no pin, no
+    // chip.
+    HUD("hud"),
 }
 
 /** One control's place on screen: centre fraction + size in dp. */
@@ -73,11 +82,13 @@ data class OverlayControl(
             when (id) {
                 ControlId.POPUP -> ControlLayout.POPUP_MIN_WIDTH_DP
                 ControlId.FPS -> ControlLayout.FPS_MIN_WIDTH_DP
+                ControlId.HUD -> ControlLayout.HUD_MIN_WIDTH_DP
                 else -> ControlLayout.MIN_SIZE_DP
             },
             when (id) {
                 ControlId.POPUP -> ControlLayout.POPUP_MAX_WIDTH_DP
                 ControlId.FPS -> ControlLayout.FPS_MAX_WIDTH_DP
+                ControlId.HUD -> ControlLayout.HUD_MAX_WIDTH_DP
                 else -> ControlLayout.MAX_SIZE_DP
             },
         ),
@@ -178,6 +189,19 @@ data class ControlLayout(
         const val FPS_HEIGHT_DP = 32f
 
         /**
+         * Alpha.33 — the HUD pin chip's width range (a wide
+         * chip, like the popup and the fps counter) and its
+         * height: one line (badge + title + progress text)
+         * plus the thin gold bar underneath, with the same
+         * padding as the popup. The width is NOT capped at
+         * a fraction of the game width, like the fps counter:
+         * the title is the point of the chip.
+         */
+        const val HUD_MIN_WIDTH_DP = 120
+        const val HUD_MAX_WIDTH_DP = 480
+        const val HUD_HEIGHT_DP = 48f
+
+        /**
          * Alpha.25 — the popup's placed width: its spec's
          * width, capped at 75% of the game width. Pure, so
          * the cap is unit-tested (ControlLayoutTest).
@@ -223,6 +247,9 @@ data class ControlLayout(
             // Alpha.32 — the fps counter is a cluster of one
             // too, for the same reason.
             ControlId.FPS -> "fps"
+            // Alpha.33 — the HUD pin chip is a cluster of one
+            // too, for the same reason.
+            ControlId.HUD -> "hud"
         }
 
         /** Snap a centre point (in dp on the editor canvas) to the grid when snapping is on. */
@@ -253,10 +280,17 @@ data class ControlLayout(
          * the ~80dp top bar and of the left-aligned RA chip
          * below it, clear of the L/R shoulder tabs at the top
          * corners and of the popup's 32dp spot), so the
-         * diagnostic text fits on one line. Listed in
-         * ControlId order — the store loads in that order, and
-         * list equality is order-sensitive, so a save/load
-         * round-trip depends on it.
+         * diagnostic text fits on one line. Alpha.33 — the
+         * HUD pin chip, 280dp wide at the top-left (140dp
+         * in, 100dp down — the same row as the fps counter's
+         * top-centre spot, clear of the pinned top-left
+         * power light above it and of the fps chip, which
+         * spans the centre; the RA indicator below the top
+         * bar hides with the bar, so the spot is free while
+         * playing). Listed in ControlId order — the store
+         * loads in that order, and list equality is
+         * order-sensitive, so a save/load round-trip
+         * depends on it.
          */
         val DEFAULT: ControlLayout = run {
             fun spec(id: ControlId, centreXDp: Float, centreYDp: Float, sizeDp: Int) =
@@ -280,6 +314,7 @@ data class ControlLayout(
                     spec(ControlId.RW, 923f - 16f - 24f - 120f, 411f - 16f - 24f, 48),
                     spec(ControlId.POPUP, 923f / 2f, 32f, 320),
                     spec(ControlId.FPS, 923f / 2f, 100f, 360),
+                    spec(ControlId.HUD, 140f, 100f, 280),
                 ),
             )
         }

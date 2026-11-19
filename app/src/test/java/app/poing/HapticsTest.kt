@@ -580,4 +580,51 @@ class HapticsTest {
         assertEquals(0f, Haptics.shoulderThudScale(0), 0.001f)
         assertEquals(20, Haptics.SHOULDER_THUD_DELAY_MS)
     }
+
+    // Alpha.33 — the unlock's rarity haptic, by tier: a common
+    // unlock plays nothing extra (whatever the pop itself does
+    // on device is untouched — this function never claims to
+    // know what that is); a rare unlock is one tick, an
+    // ultra-rare unlock is two ticks 80ms apart. The second
+    // tick is posted like the shoulder thud, so the behaviour
+    // tests pin the first tick and the delay constant.
+    @Test
+    fun unlockRarityPlainDoesNotVibrate() {
+        val v = vibrator()
+        Haptics(v).unlockRarity(RaUnlockRarityKind.PLAIN)
+        assertFalse(shadowOf(v).isVibrating)
+    }
+
+    @Test
+    fun unlockRarityRareVibrates() {
+        val v = vibrator()
+        Haptics(v).unlockRarity(RaUnlockRarityKind.RARE)
+        assertTrue(shadowOf(v).isVibrating)
+    }
+
+    @Test
+    fun unlockRarityUltraRareVibrates() {
+        val v = vibrator()
+        Haptics(v).unlockRarity(RaUnlockRarityKind.ULTRA_RARE)
+        assertTrue(shadowOf(v).isVibrating)
+    }
+
+    @Test
+    fun unlockRarityDisabledDoesNothing() {
+        val v = vibrator()
+        Haptics(v, enabled = false).unlockRarity(RaUnlockRarityKind.ULTRA_RARE)
+        assertFalse(shadowOf(v).isVibrating)
+    }
+
+    @Test
+    fun unlockRarityStrengthZeroDoesNothing() {
+        val v = vibrator()
+        Haptics(v, strength = 0).unlockRarity(RaUnlockRarityKind.RARE)
+        assertFalse(shadowOf(v).isVibrating)
+    }
+
+    @Test
+    fun unlockRaritySecondTickDelayIsEightyMs() {
+        assertEquals(80, Haptics.UNLOCK_RARITY_SECOND_TICK_DELAY_MS)
+    }
 }

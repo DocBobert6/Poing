@@ -220,6 +220,26 @@ fun LayoutEditor(
                     )
                     continue
                 }
+                // Alpha.33 — the HUD pin chip is not a button
+                // either: it gets its own handle with the
+                // sample chip inside, at the same spec as play
+                // mode, so the position is visible while it is
+                // dragged.
+                if (spec.id == ControlId.HUD) {
+                    EditorHud(
+                        spec = spec,
+                        selected = spec.id == selectedId,
+                        canvasWDp = canvasWDp,
+                        canvasHDp = canvasHDp,
+                        snapOn = snapOn,
+                        alpha = alpha,
+                        onSelect = { selectedId = spec.id },
+                        onMove = { cx, cy ->
+                            draft = draft.moved(spec.id, cx, cy, grouped)
+                        },
+                    )
+                    continue
+                }
                 EditorControl(
                     spec = spec,
                     selected = spec.id == selectedId,
@@ -682,6 +702,83 @@ private fun EditorFps(
         contentAlignment = Alignment.Center,
     ) {
         FpsCounterSample(theme)
+    }
+}
+
+/**
+ * Alpha.33 — the HUD pin chip's editor handle: the same drag
+ * math as EditorFps (centre fractions, snap, selection
+ * border), but the content is the sample HUD chip at the
+ * spec's width — the real chip only shows while an
+ * achievement is pinned and never while paused, and the
+ * editor is always paused, so without the sample the
+ * position would be invisible while it is dragged. The width
+ * is the spec's (no game-width cap, exactly as in play
+ * mode); the height is the chip's own. The size stepper
+ * still applies (it changes the width, and its label shows
+ * the value in effect); the in-control size label is skipped
+ * — it would sit on top of the sample's text.
+ */
+@Composable
+private fun EditorHud(
+    spec: OverlayControl,
+    selected: Boolean,
+    canvasWDp: Float,
+    canvasHDp: Float,
+    snapOn: Boolean,
+    alpha: Float,
+    onSelect: () -> Unit,
+    onMove: (Float, Float) -> Unit,
+) {
+    val currentSpec by rememberUpdatedState(spec)
+    val density = LocalDensity.current.density
+    val width = spec.sizeDp.toFloat()
+    val height = ControlLayout.HUD_HEIGHT_DP
+    Box(
+        modifier = Modifier
+            .offset(
+                x = (spec.cx * canvasWDp - width / 2f).dp,
+                y = (spec.cy * canvasHDp - height / 2f).dp,
+            )
+            .size(width.dp, height.dp)
+            .then(
+                if (selected) {
+                    Modifier.border(2.dp, PoingGold, RoundedCornerShape(4.dp))
+                } else {
+                    Modifier
+                },
+            )
+            .alpha(alpha)
+            .testTag("editor-hud")
+            .pointerInput(spec.id, snapOn, canvasWDp, canvasHDp) {
+                var baseCxDp = 0f
+                var baseCyDp = 0f
+                var accX = 0f
+                var accY = 0f
+                detectDragGestures(
+                    onDragStart = {
+                        onSelect()
+                        baseCxDp = currentSpec.cx * canvasWDp
+                        baseCyDp = currentSpec.cy * canvasHDp
+                        accX = 0f
+                        accY = 0f
+                    },
+                    onDrag = { change, drag ->
+                        change.consume()
+                        accX += drag.x / density
+                        accY += drag.y / density
+                        val cxDp = ControlLayout.snap(baseCxDp + accX, snapOn)
+                        val cyDp = ControlLayout.snap(baseCyDp + accY, snapOn)
+                        onMove(
+                            cxDp / canvasWDp,
+                            cyDp / canvasHDp,
+                        )
+                    },
+                )
+            },
+        contentAlignment = Alignment.Center,
+    ) {
+        RaHudChipSample()
     }
 }
 

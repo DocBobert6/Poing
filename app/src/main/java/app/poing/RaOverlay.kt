@@ -1,13 +1,16 @@
 package app.poing
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -105,7 +108,14 @@ fun RaGameIndicator(paused: Boolean) {
 }
 
 @Composable
-fun RaUnlockPopup(paused: Boolean) {
+fun RaUnlockPopup(
+    paused: Boolean,
+    // Alpha.33 — fired once when an unlock pops, before the
+    // 4-second clear: the caller (GameScreen) plays the
+    // rarity haptic for the unlock's tier here. The popup
+    // itself plays no haptic — see Haptics.unlockRarity.
+    onUnlockShown: ((RaUnlock) -> Unit)? = null,
+) {
     val unlock = RaClient.lastUnlock
     // The badge store is remembered for the popup's lifetime,
     // not per unlock — a missing badge leaves the placeholder
@@ -113,6 +123,7 @@ fun RaUnlockPopup(paused: Boolean) {
     val badgeStore = rememberRaBadgeStore()
     LaunchedEffect(unlock) {
         if (unlock != null) {
+            onUnlockShown?.invoke(unlock)
             delay(4000)
             RaClient.clearUnlock()
         }
@@ -123,11 +134,23 @@ fun RaUnlockPopup(paused: Boolean) {
         // carries the achievement's own image, not just its
         // name.
         val badgeUrl = RaClient.achievements.find { it.id == unlock.id }?.badgeUrl
+        // Alpha.33 — the rarity variant: the web-API rarity
+        // for this achievement, when the fetch has landed
+        // (a key stored, the game-info fetch run). No rarity
+        // data means the plain gold popup — rarity that is
+        // not known is not shown.
+        val rarity = RaClient.rarityByAchievement[unlock.id]
+        val rarityKind = raUnlockRarityKind(rarity?.percent)
+        val rarityLabel = rarity?.let {
+            "${it.tier.label} · ${formatRarityPercent(it.percent)}"
+        }
         UnlockPopupRow(
             badgeStore = badgeStore,
             badgeUrl = badgeUrl,
             title = unlock.title,
             points = unlock.points,
+            rarityKind = rarityKind,
+            rarityLabel = rarityLabel,
         )
     }
 }
@@ -159,6 +182,13 @@ fun RaUnlockPopupSample() {
  * The row fills the width its overlay spec gives it, and the
  * text ellipsizes inside that width, so a long title never
  * pushes the chip wider than its spec.
+ *
+ * Alpha.33 — the rarity variants, visual half only (no sound
+ * path): a rare unlock (under 10% — [RaUnlockRarityKind.RARE])
+ * gets a diamond marker, its tier label, and a gold border;
+ * an ultra-rare unlock (under 5% — ULTRA_RARE) gets all of
+ * that plus a larger badge. The gold is the existing rarity
+ * gold — no new colours. A plain unlock is exactly as before.
  */
 @Composable
 private fun UnlockPopupRow(
@@ -167,23 +197,39 @@ private fun UnlockPopupRow(
     title: String,
     points: Int,
     modifier: Modifier = Modifier,
+    rarityKind: RaUnlockRarityKind = RaUnlockRarityKind.PLAIN,
+    rarityLabel: String? = null,
 ) {
+    val rare = rarityKind != RaUnlockRarityKind.PLAIN
+    val badgeSize = if (rarityKind == RaUnlockRarityKind.ULTRA_RARE) 40.dp else 32.dp
+    val text = buildString {
+        if (rare) append("◆ ")
+        append("Achievement Unlocked: $title (+$points pts)")
+        if (rare && rarityLabel != null) append(" — $rarityLabel")
+    }
     Row(
         verticalAlignment = Alignment.CenterVertically,
         modifier = modifier
             .fillMaxWidth()
             .background(Color(0xFF1A1A1A), RoundedCornerShape(4.dp))
+            .then(
+                if (rare) Modifier.border(
+                    width = 1.dp,
+                    color = Color(0xFFC9A227),
+                    shape = RoundedCornerShape(4.dp),
+                ) else Modifier,
+            )
             .padding(horizontal = 12.dp, vertical = 6.dp),
     ) {
         RaBadgeImage(
             store = badgeStore,
             url = badgeUrl,
-            size = 32.dp,
+            size = badgeSize,
             contentDescription = "Badge for $title",
         )
         Spacer(Modifier.width(8.dp))
         Text(
-            text = "Achievement Unlocked: $title (+$points pts)",
+            text = text,
             color = Color(0xFFC9A227),
             fontWeight = FontWeight.Bold,
             maxLines = 1,
@@ -191,6 +237,93 @@ private fun UnlockPopupRow(
             modifier = Modifier.weight(1f),
         )
     }
+}
+
+/**
+ * Alpha.33 — the HUD pin chip: the pinned achievement's
+ * title + measured progress, in the same gold-on-dark chip
+ * language as the unlock popup. One line (badge + title +
+ * progress text) with the thin gold progress bar underneath,
+ * so a pinned chase reads at a glance without opening the
+ * pause menu. The data is the live in-memory list (alpha.31's
+ * progress-indicator foundation): the bar moves as the
+ * measured value moves during play.
+ */
+@Composable
+fun RaHudChip(achievement: RaAchievement) {
+    val badgeStore = rememberRaBadgeStore()
+    val fraction = ((achievement.measuredPercent ?: 0.0) / 100.0)
+        .coerceIn(0.0, 1.0).toFloat()
+    Column(
+        modifier = Modifier
+            .testTag("ra-hud-chip")
+            .fillMaxWidth()
+            .background(Color(0xFF1A1A1A), RoundedCornerShape(4.dp))
+            .padding(horizontal = 12.dp, vertical = 6.dp),
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            RaBadgeImage(
+                store = badgeStore,
+                url = achievement.badgeUrlForDisplay(),
+                size = 24.dp,
+                contentDescription = "Badge for ${achievement.title}",
+            )
+            Spacer(Modifier.width(8.dp))
+            Text(
+                text = achievement.title,
+                color = Color(0xFFC9A227),
+                fontWeight = FontWeight.Bold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f),
+            )
+            achievement.measuredProgress?.let { progress ->
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    text = progress,
+                    color = Color.White,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                )
+            }
+        }
+        LinearProgressIndicator(
+            progress = { fraction },
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(top = 4.dp)
+                .testTag("ra-hud-chip-bar"),
+            color = Color(0xFFC9A227),
+            trackColor = Color(0xFF3A3A3A),
+        )
+    }
+}
+
+/**
+ * Alpha.33 — the editor's sample HUD chip: the same chip
+ * with sample data, so the position is visible while the
+ * layout is edited. The real chip only shows while an
+ * achievement is pinned and never while paused — and the
+ * editor is always paused — so without the sample the
+ * chip's spot would be invisible while it is dragged.
+ */
+@Composable
+fun RaHudChipSample() {
+    RaHudChip(
+        achievement = RaAchievement(
+            id = 0,
+            title = "Sample Achievement",
+            description = "",
+            points = 5,
+            state = RaAchievements.STATE_ACTIVE,
+            unlocked = false,
+            measuredProgress = "42/100",
+            measuredPercent = 42.0,
+        ),
+    )
 }
 
 @Composable

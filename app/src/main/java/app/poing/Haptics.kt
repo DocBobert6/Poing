@@ -263,6 +263,69 @@ class Haptics(
     }
 
     /**
+     * Alpha.33 — the unlock's rarity haptic, by tier (see
+     * [RaUnlockRarityKind]): a common unlock plays nothing
+     * extra — whatever the pop itself does on device is
+     * untouched, and this function never claims to know
+     * what that is (Robert's device report is that the pop
+     * has its own unique very light haptic; the code shows
+     * no haptic on the unlock path, and the question is
+     * closed unresolved). The rare tiers play a pattern
+     * clearly different from a single light pop, on top of
+     * whatever the pop does: a rare unlock is one tick, an
+     * ultra-rare unlock is two ticks, the second 80ms after
+     * the first — so a rare unlock feels different from a
+     * common one and an ultra-rare one different again, on
+     * any device, regardless of what the base pop haptic
+     * turns out to be. Capped by the user's haptics level
+     * like every effect (the [play] guard): off means off.
+     */
+    fun unlockRarity(kind: RaUnlockRarityKind) {
+        val v = vibrator ?: return
+        when (kind) {
+            RaUnlockRarityKind.PLAIN -> return
+            RaUnlockRarityKind.RARE -> {
+                play(v) { buildTickEffect(DIRECTION_TICK_SCALE, strength, Build.VERSION.SDK_INT, tickSupported(v)) }
+            }
+            RaUnlockRarityKind.ULTRA_RARE -> {
+                if (!play(v) { buildTickEffect(DIRECTION_TICK_SCALE, strength, Build.VERSION.SDK_INT, tickSupported(v)) }) return
+                postUnlockRaritySecondTick(v)
+            }
+        }
+    }
+
+    /**
+     * The ultra-rare unlock's second tick, fired 80ms after
+     * the first. The first tick is ~8ms, so it has finished
+     * by then and this second vibrate() never cuts it off.
+     * The guard is re-checked at fire time: if haptics was
+     * turned off in those 80ms, the second tick stays
+     * silent — the same pattern as the shoulder thud.
+     */
+    private fun postUnlockRaritySecondTick(v: Vibrator) {
+        val tick = try {
+            buildTickEffect(DIRECTION_TICK_SCALE, strength, Build.VERSION.SDK_INT, tickSupported(v))
+        } catch (_: Exception) {
+            return
+        }
+        try {
+            Handler(Looper.getMainLooper()).postDelayed(
+                {
+                    if (!enabled || strength <= 0) return@postDelayed
+                    try {
+                        v.vibrate(tick)
+                    } catch (_: Exception) {
+                        // Silent, like every haptics failure.
+                    }
+                },
+                UNLOCK_RARITY_SECOND_TICK_DELAY_MS.toLong(),
+            )
+        } catch (_: Exception) {
+            // No looper to post on: the first tick already played.
+        }
+    }
+
+    /**
      * GBA L/R: the shoulder's longer travel — a click plus a
      * low thud 20ms later, one thunk. Alpha.15 fold-in: the
      * CLICK is the envelope where the device supports it
@@ -474,6 +537,14 @@ class Haptics(
 
         /** L/R thud delay: 15–25ms after the click starts, one thunk. */
         const val SHOULDER_THUD_DELAY_MS = 20
+
+        /**
+         * Alpha.33 — the ultra-rare unlock's second tick:
+         * 80ms after the first, so the two ticks read as a
+         * double-tap, clearly different from a rare unlock's
+         * single tick and from any single light pop haptic.
+         */
+        const val UNLOCK_RARITY_SECOND_TICK_DELAY_MS = 80
 
         /**
          * The envelope click's total length, attack + decay:

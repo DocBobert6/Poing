@@ -198,6 +198,43 @@ fun GameScreen(
     val saveBase = java.io.File(gamePath).nameWithoutExtension
     val layoutStore = remember { ControlLayoutStore(context.filesDir.resolve("control-layouts").apply { mkdirs() }) }
     var layout by remember(gamePath) { mutableStateOf(layoutStore.loadForGame(saveBase, system)) }
+    // Alpha.33 — Achievement Center build 2: the HUD pin.
+    // One pinned achievement per game, at most (see
+    // RaPinStore); the id lives in state so the chip and the
+    // achievements screen stay in step, and in the store so
+    // the pin survives a restart. Resolved once per game,
+    // like the layout.
+    val pinStore = remember { RaPinStore(context.filesDir.resolve("ra-pins").apply { mkdirs() }) }
+    var pinnedAchievementId by remember(gamePath) { mutableStateOf(pinStore.pinnedId(saveBase)) }
+    // Alpha.33 — the rarity fetch runs when a game loads, not
+    // only when the achievements screen opens: the unlock
+    // popup's rarity variant needs the tiers in hand before
+    // an unlock can pop. The same gate as the achievements
+    // screen (key stored, network allowed, Idle/Failed only),
+    // so no key or a closed gate means no fetch, never an
+    // error — and the screen's own effect keeps its gate, so
+    // a Loaded state is never clobbered.
+    val raNetworkAvailable = remember {
+        isCoverArtNetworkAvailable(context, appSettings.coverArtMobileDataAllowed())
+    }
+    LaunchedEffect(RaClient.gameLoaded, RaClient.gameId) {
+        if (RaClient.gameLoaded && RaClient.gameId > 0 &&
+            (RaClient.rarityState == RaWebApiState.Idle ||
+                RaClient.rarityState == RaWebApiState.Failed)
+        ) {
+            RaClient.refreshRarity(RaClient.gameId, raNetworkAvailable)
+        }
+    }
+    // Alpha.33 — the chase is over when the pinned achievement
+    // unlocks: the pin clears itself (and the chip hides),
+    // and the unlock popup carries the celebration.
+    LaunchedEffect(RaClient.lastUnlock) {
+        val unlocked = RaClient.lastUnlock
+        if (unlocked != null && unlocked.id == pinnedAchievementId) {
+            pinStore.setPinnedId(saveBase, null)
+            pinnedAchievementId = null
+        }
+    }
     // Alpha.10 — the left control for this game: the game's
     // own override when it has one, otherwise the global
     // default (D-pad). Resolved once per game, like the
@@ -1095,6 +1132,22 @@ fun GameScreen(
             drawPath = drawPath,
             edgeOn = edgeMode != EdgeMode.OFF,
             reconOn = reconMode != ReconMode.OFF,
+            // Alpha.33 — the HUD pin chip: the pinned
+            // achievement's live title + progress, from the
+            // in-memory list — hidden when nothing is pinned,
+            // when the pinned achievement unlocked (the pin
+            // clears then), or when it is not measured.
+            hudAchievement = pinnedAchievementId?.let { id ->
+                RaClient.achievements.find { it.id == id && !it.isUnlocked && it.measuredProgress != null }
+            },
+            // Alpha.33 — the rarity haptic: a distinct pattern
+            // per tier, on top of whatever the pop itself does
+            // on device (see Haptics.unlockRarity).
+            onUnlockShown = { unlock ->
+                hapticsImpl.unlockRarity(
+                    raUnlockRarityKind(RaClient.rarityByAchievement[unlock.id]?.percent),
+                )
+            },
         )
         // Worm Light improvements (Robert, 2026-11-13):
         // while a drag is in progress, the lamp's head
@@ -1340,6 +1393,12 @@ fun GameScreen(
             ) {
                 RaAchievementsScreen(
                     gameName = gameName,
+                    pinnedAchievementId = pinnedAchievementId,
+                    onTogglePin = { id ->
+                        val next = if (pinnedAchievementId == id) null else id
+                        pinStore.setPinnedId(saveBase, next)
+                        pinnedAchievementId = next
+                    },
                     onBack = { showAchievements = false },
                 )
             }

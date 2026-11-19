@@ -111,6 +111,13 @@ fun BoxScope.ControlOverlay(
     drawPath: DrawPath? = null,
     edgeOn: Boolean = false,
     reconOn: Boolean = false,
+    // Alpha.33 — the HUD pin chip: the pinned achievement
+    // (title + live measured progress), at its spec's centre.
+    // Null means nothing is pinned for this game, so no chip.
+    // The unlock hook fires once per unlock pop, so the caller
+    // can play the rarity haptic for the unlock's tier.
+    hudAchievement: RaAchievement? = null,
+    onUnlockShown: ((RaUnlock) -> Unit)? = null,
 ) {
     val theme = ControlThemes.themeFor(system)
     val alpha = layout.opacity / 100f
@@ -128,6 +135,10 @@ fun BoxScope.ControlOverlay(
                 // either: it renders separately below, at
                 // its spec.
                 ControlId.FPS -> false
+                // Alpha.33 — the HUD pin chip is not a button
+                // either: it renders separately below, at
+                // its spec.
+                ControlId.HUD -> false
                 else -> true
             }
         }
@@ -185,7 +196,7 @@ fun BoxScope.ControlOverlay(
         canvasWidthDp = canvasWidthDp, canvasHeightDp = canvasHeightDp,
         alpha = alpha, testTag = "ra-unlock-popup-placed",
     ) {
-        RaUnlockPopup(paused = paused)
+        RaUnlockPopup(paused = paused, onUnlockShown = onUnlockShown)
     }
     // Alpha.32 — the fps counter lives in the overlay now,
     // not in the top bar: a themed chip at its spec's centre
@@ -213,6 +224,27 @@ fun BoxScope.ControlOverlay(
                 edgeOn = edgeOn,
                 reconOn = reconOn,
             )
+        }
+    }
+    // Alpha.33 — the HUD pin chip: the pinned achievement's
+    // title + live progress bar, at its spec's centre
+    // (fractions of the full screen, like every other overlay
+    // item). Its width is the spec's — no game-width cap, so
+    // the title fits (see HUD_MIN_WIDTH_DP). It shows only
+    // while an achievement is pinned for this game and never
+    // while paused, like the unlock popup: paused, the
+    // achievements screen carries the state.
+    val hud = hudAchievement
+    if (hud != null && !paused) {
+        val hudSpec = layout.control(ControlId.HUD)
+        PlacedControl(
+            cx = hudSpec.cx, cy = hudSpec.cy,
+            widthDp = hudSpec.sizeDp.toFloat(),
+            heightDp = ControlLayout.HUD_HEIGHT_DP,
+            canvasWidthDp = canvasWidthDp, canvasHeightDp = canvasHeightDp,
+            alpha = alpha, testTag = "ra-hud-chip-placed",
+        ) {
+            RaHudChip(achievement = hud)
         }
     }
 }
@@ -372,5 +404,10 @@ fun ControlButton(
         // and LayoutEditor branches to EditorFps, same as
         // the popup.
         ControlId.FPS -> Unit
+        // Alpha.33 — the HUD pin chip is not a button either:
+        // ControlOverlay filters it out of the button loop
+        // and LayoutEditor branches to EditorHud, same as
+        // the popup and the fps counter.
+        ControlId.HUD -> Unit
     }
 }

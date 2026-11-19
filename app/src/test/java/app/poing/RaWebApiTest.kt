@@ -34,6 +34,20 @@ class RaWebApiTest {
     }
 
     @Test
+    fun unlockRarityKindBoundaries() {
+        // Alpha.33 — the popup variant (and the tier haptic):
+        // under 10% is rare, under 5% ultra-rare, and no
+        // rarity data at all is the plain gold popup.
+        assertEquals(RaUnlockRarityKind.PLAIN, raUnlockRarityKind(null))
+        assertEquals(RaUnlockRarityKind.PLAIN, raUnlockRarityKind(50.0))
+        assertEquals(RaUnlockRarityKind.PLAIN, raUnlockRarityKind(10.0))
+        assertEquals(RaUnlockRarityKind.RARE, raUnlockRarityKind(9.9))
+        assertEquals(RaUnlockRarityKind.RARE, raUnlockRarityKind(5.0))
+        assertEquals(RaUnlockRarityKind.ULTRA_RARE, raUnlockRarityKind(4.9))
+        assertEquals(RaUnlockRarityKind.ULTRA_RARE, raUnlockRarityKind(0.0))
+    }
+
+    @Test
     fun gameRarityParsesAwardCounts() {
         val json = """
             {"ID":540,"Title":"Super Mario Land 2","NumDistinctPlayersCasual":200,

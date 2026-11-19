@@ -67,6 +67,13 @@ class ControlLayoutTest {
         assertEquals(360, def.control(ControlId.FPS).sizeDp)
         assertEquals(0.5f, def.control(ControlId.FPS).cx, 0f)
         assertEquals(100f / 411f, def.control(ControlId.FPS).cy, 0.001f)
+        // Alpha.33 — the HUD pin chip is a wide chip too:
+        // 280dp at the top-left, 100dp down — the same row
+        // as the fps counter, clear of the power light and
+        // of the fps chip.
+        assertEquals(280, def.control(ControlId.HUD).sizeDp)
+        assertEquals(140f / 923f, def.control(ControlId.HUD).cx, 0.001f)
+        assertEquals(100f / 411f, def.control(ControlId.HUD).cy, 0.001f)
         assertEquals(100, def.opacity)
     }
 
@@ -84,6 +91,28 @@ class ControlLayoutTest {
         assertEquals(480, wide.control(ControlId.FPS).sizeDp)
         val narrow = ControlLayout.DEFAULT.resized(ControlId.FPS, 1, grouped = false)
         assertEquals(120, narrow.control(ControlId.FPS).sizeDp)
+    }
+
+    @Test
+    fun `hud width clamps to 120 and 480, like the popup`() {
+        val wide = ControlLayout.DEFAULT.resized(ControlId.HUD, 999, grouped = false)
+        assertEquals(480, wide.control(ControlId.HUD).sizeDp)
+        val narrow = ControlLayout.DEFAULT.resized(ControlId.HUD, 1, grouped = false)
+        assertEquals(120, narrow.control(ControlId.HUD).sizeDp)
+    }
+
+    @Test
+    fun `hud is a cluster of one`() {
+        assertEquals("hud", ControlLayout.clusterOf(ControlId.HUD))
+        val moved = ControlLayout.DEFAULT.moved(ControlId.HUD, 0.2f, 0.8f, grouped = true)
+        assertEquals(0.2f, moved.control(ControlId.HUD).cx, 0.001f)
+        assertEquals(0.8f, moved.control(ControlId.HUD).cy, 0.001f)
+        // A grouped move drags the chip alone — the buttons
+        // stay where they were.
+        assertEquals(
+            ControlLayout.DEFAULT.control(ControlId.A),
+            moved.control(ControlId.A),
+        )
     }
 
     @Test
@@ -273,15 +302,18 @@ class ControlLayoutTest {
         // Alpha.25 — the popup is on every system, so GB has
         // nine controls now and GBA eleven. Alpha.32 — the fps
         // counter is on every system too, so GB has ten now
-        // and GBA twelve.
-        assertEquals(10, gb.size)
-        assertEquals(12, ControlLayout.DEFAULT.controlsFor(isGba = true).size)
+        // and GBA twelve. Alpha.33 — the HUD pin chip is on
+        // every system too, so GB has eleven now and GBA
+        // thirteen.
+        assertEquals(11, gb.size)
+        assertEquals(13, ControlLayout.DEFAULT.controlsFor(isGba = true).size)
         // The FF / 0.5x / RW trio is on every system.
         assertTrue(gb.any { it.id == ControlId.FF })
         assertTrue(gb.any { it.id == ControlId.SLOW })
         assertTrue(gb.any { it.id == ControlId.RW })
         assertTrue(gb.any { it.id == ControlId.POPUP })
         assertTrue(gb.any { it.id == ControlId.FPS })
+        assertTrue(gb.any { it.id == ControlId.HUD })
     }
 
     @Test

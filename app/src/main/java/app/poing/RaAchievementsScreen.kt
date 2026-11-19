@@ -57,6 +57,12 @@ import androidx.compose.ui.unit.sp
 fun RaAchievementsScreen(
     gameName: String,
     onBack: () -> Unit,
+    // Alpha.33 — the HUD pin: the pinned achievement's id
+    // for this game (null when nothing is pinned) and the
+    // toggle that pins/unpins it. Both default to the old
+    // behaviour (no pin UI) so existing callers keep working.
+    pinnedAchievementId: Int? = null,
+    onTogglePin: ((Int) -> Unit)? = null,
 ) {
     LaunchedEffect(Unit) {
         RaClient.refreshAchievements()
@@ -285,6 +291,25 @@ fun RaAchievementsScreen(
                                     color = Color(0xFFC9A227),
                                     trackColor = Color(0xFF3A3A3A),
                                 )
+                            }
+                        }
+                        // Alpha.33 — the HUD pin, locked +
+                        // measured rows only: only a measured
+                        // achievement has progress to track, so
+                        // unmeasured rows get no pin action at
+                        // all. One pin per game — pinning a
+                        // second achievement replaces the first,
+                        // and tapping the pinned row unpins it.
+                        if (!achievement.isUnlocked &&
+                            achievement.measuredProgress != null &&
+                            onTogglePin != null
+                        ) {
+                            val pinned = pinnedAchievementId == achievement.id
+                            TextButton(
+                                onClick = { onTogglePin(achievement.id) },
+                                modifier = Modifier.testTag("ra-pin-${achievement.id}"),
+                            ) {
+                                Text(if (pinned) "Pinned ✓" else "Pin")
                             }
                         }
                         // Alpha.31 — Search for Help, locked rows
